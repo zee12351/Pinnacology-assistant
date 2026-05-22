@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.env
+
+# ChromaDB
+chroma_db/
+uploads/
+
+# Node
+node_modules/
+.next/
+dist/
+out/
+npm-debug.log
+yarn-error.log
+
+# OS
+.DS_Store
+Thumbs.db
