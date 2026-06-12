@@ -11,9 +11,11 @@ class ChromaClient:
         self.collection = self.client.get_or_create_collection("research_papers")
         
         # Need API key for embeddings
+        from dotenv import load_dotenv
+        load_dotenv(override=True)
         api_key = os.getenv("GEMINI_API_KEY")
         if api_key:
-            self.embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=api_key)
+            self.embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-2", google_api_key=api_key)
         else:
             self.embeddings = None
 
@@ -21,7 +23,9 @@ class ChromaClient:
         if not self.embeddings:
             raise ValueError("GEMINI_API_KEY not set")
             
-        embeddings = self.embeddings.embed_documents(documents)
+        embeddings = []
+        for doc in documents:
+            embeddings.append(self.embeddings.embed_query(doc))
         
         self.collection.add(
             embeddings=embeddings,
