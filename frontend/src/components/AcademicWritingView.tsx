@@ -128,7 +128,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     // Add a loading indicator locally
     const originalContent = editor?.getHTML() || '';
     if (editor) {
-      editor.commands.setContent(originalContent + '<p><em>AI is writing...</em></p>', false);
+      editor.commands.setContent(originalContent + '<p><em>AI is writing...</em></p>', { emitUpdate: false });
     }
 
     const prompt = `Context of the current document:
@@ -175,7 +175,7 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
                   // Import marked dynamically or use it if available
                   // Wait, marked is imported at the top of the file!
                   const htmlFragment = marked.parse(newContent);
-                  editor.commands.setContent(originalContent + htmlFragment, false);
+                  editor.commands.setContent(originalContent + htmlFragment, { emitUpdate: false });
                 }
               }
             } catch (e) {}
@@ -184,7 +184,7 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
       }
     } catch(e) {
       console.error("Failed to stream edit", e);
-      if (editor) editor.commands.setContent(originalContent, false);
+      if (editor) editor.commands.setContent(originalContent, { emitUpdate: false });
     }
   };
 
@@ -207,7 +207,7 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
       // Store in editor state but don't jump to editor yet
       setDocumentContent(text);
       if (editor) {
-        editor.commands.setContent(marked.parse(text), false);
+        editor.commands.setContent(marked.parse(text), { emitUpdate: false });
       }
       
       setImportedFileName(file.name);
@@ -435,7 +435,7 @@ Text to review: "${editor?.getText() || documentContent}"`, {
           htmlContent = marked.parse(documentContent, { breaks: true, gfm: true }) as string;
         }
         if (editor.getHTML() !== htmlContent) {
-          editor.commands.setContent(htmlContent, false);
+          editor.commands.setContent(htmlContent, { emitUpdate: false });
         }
       } catch (e) {
         console.error("Markdown parse error", e);
@@ -638,7 +638,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                 setCitationExpanded(false);
                 setHeadingsExpanded(false);
                 if (editor) {
-                  editor.commands.setContent('<p class="text-gray-400">Start writing or type / for commands</p>', false);
+                  editor.commands.setContent('<p class="text-gray-400">Start writing or type / for commands</p>', { emitUpdate: false });
                 }
                 setPromptInput('');
               }}
@@ -691,7 +691,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                     setDocumentContent(chat.content || '');
                     setIsEditing(chat.isEditing || false);
                     if (editor) {
-                      editor.commands.setContent(chat.content || '<p class="text-gray-400">Start writing or type / for commands</p>', false);
+                      editor.commands.setContent(chat.content || '<p class="text-gray-400">Start writing or type / for commands</p>', { emitUpdate: false });
                     }
                   }}
                   className={`flex items-center justify-between gap-3 w-full text-left px-2 py-2.5 rounded-lg transition-colors group cursor-pointer ${activeChatId === chat.id ? 'bg-[#3d3d3d]' : 'hover:bg-[#3d3d3d]'}`}
