@@ -213,7 +213,7 @@ export default function HomePage() {
         content: msg.content
       }));
 
-      const response = await fetch('http://localhost:8000/api/chat', {
+      const response = await fetch(`\${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -295,7 +295,7 @@ export default function HomePage() {
     abortControllerRef.current = new AbortController();
 
     try {
-      const response = await fetch('http://localhost:8000/api/chat', {
+      const response = await fetch(`\${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -375,7 +375,7 @@ export default function HomePage() {
 
   const handleSaveDoc = async (text: string) => {
     try {
-      const response = await axios.post('http://localhost:8000/api/export-docx', { markdown_text: text }, { responseType: 'blob' });
+      const response = await axios.post(`\${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/export-docx`, { markdown_text: text }, { responseType: 'blob' });
       const blob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -399,7 +399,7 @@ export default function HomePage() {
     formData.append('file', file);
 
     try {
-      await axios.post('http://localhost:8000/api/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      await axios.post(`\${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/upload`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
       
       if (!isChatActive) {
         setUploadedFiles(prev => [...prev, { name: file.name }]);

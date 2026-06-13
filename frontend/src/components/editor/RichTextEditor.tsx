@@ -52,7 +52,7 @@ export function RichTextEditor() {
     }
 
     try {
-      const response = await axios.post('http://localhost:8000/api/chat', {
+      const response = await axios.post(`\${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/chat`, {
         message: `Please ${action} the following text:\n\n${text}`,
         agent_type: action === 'cite' ? 'citation' : 'writing',
         use_rag: false
