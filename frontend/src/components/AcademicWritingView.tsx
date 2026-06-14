@@ -53,7 +53,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const handleZoteroSync = async () => {
     setIsFetchingLibrary(true);
     try {
-      const res = await fetch(`\${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/library/zotero`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/library/zotero`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: zoteroId, api_key: zoteroKey })
@@ -70,7 +70,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const handleMendeleySync = async () => {
     setIsFetchingLibrary(true);
     try {
-      const res = await fetch(`\${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/library/mendeley`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/library/mendeley`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ access_token: mendeleyToken })
@@ -88,7 +88,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     if(!fetchId) return;
     setIsFetchingLibrary(true);
     try {
-      const res = await fetch(`\${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/library/fetch-id`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/library/fetch-id`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paper_id: fetchId })
@@ -139,7 +139,7 @@ Instruction: ${instruction}
 MANDATORY: Generate ONLY the new text to be appended or inserted based on the instruction. Do not rewrite the existing context. Do not include pleasantries. Output cleanly formatted Markdown.`;
 
     try {
-      const response = await fetch(`\${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/chat`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -198,11 +198,11 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
 
     try {
       // Parse the document text
-      const response = await axios.post(`\${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/parse-document`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const response = await axios.post(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/parse-document`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
       const text = response.data.text;
       
       // Also upload it to the library so the AI can reference it
-      axios.post(`\${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/upload`, formData, { headers: { 'Content-Type': 'multipart/form-data' } }).catch(e => console.error("Library upload failed", e));
+      axios.post(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/upload`, formData, { headers: { 'Content-Type': 'multipart/form-data' } }).catch(e => console.error("Library upload failed", e));
       
       // Store in editor state but don't jump to editor yet
       setDocumentContent(text);
@@ -226,7 +226,7 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
     setReviewData(null);
     setExpandedSection(null);
     try {
-      const response = await fetch(`\${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/chat`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -508,7 +508,7 @@ Text to review: "${editor?.getText() || documentContent}"`, {
       try {
         const turndownService = new TurndownService();
         const markdown = turndownService.turndown(editor?.getHTML() || '');
-        const response = await fetch(`\${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/export-docx`, {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/export-docx`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ markdown_text: markdown })
