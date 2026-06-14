@@ -17,7 +17,7 @@ export function DocumentUpload() {
     formData.append('file', file);
 
     try {
-      await axios.post(`\${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/upload`, formData, {
+      await axios.post(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/upload`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       setFiles([...files, file.name]);
