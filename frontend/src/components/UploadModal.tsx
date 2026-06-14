@@ -12,7 +12,7 @@ export function UploadModal({ showUploadModal, setShowUploadModal, handleFileUpl
   const handleZoteroSync = async () => {
     setIsFetchingLibrary(true);
     try {
-      const res = await fetch(`\${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/library/zotero`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/library/zotero`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: zoteroId, api_key: zoteroKey })
@@ -29,7 +29,7 @@ export function UploadModal({ showUploadModal, setShowUploadModal, handleFileUpl
   const handleMendeleySync = async () => {
     setIsFetchingLibrary(true);
     try {
-      const res = await fetch(`\${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/library/mendeley`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/library/mendeley`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ access_token: mendeleyToken })
@@ -47,7 +47,7 @@ export function UploadModal({ showUploadModal, setShowUploadModal, handleFileUpl
     if(!fetchId) return;
     setIsFetchingLibrary(true);
     try {
-      const res = await fetch(`\${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/library/fetch-id`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/library/fetch-id`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paper_id: fetchId })
