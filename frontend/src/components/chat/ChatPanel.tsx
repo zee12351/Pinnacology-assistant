@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import axios from 'axios';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown from 'hreact-markdown';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -35,7 +35,7 @@ export function ChatPanel() {
     setLoading(true);
 
     try {
-      const response = await axios.post(`\${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/chat`, {
+      const response = await axios.post(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/chat`, {
         message: input,
         agent_type: 'research',
         use_rag: true
