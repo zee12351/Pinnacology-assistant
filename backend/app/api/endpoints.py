@@ -67,20 +67,40 @@ async def chat(request: ChatRequest):
                                 yield f"data: {json.dumps({'type': 'token', 'content': text_to_yield})}\n\n"
                     return
 
+                def _extract_text(content):
+                    if isinstance(content, str):
+                        return content
+                    if isinstance(content, list):
+                        return "".join(part.get("text", "") for part in content if isinstance(part, dict) and "text" in part)
+                    return ""
+
+                streamed_any = False
                 async for event in app_graph.astream_events(initial_state, version="v1"):
                     if event["event"] == "on_chat_model_stream":
                         chunk = event["data"]["chunk"]
                         if hasattr(chunk, 'content') and chunk.content:
-                            content = chunk.content
-                            text_to_yield = ""
-                            if isinstance(content, str):
-                                text_to_yield = content
-                            elif isinstance(content, list):
-                                text_parts = [part.get("text", "") for part in content if isinstance(part, dict) and "text" in part]
-                                text_to_yield = "".join(text_parts)
-                                
+                            text_to_yield = _extract_text(chunk.content)
                             if text_to_yield:
+                                streamed_any = True
                                 yield f"data: {json.dumps({'type': 'token', 'content': text_to_yield})}\n\n"
+                    elif event["event"] == "on_chat_model_end":
+                        # Agent nodes use model.invoke(), which does NOT emit streaming
+                        # events. Surface the completed message content as a fallback so
+                        # the client always receives the answer.
+                        if not streamed_any:
+                            output = event["data"].get("output")
+                            msg = None
+                            if hasattr(output, "generations"):
+                                try:
+                                    msg = output.generations[0][0].message
+                                except Exception:
+                                    msg = None
+                            elif hasattr(output, "content"):
+                                msg = output
+                            if msg is not None and getattr(msg, "content", None):
+                                text_to_yield = _extract_text(msg.content)
+                                if text_to_yield:
+                                    yield f"data: {json.dumps({'type': 'token', 'content': text_to_yield})}\n\n"
                     elif event["event"] == "on_tool_end":
                         # If a search tool returns a list of papers, stream it to the frontend
                         tool_name = event.get("name", "")
