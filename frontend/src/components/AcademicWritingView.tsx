@@ -357,9 +357,9 @@ Text to review: "${editor?.getText() || documentContent}"`, {
           setChatHistory(parsed);
           setActiveChatId(parsed[0].id);
           if (parsed[0].content) {
-            setDocumentContent(parsed[0].content);
+            setDocumentContent('');
           }
-          if (parsed[0].isEditing) setIsEditing(true);
+          setIsEditing(false);
         }
       } catch (e) {
         console.error("Failed to load academic history", e);
