@@ -423,17 +423,22 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
           }
         }
       }
-      const jsonMatch = fullJson.match(/\{[\s\S]*\}/);
+      // Robust parse: strip code fences, extract JSON, and always keep the raw text.
+      let txt = (fullJson || '').trim();
+      const fence = txt.match(/```(?:json)?\s*([\s\S]*?)```/i);
+      if (fence) txt = fence[1].trim();
+      const jsonMatch = txt.match(/\{[\s\S]*\}/);
+      let parsed: any = null;
       if (jsonMatch) {
-         try {
-           setReviewData(JSON.parse(jsonMatch[0]));
-         } catch(parseErr) {
-           console.warn("Failed to parse JSON from LLM:", parseErr, fullJson);
-           setReviewData(fallback);
-         }
+        try { parsed = JSON.parse(jsonMatch[0]); } catch(parseErr) {
+          console.warn("Failed to parse JSON from LLM:", parseErr, fullJson);
+        }
+      }
+      if (parsed && typeof parsed === 'object') {
+        setReviewData({ ...fallback, ...parsed, raw: fullJson });
       } else {
-         console.warn("No JSON found in LLM response:", fullJson);
-         setReviewData(fallback);
+        console.warn("No JSON found in LLM response:", fullJson);
+        setReviewData({ ...fallback, raw: fullJson });
       }
     } catch (e) {
       console.warn("Network or stream error in fetchReview:", e);
@@ -441,6 +446,23 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
     } finally {
       setIsReviewing(false);
     }
+  };
+
+  const handleDocumentAnalysis = () => {
+    setActiveReviewTab('analysis');
+    fetchReview(`Analyze the following academic document. Return ONLY a valid JSON object (no markdown, no code fences). Exact format:
+{
+  "overview": "Brief overall assessment of the document's quality and arguments.",
+  "strengths": ["strength 1", "strength 2"],
+  "weaknesses": ["weakness 1", "weakness 2"],
+  "recommendations": ["actionable recommendation 1", "recommendation 2"]
+}
+Document: "${editor?.getText() || documentContent}"`, {
+      overview: "Could not generate an overview. Please try again.",
+      strengths: [],
+      weaknesses: [],
+      recommendations: []
+    });
   };
 
   const handleClaimConfidence = () => {
@@ -1496,7 +1518,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                      Get comprehensive analysis and actionable recommendations to improve your document's quality.
                    </p>
                    <div className="flex items-center gap-3 mt-2">
-                     <button onClick={() => setActiveReviewTab('analysis')} disabled={loading} className="flex items-center gap-2 border border-[#333] rounded-lg px-3 py-1.5 hover:bg-[#2a2a2a] transition-colors disabled:opacity-50">
+                     <button onClick={handleDocumentAnalysis} disabled={loading} className="flex items-center gap-2 border border-[#333] rounded-lg px-3 py-1.5 hover:bg-[#2a2a2a] transition-colors disabled:opacity-50">
                         <Play className="w-3.5 h-3.5 text-gray-300" />
                         <span className="text-[13px] font-bold text-white">Run review</span>
                      </button>
