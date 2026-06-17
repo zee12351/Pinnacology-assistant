@@ -150,7 +150,7 @@ def research_agent(state: AgentState):
     if not model:
         return {"messages": [SystemMessage(content="Error: GEMINI_API_KEY not set.")]}
         
-    model_with_tools = model.bind_tools(tools) if hasattr(model, "bind_tools") else model
+    model_with_tools = model  # tools unbound: avoids Gemini thought_signature 400 on multi-turn tool calls
     messages = state["messages"]
     context = state.get("context", "")
     
