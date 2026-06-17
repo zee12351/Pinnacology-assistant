@@ -355,7 +355,7 @@ Text to review: "${editor?.getText() || documentContent}"`, {
         const parsed = JSON.parse(saved);
         if (parsed && parsed.length > 0) {
           setChatHistory(parsed);
-          setActiveChatId(parsed[0].id);
+          setActiveChatId(Date.now());
           if (parsed[0].content) {
             setDocumentContent('');
           }
