@@ -190,7 +190,7 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
 
   // ---- Feature #1: Inline AI edits on the selected text ----
   const [inlineAiBusy, setInlineAiBusy] = useState(false);
-  const [citationStyle, setCitationStyle] = useState('APA');
+  // citationStyle reuses the existing state declared below
   const [chatPdfOpen, setChatPdfOpen] = useState(false);
   const [chatPdfQ, setChatPdfQ] = useState('');
   const [chatPdfA, setChatPdfA] = useState('');
