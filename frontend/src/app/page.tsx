@@ -266,6 +266,17 @@ export default function HomePage() {
                 try {
                   setStructuredPapers(data.content);
                 } catch(e) {}
+              } else if (data.error) {
+                assistantMessage = '⚠️ ' + data.error;
+                if (!bypassUiUpdate) {
+                  setMessages(prev => {
+                    const newMessages = [...prev];
+                    newMessages[newMessages.length - 1].content = assistantMessage;
+                    return newMessages;
+                  });
+                } else {
+                  setAiResponse(assistantMessage);
+                }
               }
             } catch (e) {
               console.error("Failed to parse SSE", e);
@@ -332,6 +343,9 @@ export default function HomePage() {
               if (data.type === 'token') {
                 assistantMessage += data.content;
                 setDocumentContent(assistantMessage);
+              } else if (data.error) {
+                assistantMessage = '⚠️ ' + data.error;
+                setDocumentContent(assistantMessage);
               }
             } catch (e) {
               console.error("Failed to parse SSE", e);
@@ -342,8 +356,10 @@ export default function HomePage() {
     } catch (error: any) {
       if (error.name !== 'AbortError') {
         console.error('Error fetching stream:', error);
+        setDocumentContent('⚠️ Could not reach the AI service. Please check your connection and try again.');
       }
     } finally {
+      setDocumentContent((prev: string) => (prev === 'Thinking...' ? '⚠️ No response was generated. The service may be busy or rate-limited — please wait a moment and try again.' : prev));
       setLoading(false);
       abortControllerRef.current = null;
     }
