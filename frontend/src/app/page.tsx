@@ -529,7 +529,7 @@ export default function HomePage() {
               onSelectPersona={setSelectedPersona} 
               onActivate={(id: string) => {
                 const urlSlug = id.toLowerCase().replace(/\s+/g, '-');
-                window.history.pushState(null, '', `/home/${urlSlug}`);
+                window.history.pushState(null, '', `/home/${urlSlug}`); setMessages([]); setDocumentContent(''); setStructuredPapers([]); setAiResponse(''); setCurrentChatId(null); setQuery('');
                 setIsChatActive(true);
               }}
             />
