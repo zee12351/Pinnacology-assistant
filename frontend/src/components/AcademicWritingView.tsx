@@ -188,6 +188,170 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
     }
   };
 
+  // ---- Feature #1: Inline AI edits on the selected text ----
+  const [inlineAiBusy, setInlineAiBusy] = useState(false);
+  const [citationStyle, setCitationStyle] = useState('APA');
+  const [chatPdfOpen, setChatPdfOpen] = useState(false);
+  const [chatPdfQ, setChatPdfQ] = useState('');
+  const [chatPdfA, setChatPdfA] = useState('');
+  const [chatPdfBusy, setChatPdfBusy] = useState(false);
+  const handleInlineAi = async (action: string) => {
+    if (!editor) return;
+    const { from, to } = editor.state.selection;
+    if (from === to) { alert('Select some text in the document first, then choose an action.'); return; }
+    const selected = editor.state.doc.textBetween(from, to, ' ');
+    const verbs: Record<string, string> = {
+      improve: 'Improve the grammar, clarity, flow and academic tone of the following text',
+      paraphrase: 'Paraphrase the following text while fully preserving its meaning',
+      expand: 'Expand the following text with more depth, detail and supporting explanation',
+      shorten: 'Rewrite the following text to be more concise without losing key information',
+      simplify: 'Simplify the following text so it is clearer and easier to read',
+    };
+    const prompt = `${verbs[action] || verbs.improve}. Return ONLY the rewritten text as plain prose - no preamble, no surrounding quotes, no markdown headings:\n\n"${selected}"`;
+    setInlineAiBusy(true);
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: prompt, agent_type: 'review', use_rag: false, persona: 'DOCUMENT ANALYST' })
+      });
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let result = '';
+      while (reader) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6);
+            if (dataStr === '[DONE]') continue;
+            try {
+              const data = JSON.parse(dataStr);
+              if (data.type === 'token') result += data.content;
+              else if (data.error) throw new Error(data.error);
+            } catch (e) {}
+          }
+        }
+      }
+      const clean = (result || '').trim().replace(/^"|"$/g, '');
+      if (clean) editor.chain().focus().insertContentAt({ from, to }, clean).run();
+      else alert('No suggestion was returned. The service may be busy - please try again.');
+    } catch (e) {
+      console.error('Inline AI edit failed', e);
+      alert('AI edit failed. Please try again in a moment.');
+    } finally {
+      setInlineAiBusy(false);
+    }
+  };
+
+  // ---- Feature #5: Outline builder ----
+  const handleGenerateOutline = async () => {
+    if (!editor) return;
+    const topic = (promptInput && promptInput.trim()) || editor.getText().trim().slice(0, 500);
+    if (!topic) { alert('Add a topic in the prompt box (or write something) so I know what to outline.'); return; }
+    setInlineAiBusy(true);
+    const prompt = `Create a clear, hierarchical outline for an academic document on this topic: "${topic}". Use Markdown headings (##, ###) and nested bullet points for sub-sections. Return ONLY the outline, with no preamble.`;
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/chat`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: prompt, agent_type: 'review', use_rag: false, persona: 'ACADEMIC WRITING' })
+      });
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = ''; let result = '';
+      while (reader) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n'); buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6);
+            if (dataStr === '[DONE]') continue;
+            try { const data = JSON.parse(dataStr); if (data.type === 'token') result += data.content; } catch (e) {}
+          }
+        }
+      }
+      const clean = (result || '').trim();
+      if (clean) editor.chain().focus().insertContent(marked.parse(clean) as string).run();
+      else alert('No outline was returned. Please try again.');
+    } catch (e) { console.error('Outline failed', e); alert('Outline generation failed. Please try again.'); }
+    finally { setInlineAiBusy(false); }
+  };
+
+  // ---- Feature #4: Citation style switcher ----
+  const handleApplyCitationStyle = async () => {
+    if (!editor) return;
+    const html = editor.getHTML();
+    if (!editor.getText().trim()) { alert('Write or generate some content first.'); return; }
+    setInlineAiBusy(true);
+    const prompt = `Reformat ALL in-text citations and any reference/bibliography list in the following document into strict ${citationStyle} style. Do not change the wording, meaning or structure of the text itself - only the citation formatting. Return the FULL document as clean Markdown.\n\n${html}`;
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/chat`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: prompt, agent_type: 'review', use_rag: false, persona: 'DOCUMENT ANALYST' })
+      });
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = ''; let result = '';
+      while (reader) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n'); buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6);
+            if (dataStr === '[DONE]') continue;
+            try { const data = JSON.parse(dataStr); if (data.type === 'token') result += data.content; } catch (e) {}
+          }
+        }
+      }
+      const clean = (result || '').trim();
+      if (clean) editor.commands.setContent(marked.parse(clean) as string, { emitUpdate: true });
+      else alert('No reformatted document was returned. Please try again.');
+    } catch (e) { console.error('Citation reformat failed', e); alert('Citation reformat failed. Please try again.'); }
+    finally { setInlineAiBusy(false); }
+  };
+
+  // ---- Feature #3: Chat with your library (RAG over uploaded papers) ----
+  const handleAskLibrary = async () => {
+    if (!chatPdfQ.trim()) return;
+    setChatPdfBusy(true); setChatPdfA('');
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/chat`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: chatPdfQ, agent_type: 'research', use_rag: true, persona: 'DOCUMENT ANALYST' })
+      });
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = ''; let result = '';
+      while (reader) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n'); buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6);
+            if (dataStr === '[DONE]') continue;
+            try {
+              const data = JSON.parse(dataStr);
+              if (data.type === 'token') { result += data.content; setChatPdfA(result); }
+              else if (data.error) { setChatPdfA('\u26a0\ufe0f ' + data.error); }
+            } catch (e) {}
+          }
+        }
+      }
+      if (!result.trim()) setChatPdfA('No answer was returned. Make sure you have uploaded documents to your library, then try again.');
+    } catch (e) { setChatPdfA('\u26a0\ufe0f Could not reach the service. Please try again.'); }
+    finally { setChatPdfBusy(false); }
+  };
+
   const handleDocumentImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1172,6 +1336,18 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                 className="w-full max-w-4xl mx-auto block text-4xl font-bold bg-transparent border-none outline-none text-black placeholder:text-gray-300 mb-8 font-sans"
               />
               <div className="max-w-4xl mx-auto">
+                <div className="flex flex-wrap items-center gap-2 mb-4 not-prose">
+                  {[['improve','Improve'],['paraphrase','Paraphrase'],['expand','Expand'],['shorten','Shorten'],['simplify','Simplify']].map(([action,label]) => (
+                    <button key={action} onClick={() => handleInlineAi(action)} disabled={inlineAiBusy} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-50 transition-colors">{inlineAiBusy ? '...' : label}</button>
+                  ))}
+                  <button onClick={handleGenerateOutline} disabled={inlineAiBusy} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 transition-colors">Generate outline</button>
+                  <select value={citationStyle} onChange={(e) => setCitationStyle(e.target.value)} className="px-2 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 outline-none">
+                    {['APA','MLA','Chicago','IEEE','Harvard','Vancouver'].map(st => <option key={st} value={st}>{st}</option>)}
+                  </select>
+                  <button onClick={handleApplyCitationStyle} disabled={inlineAiBusy} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 hover:bg-indigo-50 disabled:opacity-50 transition-colors">Apply citation style</button>
+                  <button onClick={() => setChatPdfOpen(true)} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors">Ask your library</button>
+                  <span className="text-[11px] text-gray-400">Select text, then pick an action</span>
+                </div>
                 <EditorContent editor={editor} />
               </div>
               
@@ -1764,6 +1940,23 @@ Required JSON structure:
               >
                 Done
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {chatPdfOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setChatPdfOpen(false)}>
+          <div className="w-[600px] max-w-[90vw] bg-[#151515] rounded-xl border border-[#333] shadow-2xl flex flex-col overflow-hidden text-white font-sans" onClick={(e) => e.stopPropagation()}>
+            <div className="px-6 py-4 flex justify-between items-center border-b border-[#2a2a2a]">
+              <h2 className="text-lg font-bold">Ask your library</h2>
+              <button onClick={() => setChatPdfOpen(false)} className="text-gray-400 hover:text-white transition-colors">X</button>
+            </div>
+            <div className="p-6 flex flex-col gap-3">
+              <p className="text-[13px] text-gray-400">Ask a question about the papers you have uploaded or imported. Answers are grounded in your library.</p>
+              <textarea value={chatPdfQ} onChange={(e) => setChatPdfQ(e.target.value)} placeholder="e.g. What methods do the uploaded papers use?" rows={3} className="w-full bg-[#111] border border-[#444] rounded-lg p-3 text-[14px] text-white outline-none focus:border-blue-500 resize-none" />
+              <button onClick={handleAskLibrary} disabled={chatPdfBusy || !chatPdfQ.trim()} className="self-start bg-[#5b5fff] hover:bg-[#6b6fff] disabled:opacity-50 text-white px-5 py-2 rounded-lg font-bold text-[14px] transition-colors">{chatPdfBusy ? 'Thinking...' : 'Ask'}</button>
+              {chatPdfA && <div className="mt-2 max-h-[320px] overflow-y-auto bg-[#1a1a1a] border border-[#333] rounded-lg p-4 text-[14px] text-gray-200 whitespace-pre-wrap">{chatPdfA}</div>}
             </div>
           </div>
         </div>
