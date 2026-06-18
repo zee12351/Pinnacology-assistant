@@ -3,6 +3,10 @@ import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Uploa
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
+import Underline from '@tiptap/extension-underline';
+import Superscript from '@tiptap/extension-superscript';
+import Subscript from '@tiptap/extension-subscript';
+import Link from '@tiptap/extension-link';
 import mermaid from 'mermaid';
 import { marked } from 'marked';
 import TurndownService from 'turndown';
@@ -573,6 +577,10 @@ Text to review: "${editor?.getText() || documentContent}"`, {
     extensions: [
       StarterKit, 
       CitationMark, 
+      Underline,
+      Superscript,
+      Subscript,
+      Link.configure({ openOnClick: false, HTMLAttributes: { class: 'text-blue-600 underline' } }),
       Image.configure({ inline: true, HTMLAttributes: { class: 'rounded-lg my-4 max-w-full shadow-md object-contain max-h-[400px] mx-auto' } })
     ],
     content: documentContent || '<h2 class="text-3xl font-bold mb-4">Quantum Computing with Artificial Intelligence</h2><p class="mb-4">The convergence of artificial intelligence and quantum computing represents a paradigm shift in computational science. Quantum machine learning algorithms can solve problems that lie beyond the reach of classical computers <span data-citation="true">(Pineda et al., 2025)</span>.</p>',
@@ -1004,22 +1012,22 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
           {/* Format Toolbar Row */}
           <div className="flex items-center px-4 py-2 gap-4 text-gray-400 text-[13px]">
              <div className="flex items-center gap-3 border-r border-[#333] pr-4">
-                <span>↩</span>
-                <span>↪</span>
-                <span className="flex items-center gap-1"><Type className="w-3 h-3" /> Text</span>
+                <button onClick={() => editor?.chain().focus().undo().run()} className="hover:text-white transition-colors" title="Undo">↩</button>
+                <button onClick={() => editor?.chain().focus().redo().run()} className="hover:text-white transition-colors" title="Redo">↪</button>
+                <button onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()} className={`flex items-center gap-1 hover:text-white transition-colors ${editor?.isActive('heading', { level: 2 }) ? 'text-white' : ''}`} title="Heading"><Type className="w-3 h-3" /> Text</button>
              </div>
              <div className="flex items-center gap-3 border-r border-[#333] pr-4">
-                <b className="font-serif">B</b>
-                <i className="font-serif">I</i>
-                <u className="font-serif">U</u>
-                <s className="font-serif">S</s>
-                <span>{'<>'}</span>
-                <span>x²</span>
-                <span>x₂</span>
+                <button onClick={() => editor?.chain().focus().toggleBold().run()} className={`font-serif hover:text-white transition-colors ${editor?.isActive('bold') ? 'text-white' : ''}`} title="Bold"><b>B</b></button>
+                <button onClick={() => editor?.chain().focus().toggleItalic().run()} className={`font-serif hover:text-white transition-colors ${editor?.isActive('italic') ? 'text-white' : ''}`} title="Italic"><i>I</i></button>
+                <button onClick={() => editor?.chain().focus().toggleUnderline().run()} className={`font-serif hover:text-white transition-colors ${editor?.isActive('underline') ? 'text-white' : ''}`} title="Underline"><u>U</u></button>
+                <button onClick={() => editor?.chain().focus().toggleStrike().run()} className={`font-serif hover:text-white transition-colors ${editor?.isActive('strike') ? 'text-white' : ''}`} title="Strikethrough"><s>S</s></button>
+                <button onClick={() => editor?.chain().focus().toggleCode().run()} className={`hover:text-white transition-colors ${editor?.isActive('code') ? 'text-white' : ''}`} title="Inline code">{'<>'}</button>
+                <button onClick={() => editor?.chain().focus().toggleSuperscript().run()} className={`hover:text-white transition-colors ${editor?.isActive('superscript') ? 'text-white' : ''}`} title="Superscript">x²</button>
+                <button onClick={() => editor?.chain().focus().toggleSubscript().run()} className={`hover:text-white transition-colors ${editor?.isActive('subscript') ? 'text-white' : ''}`} title="Subscript">x₂</button>
              </div>
              <div className="flex items-center gap-3 border-r border-[#333] pr-4">
-                <span>🔗</span>
-                <span>🖊️</span>
+                <button onClick={() => { const url = window.prompt('Enter URL (leave blank to remove link)'); if (url) { editor?.chain().focus().extendMarkRange('link').setLink({ href: url }).run(); } else { editor?.chain().focus().unsetLink().run(); } }} className={`hover:text-white transition-colors ${editor?.isActive('link') ? 'text-white' : ''}`} title="Add / remove link">🔗</button>
+                <button onClick={() => editor?.chain().focus().unsetAllMarks().run()} className="hover:text-white transition-colors" title="Clear formatting">🖊️</button>
              </div>
              <div className="flex items-center gap-3 border-r border-[#333] pr-4 relative">
                 <button onClick={() => setDownloadMenuOpen(!downloadMenuOpen)} className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer text-[#6d93e8] font-bold">
@@ -1036,13 +1044,13 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                 )}
              </div>
              <div className="flex items-center gap-3 border-r border-[#333] pr-4">
-                <span>@ Cite</span>
+                <button onClick={() => editor?.chain().focus().insertContent('<span data-citation="true">(Author, Year)</span>&nbsp;').run()} className="hover:text-white transition-colors" title="Insert citation placeholder">@ Cite</button>
              </div>
              <div className="flex items-center gap-3 border-r border-[#333] pr-4">
-                <span>🖼️</span>
-                <span>📊</span>
-                <span>[x]</span>
-                <span>∑</span>
+                <button onClick={() => { const url = window.prompt('Enter image URL'); if (url) editor?.chain().focus().setImage({ src: url }).run(); }} className="hover:text-white transition-colors" title="Insert image">🖼️</button>
+                <span className="opacity-40 cursor-default" title="Charts (coming soon)">📊</span>
+                <span className="opacity-40 cursor-default" title="Variables (coming soon)">[x]</span>
+                <span className="opacity-40 cursor-default" title="Formula (coming soon)">∑</span>
              </div>
              <div className="flex items-center gap-2 ml-auto">
                 <Check className="w-3 h-3" />
