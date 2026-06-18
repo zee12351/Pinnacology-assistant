@@ -23,6 +23,7 @@
     "@tiptap/starter-kit": "^3.26.0",
     "@types/turndown": "^5.0.6",
     "axios": "^1.16.1",
+    "citeproc": "^2.4.63",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.16.0",

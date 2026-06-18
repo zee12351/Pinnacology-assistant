@@ -223,3 +223,7 @@ html.light body { background-color: #f6f7f9; }
   user-select: none;
   white-space: pre-wrap;
 }
+
+/* CSL-formatted bibliography entries (citeproc output) */
+.csl-bib .csl-entry { padding-left: 1.5em; text-indent: -1.5em; }
+.csl-bib .csl-entry i { font-style: italic; }

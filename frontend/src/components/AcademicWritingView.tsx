@@ -96,6 +96,66 @@ function formatReference(meta: any, style: string, index: number) {
   }
 }
 
+// ---- CSL (Citation Style Language) engine helpers: ~2,600 styles via citeproc + jsDelivr ----
+const CSL_LOCALE_URL = 'https://cdn.jsdelivr.net/gh/citation-style-language/locales@master/locales-en-US.xml';
+const cslStyleUrl = (id: string) => `https://cdn.jsdelivr.net/gh/citation-style-language/styles@master/${id}.csl`;
+const cslDependentUrl = (id: string) => `https://cdn.jsdelivr.net/gh/citation-style-language/styles@master/dependent/${id}.csl`;
+
+const CURATED_STYLES: { id: string; label: string }[] = [
+  { id: 'apa', label: 'APA (7th ed.)' },
+  { id: 'apa-6th-edition', label: 'APA (6th ed.)' },
+  { id: 'modern-language-association', label: 'MLA (9th ed.)' },
+  { id: 'chicago-author-date', label: 'Chicago (author-date, 17th)' },
+  { id: 'chicago-note-bibliography', label: 'Chicago (notes & bibliography, 17th)' },
+  { id: 'ieee', label: 'IEEE' },
+  { id: 'harvard-cite-them-right', label: 'Harvard (Cite Them Right)' },
+  { id: 'vancouver', label: 'Vancouver' },
+  { id: 'american-medical-association', label: 'AMA (11th ed.)' },
+  { id: 'american-chemical-society', label: 'ACS (American Chemical Society)' },
+  { id: 'american-political-science-association', label: 'APSA' },
+  { id: 'american-sociological-association', label: 'ASA' },
+  { id: 'nature', label: 'Nature' },
+  { id: 'science', label: 'Science' },
+  { id: 'cell', label: 'Cell' },
+  { id: 'the-lancet', label: 'The Lancet' },
+  { id: 'bmj', label: 'BMJ' },
+  { id: 'elsevier-harvard', label: 'Elsevier (Harvard)' },
+  { id: 'springer-basic-author-date', label: 'Springer (author-date)' },
+  { id: 'taylor-and-francis-harvard-x', label: 'Taylor & Francis (Harvard)' },
+];
+
+const prettifyStyleId = (id: string) => {
+  const base = id.split('/').pop() || id;
+  return base.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+};
+
+const cslTypeOf = (t?: string) => {
+  const x = (t || '').toLowerCase();
+  if (x.includes('chapter')) return 'chapter';
+  if (x.includes('book')) return 'book';
+  if (x.includes('conference') || x.includes('proceedings')) return 'paper-conference';
+  if (x.includes('thesis') || x.includes('dissertation')) return 'thesis';
+  if (x.includes('report')) return 'report';
+  if (x.includes('dataset')) return 'dataset';
+  return 'article-journal';
+};
+
+const toCslJson = (c: any, idx: number) => {
+  const authors = citeAuthorList(c.authors).map((a: any) => ({ family: a.family || '', given: a.given || '' })).filter((a: any) => a.family || a.given);
+  const yr = parseInt(String(c.year || ''), 10);
+  return {
+    id: c.doi || ('cit-' + idx),
+    type: cslTypeOf(c.type),
+    title: c.title || c.intext || '',
+    author: authors.length ? authors : undefined,
+    issued: yr ? { 'date-parts': [[yr]] } : undefined,
+    'container-title': c.container || undefined,
+    DOI: c.doi || undefined,
+  } as any;
+};
+
+const stripHtml = (h: string) => h.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+
 // AI ghost-text autocomplete: shows a grey suggestion at the cursor, Tab accepts it.
 const autocompleteKey = new PluginKey('aiAutocomplete');
 const AiAutocomplete = Extension.create({
@@ -184,6 +244,14 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const [citeResults, setCiteResults] = useState<any[]>([]);
   const [citeSearching, setCiteSearching] = useState(false);
   const [citations, setCitations] = useState<any[]>([]);
+  const [citationStyleId, setCitationStyleId] = useState('apa');
+  const [selectedStyleId, setSelectedStyleId] = useState('apa');
+  const [cslBib, setCslBib] = useState<string[] | null>(null);
+  const [cslBibLoading, setCslBibLoading] = useState(false);
+  const [styleIndex, setStyleIndex] = useState<{ id: string; label: string }[]>([]);
+  const [styleIndexLoading, setStyleIndexLoading] = useState(false);
+  const cslLocaleRef = useRef<string>('');
+  const cslStyleCacheRef = useRef<Record<string, string>>({});
   const citeCacheRef = useRef<Record<string, any>>({});
   const oaCacheRef = useRef<Record<string, boolean | null>>({});
   const lastCiteRef = useRef<string>('');
@@ -660,9 +728,70 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     setTimeout(() => handleCiteSearch(q), 50);
   };
 
+  // ---- CSL engine: fetch styles/locale on demand, format bibliography across ~2,600 styles ----
+  const ensureCslStyle = async (id: string, depth = 0): Promise<string> => {
+    if (cslStyleCacheRef.current[id]) return cslStyleCacheRef.current[id];
+    let res = await fetch(cslStyleUrl(id));
+    if (!res.ok) res = await fetch(cslDependentUrl(id));
+    if (!res.ok) throw new Error('CSL style not found: ' + id);
+    let xml = await res.text();
+    // dependent styles point to an independent parent that carries the actual formatting
+    const m = xml.match(/rel="independent-parent"[^>]*href="([^"]+)"/) || xml.match(/href="([^"]+)"[^>]*rel="independent-parent"/);
+    if (m && depth < 3) {
+      const parentId = m[1].split('/').pop() || '';
+      if (parentId) xml = await ensureCslStyle(parentId, depth + 1);
+    }
+    cslStyleCacheRef.current[id] = xml;
+    return xml;
+  };
+
+  const formatBibliographyCSL = async (cites: any[], styleId: string): Promise<string[]> => {
+    const modAny: any = await import('citeproc');
+    const CSL = modAny.default || modAny;
+    if (!cslLocaleRef.current) {
+      const r = await fetch(CSL_LOCALE_URL);
+      cslLocaleRef.current = await r.text();
+    }
+    const styleXml = await ensureCslStyle(styleId);
+    const itemsMap: Record<string, any> = {};
+    cites.forEach((c, i) => { const j = toCslJson(c, i); itemsMap[j.id] = j; });
+    const sys = {
+      retrieveLocale: () => cslLocaleRef.current,
+      retrieveItem: (id: string) => itemsMap[id],
+    };
+    const engine = new CSL.Engine(sys, styleXml, 'en-US');
+    engine.updateItems(Object.keys(itemsMap));
+    const bib = engine.makeBibliography();
+    if (!bib || !bib[1]) throw new Error('no bibliography');
+    return bib[1].map((x: any) => String(x));
+  };
+
+  const loadStyleIndex = async () => {
+    if (styleIndex.length || styleIndexLoading) return;
+    setStyleIndexLoading(true);
+    try {
+      const r = await fetch('https://data.jsdelivr.com/v1/packages/gh/citation-style-language/styles@master?structure=flat');
+      const j = await r.json();
+      const files: any[] = j?.files || [];
+      const ids = files
+        .map((f: any) => String(f.name || ''))
+        .filter((n: string) => n.endsWith('.csl'))
+        .map((n: string) => n.replace(/^\//, '').replace(/\.csl$/, ''));
+      const curatedIds = new Set(CURATED_STYLES.map(c => c.id));
+      const rest = ids.filter(id => !curatedIds.has(id) && !curatedIds.has(id.split('/').pop() || '')).map(id => ({ id, label: prettifyStyleId(id) }));
+      setStyleIndex([...CURATED_STYLES, ...rest]);
+    } catch {
+      setStyleIndex([...CURATED_STYLES]);
+    } finally {
+      setStyleIndexLoading(false);
+    }
+  };
+
   const insertBibliography = () => {
     if (!editor || !citations.length) return;
-    const items = citations.map((c, i) => formatReference(c, citationStyle, i + 1));
+    const items = (cslBib && cslBib.length)
+      ? cslBib.map(stripHtml)
+      : citations.map((c, i) => formatReference(c, citationStyle, i + 1));
     const html = '<h2>References</h2>' + items.map(t => `<p>${t.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`).join('');
     editor.chain().focus('end').insertContent(html).run();
   };
@@ -1238,6 +1367,18 @@ Text to review: "${editor?.getText() || documentContent}"`, {
     editor.on('update', onUp);
     return () => { editor.off('update', onUp); clearTimeout(t); if (detectTimerRef.current) clearTimeout(detectTimerRef.current); };
   }, [editor]);
+
+  // Recompute the CSL-formatted bibliography whenever citations or the chosen style change
+  useEffect(() => {
+    let cancelled = false;
+    if (!citations.length || !citationStyleId) { setCslBib(null); return; }
+    setCslBibLoading(true);
+    formatBibliographyCSL(citations, citationStyleId)
+      .then(entries => { if (!cancelled) { setCslBib(entries); setCslBibLoading(false); } })
+      .catch(() => { if (!cancelled) { setCslBib(null); setCslBibLoading(false); } });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [citations, citationStyleId]);
 
   // Render Mermaid graphs dynamically
   useEffect(() => {
@@ -1840,7 +1981,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
 
                       <div className="flex items-center justify-between">
                         <span className="text-[14px] font-bold text-white">Citation Style</span>
-                        <div onClick={() => setShowCitationModal(true)} className="px-4 py-2.5 border border-[#444] rounded-lg text-[14px] font-bold text-gray-200 flex items-center justify-between gap-4 w-[300px] bg-[#1a1a1a] cursor-pointer hover:bg-[#222] transition-colors">
+                        <div onClick={() => { setShowCitationModal(true); loadStyleIndex(); }} className="px-4 py-2.5 border border-[#444] rounded-lg text-[14px] font-bold text-gray-200 flex items-center justify-between gap-4 w-[300px] bg-[#1a1a1a] cursor-pointer hover:bg-[#222] transition-colors">
                           <span className="truncate">{citationStyle}</span>
                           <ChevronRight className="w-4 h-4 rotate-90 text-gray-500 shrink-0" />
                         </div>
@@ -1991,9 +2132,10 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                     <button key={action} onClick={() => handleInlineAi(action)} disabled={inlineAiBusy} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-50 transition-colors">{inlineAiBusy ? '...' : label}</button>
                   ))}
                   <button onClick={handleGenerateOutline} disabled={inlineAiBusy} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 transition-colors">Generate outline</button>
-                  <select value={citationStyle} onChange={(e) => setCitationStyle(e.target.value)} className="px-2 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 outline-none">
-                    {['APA','MLA','Chicago','IEEE','Harvard','Vancouver'].map(st => <option key={st} value={st}>{st}</option>)}
-                  </select>
+                  <button onClick={() => { setShowCitationModal(true); loadStyleIndex(); }} title="Choose from 2,600+ citation styles" className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 flex items-center gap-1.5 transition-colors">
+                    <span className="max-w-[140px] truncate">{citationStyle}</span>
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </button>
                   <button onClick={handleApplyCitationStyle} disabled={inlineAiBusy} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 hover:bg-indigo-50 disabled:opacity-50 transition-colors">Apply citation style</button>
                   <button onClick={() => setChatPdfOpen(true)} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors">Ask your library</button>
                   <button onClick={() => { detectCitations(); setTimeout(() => editor && collectCitations(editor), 100); }} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100 transition-colors" title="Find plain-text citations and make them hoverable + add to references">Detect citations</button>
@@ -2004,22 +2146,31 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                 {citations.length > 0 && (
                   <div className="mt-10 pt-6 border-t-2 border-gray-200 not-prose">
                     <div className="flex items-center justify-between mb-3">
-                      <h2 className="text-2xl font-bold text-black">References <span className="text-gray-400 text-base font-normal">({citations.length} · {citationStyle})</span></h2>
+                      <h2 className="text-2xl font-bold text-black flex items-center gap-2">References <span className="text-gray-400 text-base font-normal">({citations.length} · {citationStyle})</span>{cslBibLoading && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}</h2>
                       <div className="flex items-center gap-2">
+                        <button onClick={() => { setShowCitationModal(true); loadStyleIndex(); }} title="Choose from 2,600+ styles" className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors">Change style</button>
                         <button onClick={insertBibliography} title="Insert this list into the document" className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors">Insert into document</button>
-                        <button onClick={() => { const txt = citations.map((c, i) => formatReference(c, citationStyle, i + 1)).join('\n'); navigator.clipboard?.writeText(txt); }} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors">Copy all</button>
+                        <button onClick={() => { const txt = (cslBib && cslBib.length) ? cslBib.map(stripHtml).join('\n') : citations.map((c, i) => formatReference(c, citationStyle, i + 1)).join('\n'); navigator.clipboard?.writeText(txt); }} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors">Copy all</button>
                       </div>
                     </div>
-                    <ol className="flex flex-col gap-2 list-none pl-0">
-                      {citations.map((c, i) => (
-                        <li key={(c.doi || c.intext || '') + i} className="text-[14px] text-gray-800 leading-relaxed">
-                          {formatReference(c, citationStyle, i + 1)}
-                          {c.doi && (
-                            <a href={`https://doi.org/${c.doi}`} target="_blank" rel="noreferrer" className="ml-1 text-indigo-600 hover:underline">↗</a>
-                          )}
-                        </li>
-                      ))}
-                    </ol>
+                    {cslBib && cslBib.length ? (
+                      <div className="csl-bib flex flex-col gap-2 text-[14px] text-gray-800 leading-relaxed">
+                        {cslBib.map((entry, i) => (
+                          <div key={i} dangerouslySetInnerHTML={{ __html: entry }} />
+                        ))}
+                      </div>
+                    ) : (
+                      <ol className="flex flex-col gap-2 list-none pl-0">
+                        {citations.map((c, i) => (
+                          <li key={(c.doi || c.intext || '') + i} className="text-[14px] text-gray-800 leading-relaxed">
+                            {formatReference(c, citationStyle, i + 1)}
+                            {c.doi && (
+                              <a href={`https://doi.org/${c.doi}`} target="_blank" rel="noreferrer" className="ml-1 text-indigo-600 hover:underline">↗</a>
+                            )}
+                          </li>
+                        ))}
+                      </ol>
+                    )}
                   </div>
                 )}
               </div>
@@ -2541,31 +2692,19 @@ Required JSON structure:
                 <div className="flex-1 flex flex-col min-w-0">
                   <h3 className="text-[11px] font-bold text-gray-500 mb-3 tracking-wider uppercase">ALL STYLES</h3>
                   <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 flex flex-col gap-1">
-                    {[
-                      'AMR', 
-                      'Accident Analysis and Prevention', 
-                      'ACI Materials Journal', 
-                      'ACM SIG Proceedings ("et al." for 15+ authors)',
-                      'ACM SIG Proceedings ("et al." for 3+ authors)',
-                      'CHI Extended Abstract Format',
-                      'ACM SIGCHI Proceedings (2016)',
-                      'ACM SIGGRAPH',
-                      'APA (7th ed.)',
-                      'MLA (9th ed.)',
-                      'Chicago Manual of Style (17th ed.)',
-                      'Harvard',
-                      'IEEE',
-                      'Vancouver',
-                      'AMA (11th ed.)'
-                    ].filter(s => s.toLowerCase().includes(searchQuery.toLowerCase())).map((style) => (
+                    {(styleIndex.length ? styleIndex : CURATED_STYLES)
+                      .filter(st => st.label.toLowerCase().includes(searchQuery.toLowerCase()) || st.id.toLowerCase().includes(searchQuery.toLowerCase()))
+                      .slice(0, 200)
+                      .map((st) => (
                       <div 
-                        key={style}
-                        onClick={() => setSelectedStyle(style)}
-                        className={`px-4 py-3 rounded-lg text-[15px] cursor-pointer transition-colors ${selectedStyle === style ? 'bg-[#2a2a2a] text-white font-bold' : 'text-gray-300 hover:bg-[#222]'}`}
+                        key={st.id}
+                        onClick={() => { setSelectedStyle(st.label); setSelectedStyleId(st.id); }}
+                        className={`px-4 py-3 rounded-lg text-[15px] cursor-pointer transition-colors ${selectedStyleId === st.id ? 'bg-[#2a2a2a] text-white font-bold' : 'text-gray-300 hover:bg-[#222]'}`}
                       >
-                        {style}
+                        {st.label}
                       </div>
                     ))}
+                    {styleIndexLoading && <div className="px-4 py-3 text-gray-500 text-[14px] flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading 2,600+ styles…</div>}
                   </div>
                 </div>
 
@@ -2641,6 +2780,7 @@ Required JSON structure:
               <button 
                 onClick={() => { 
                   setCitationStyle(selectedStyle); 
+                  setCitationStyleId(selectedStyleId); 
                   setShowCitationModal(false); 
                 }} 
                 className="bg-[#5b5fff] hover:bg-[#6b6fff] text-white px-8 py-2.5 rounded-lg text-[15px] font-bold transition-colors"
