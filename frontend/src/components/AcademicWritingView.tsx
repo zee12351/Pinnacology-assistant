@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Upload, X, Search, Check, Star, Users, ListChecks, Play, SlidersHorizontal, ChevronsRight, ChevronsLeft, Type, Home, Settings2, Download, ThumbsUp, ThumbsDown, Info, ChevronDown, GraduationCap, FlaskConical, Feather, CheckCircle2, ChevronLeft, RotateCcw, Loader2, Sparkles, Trash2 } from 'lucide-react';
+import { useTheme } from 'next-themes';
+import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Upload, X, Search, Check, Star, Users, ListChecks, Play, SlidersHorizontal, ChevronsRight, ChevronsLeft, Type, Home, Settings2, Download, ThumbsUp, ThumbsDown, Info, ChevronDown, GraduationCap, FlaskConical, Feather, CheckCircle2, ChevronLeft, RotateCcw, Loader2, Sparkles, Trash2, Moon, Sun } from 'lucide-react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
@@ -10,18 +11,144 @@ import Link from '@tiptap/extension-link';
 import mermaid from 'mermaid';
 import { marked } from 'marked';
 import TurndownService from 'turndown';
-import { Mark, mergeAttributes } from '@tiptap/core';
+import { Mark, Extension, mergeAttributes } from '@tiptap/core';
+import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import axios from 'axios';
 import { UploadModal } from './UploadModal';
 
 // Initialize Mermaid
 mermaid.initialize({ startOnLoad: false, theme: 'dark' });
 
+const citeAttr = (name: string) => ({
+  default: null as string | null,
+  parseHTML: (el: HTMLElement) => el.getAttribute('data-' + name),
+  renderHTML: (attrs: Record<string, any>) => (attrs[name] ? { ['data-' + name]: attrs[name] } : {}),
+});
 const CitationMark = Mark.create({
   name: 'citation',
   addOptions() { return { HTMLAttributes: { class: 'text-[#464eb8] cursor-pointer hover:underline', 'data-citation': 'true' } } },
+  addAttributes() {
+    return {
+      doi: citeAttr('doi'),
+      title: citeAttr('title'),
+      authors: citeAttr('authors'),
+      year: citeAttr('year'),
+      container: citeAttr('container'),
+      citedBy: citeAttr('citedby'),
+    };
+  },
   parseHTML() { return [{ tag: 'span[data-citation]' }] },
   renderHTML({ HTMLAttributes }) { return ['span', mergeAttributes(this.options.HTMLAttributes, HTMLAttributes), 0] },
+});
+
+// ---- Citation / bibliography helpers ----
+function citeAuthorList(authors: any): { family: string; given?: string }[] {
+  try { return typeof authors === 'string' ? JSON.parse(authors) : (authors || []); } catch { return []; }
+}
+function citeInitials(given?: string) {
+  return (given || '').split(/\s+/).filter(Boolean).map(g => g[0].toUpperCase() + '.').join(' ');
+}
+function inTextCitation(authors: any, year?: string) {
+  const a = citeAuthorList(authors);
+  const y = year || 'n.d.';
+  if (!a.length) return `(Author, ${y})`;
+  if (a.length === 1) return `(${a[0].family}, ${y})`;
+  if (a.length === 2) return `(${a[0].family} & ${a[1].family}, ${y})`;
+  return `(${a[0].family} et al., ${y})`;
+}
+function formatReference(meta: any, style: string, index: number) {
+  const authors = citeAuthorList(meta.authors);
+  const year = meta.year || 'n.d.';
+  const title = meta.title || meta.intext || 'Untitled';
+  const journal = meta.container || '';
+  const doi = meta.doi ? `https://doi.org/${meta.doi}` : '';
+  const apaAuthors = () => {
+    if (!authors.length) return '';
+    const f = (a: any) => `${a.family || ''}, ${citeInitials(a.given)}`.trim().replace(/,\s*$/, '');
+    if (authors.length === 1) return f(authors[0]);
+    if (authors.length <= 20) return authors.slice(0, -1).map(f).join(', ') + ', & ' + f(authors[authors.length - 1]);
+    return authors.slice(0, 19).map(f).join(', ') + ', … ' + f(authors[authors.length - 1]);
+  };
+  const mlaAuthors = () => {
+    if (!authors.length) return '';
+    const first = `${authors[0].family}, ${authors[0].given || ''}`.trim();
+    if (authors.length === 1) return first;
+    if (authors.length === 2) return `${first}, and ${(authors[1].given || '')} ${authors[1].family}`.trim();
+    return `${first}, et al`;
+  };
+  const ieeeAuthors = () => authors.map((a: any) => `${citeInitials(a.given)} ${a.family}`.trim()).join(', ');
+  switch (style) {
+    case 'MLA':
+      return `${mlaAuthors()}. "${title}." ${journal ? journal + ', ' : ''}${year}. ${doi}`.trim();
+    case 'IEEE':
+      return `[${index}] ${ieeeAuthors()}, "${title}," ${journal ? journal + ', ' : ''}${year}. ${doi}`.trim();
+    case 'Vancouver':
+      return `${index}. ${authors.map((a: any) => `${a.family} ${citeInitials(a.given).replace(/\./g, '')}`).join(', ')}. ${title}. ${journal || ''}. ${year}.`.trim();
+    case 'Chicago':
+      return `${apaAuthors()}. "${title}." ${journal ? journal + ' ' : ''}(${year}). ${doi}`.trim();
+    case 'Harvard':
+      return `${apaAuthors()} ${year}, '${title}', ${journal || ''}. ${doi}`.trim();
+    case 'APA':
+    default:
+      return `${apaAuthors()} (${year}). ${title}. ${journal ? journal + '.' : ''} ${doi}`.trim();
+  }
+}
+
+// AI ghost-text autocomplete: shows a grey suggestion at the cursor, Tab accepts it.
+const autocompleteKey = new PluginKey('aiAutocomplete');
+const AiAutocomplete = Extension.create({
+  name: 'aiAutocomplete',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: autocompleteKey,
+        state: {
+          init: () => ({ text: '' }),
+          apply: (tr, value) => {
+            const meta = tr.getMeta(autocompleteKey);
+            if (meta !== undefined) return { text: meta };
+            if (tr.docChanged) return { text: '' };
+            return value;
+          },
+        },
+        props: {
+          decorations: (state) => {
+            const st = autocompleteKey.getState(state);
+            if (!st || !st.text) return DecorationSet.empty;
+            const pos = state.selection.head;
+            const widget = Decoration.widget(pos, () => {
+              const span = document.createElement('span');
+              span.className = 'ai-ghost-text';
+              span.textContent = st.text;
+              return span;
+            }, { side: 1, ignoreSelection: true });
+            return DecorationSet.create(state.doc, [widget]);
+          },
+        },
+      }),
+    ];
+  },
+  addKeyboardShortcuts() {
+    return {
+      Tab: () => {
+        const st = autocompleteKey.getState(this.editor.state);
+        if (st && st.text) {
+          this.editor.chain().focus().insertContent(st.text).run();
+          return true;
+        }
+        return false;
+      },
+      Escape: () => {
+        const st = autocompleteKey.getState(this.editor.state);
+        if (st && st.text) {
+          this.editor.view.dispatch(this.editor.state.tr.setMeta(autocompleteKey, ''));
+          return true;
+        }
+        return false;
+      },
+    };
+  },
 });
 
 export function AcademicWritingView({ documentContent, setDocumentContent, loading, handleToolAction, aiResponse, handleFileUpload, uploadingDoc, handleGoHome, handleGenerateDocument }: any) {
@@ -43,6 +170,18 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const [activeReviewTab, setActiveReviewTab] = useState<string | null>(null);
   const [citationPopup, setCitationPopup] = useState({ visible: false, x: 0, y: 0, text: '' });
   const [citationMeta, setCitationMeta] = useState<{ loading: boolean; data: any | null }>({ loading: false, data: null });
+  const [citeExpanded, setCiteExpanded] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const [autocompleteOn, setAutocompleteOn] = useState(true);
+  const autocompleteOnRef = useRef(true);
+  useEffect(() => { autocompleteOnRef.current = autocompleteOn; }, [autocompleteOn]);
+  const acTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const collectCitationsRef = useRef<((ed: any) => void) | null>(null);
+  const [showCiteSearch, setShowCiteSearch] = useState(false);
+  const [citeQuery, setCiteQuery] = useState('');
+  const [citeResults, setCiteResults] = useState<any[]>([]);
+  const [citeSearching, setCiteSearching] = useState(false);
+  const [citations, setCitations] = useState<any[]>([]);
   const citeCacheRef = useRef<Record<string, any>>({});
   const lastCiteRef = useRef<string>('');
   const hideCiteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -120,7 +259,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       setCitationPopup({
         visible: true,
         x: rect.left,
-        y: rect.bottom + window.scrollY,
+        y: rect.bottom,
         text: el.innerText
       });
     } else {
@@ -139,21 +278,29 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     }, 220);
   };
 
-  const fetchCitationMeta = async (rawText: string) => {
-    const key = rawText.trim();
+  const fetchCitationMeta = async (rawText: string, doi?: string | null) => {
+    const key = (doi ? 'doi:' + doi : rawText).trim();
     if (!key) return;
+    setCiteExpanded(false);
     if (citeCacheRef.current[key] !== undefined) {
       setCitationMeta({ loading: false, data: citeCacheRef.current[key] });
       return;
     }
-    setCitationMeta({ loading: true, data: null });
+    if (!doi) setCitationMeta({ loading: true, data: null });
     try {
-      const q = key.replace(/[()\[\]]/g, ' ').replace(/\s+/g, ' ').trim();
-      const res = await fetch(
-        `https://api.crossref.org/works?rows=1&select=title,author,published,container-title,is-referenced-by-count,abstract,URL,type&query.bibliographic=${encodeURIComponent(q)}`
-      );
-      const json = await res.json();
-      const it = json?.message?.items?.[0];
+      let it: any = null;
+      if (doi) {
+        const r = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi)}?select=title,author,published,container-title,is-referenced-by-count,abstract,URL,type`);
+        const j = await r.json();
+        it = j?.message || null;
+      } else {
+        const q = rawText.replace(/[()\[\]]/g, ' ').replace(/\s+/g, ' ').trim();
+        const res = await fetch(
+          `https://api.crossref.org/works?rows=1&select=title,author,published,container-title,is-referenced-by-count,abstract,URL,type&query.bibliographic=${encodeURIComponent(q)}`
+        );
+        const json = await res.json();
+        it = json?.message?.items?.[0];
+      }
       let data: any = null;
       if (it) {
         const authors = (it.author || [])
@@ -198,11 +345,34 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     setCitationPopup(prev =>
       prev.visible && prev.text === text
         ? prev
-        : { visible: true, x: rect.left, y: rect.bottom + window.scrollY, text }
+        : { visible: true, x: rect.left, y: rect.bottom, text }
     );
     if (lastCiteRef.current !== text) {
       lastCiteRef.current = text;
-      fetchCitationMeta(text);
+      // Prefer metadata stored on the citation itself (set when inserted via search)
+      const storedTitle = el.getAttribute('data-title');
+      const storedDoi = el.getAttribute('data-doi');
+      if (storedTitle || storedDoi) {
+        const authors = citeAuthorList(el.getAttribute('data-authors'));
+        const citedByRaw = el.getAttribute('data-citedby');
+        setCitationMeta({
+          loading: false,
+          data: {
+            title: storedTitle || text,
+            authors: authors.map(a => [a.given, a.family].filter(Boolean).join(' ')).join(', '),
+            year: el.getAttribute('data-year') || '',
+            container: el.getAttribute('data-container') || '',
+            citedBy: citedByRaw ? parseInt(citedByRaw, 10) : null,
+            abstract: '',
+            truncated: false,
+            url: storedDoi ? `https://doi.org/${storedDoi}` : '',
+            type: 'article',
+          },
+        });
+        if (storedDoi) fetchCitationMeta(text, storedDoi);
+      } else {
+        fetchCitationMeta(text);
+      }
     }
   };
 
@@ -210,6 +380,142 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     const related = e.relatedTarget as HTMLElement | null;
     if (related && related.closest && related.closest('[data-citation="true"]')) return;
     scheduleHideCitation();
+  };
+
+  const handleInsertEquation = (inline = false) => {
+    if (!editor) return;
+    const latex = window.prompt(
+      inline
+        ? 'Enter inline math in LaTeX (e.g. x^2 + y^2 = r^2):'
+        : 'Enter an equation in LaTeX (e.g. E = mc^2  or  \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}):'
+    );
+    if (!latex || !latex.trim()) return;
+    const dpi = inline ? 110 : 150;
+    const expr = `\\dpi{${dpi}}\\bg{white} ${latex.trim()}`;
+    const src = `https://latex.codecogs.com/png.image?${encodeURIComponent(expr)}`;
+    editor.chain().focus().setImage({ src, alt: latex.trim() }).run();
+  };
+
+  const handleInsertChart = () => {
+    if (!editor) return;
+    const typeRaw = (window.prompt('Chart type — bar, line, pie, or doughnut:', 'bar') || '').trim().toLowerCase();
+    if (!typeRaw) return;
+    const type = ['bar', 'line', 'pie', 'doughnut'].includes(typeRaw) ? typeRaw : 'bar';
+    const labelsRaw = window.prompt('Labels separated by commas (e.g. 2021, 2022, 2023):');
+    if (!labelsRaw || !labelsRaw.trim()) return;
+    const valuesRaw = window.prompt('Values separated by commas (e.g. 10, 25, 40):');
+    if (!valuesRaw || !valuesRaw.trim()) return;
+    const labels = labelsRaw.split(',').map(l => l.trim()).filter(Boolean);
+    const data = valuesRaw.split(',').map(v => parseFloat(v.trim())).filter(n => !isNaN(n));
+    if (!data.length) { alert('No valid numeric values provided.'); return; }
+    const palette = ['#5b5fff', '#10b981', '#f59e0b', '#ef4444', '#6d93e8', '#a855f7', '#14b8a6', '#ec4899'];
+    const isCircular = type === 'pie' || type === 'doughnut';
+    const config = {
+      type,
+      data: {
+        labels,
+        datasets: [{
+          label: 'Data',
+          data,
+          backgroundColor: isCircular ? palette : '#5b5fff',
+          borderColor: '#5b5fff',
+          fill: type !== 'line',
+        }],
+      },
+      options: { plugins: { legend: { display: isCircular } } },
+    };
+    const src = `https://quickchart.io/chart?w=520&h=320&bkg=white&c=${encodeURIComponent(JSON.stringify(config))}`;
+    editor.chain().focus().setImage({ src, alt: `${type} chart` }).run();
+  };
+
+  const handleImageFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !editor) { if (e.target) e.target.value = ''; return; }
+    if (!file.type.startsWith('image/')) { alert('Please select an image file.'); if (e.target) e.target.value = ''; return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const src = reader.result as string;
+      editor.chain().focus().setImage({ src, alt: file.name }).run();
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleCiteSearch = async () => {
+    const q = citeQuery.trim();
+    if (!q) return;
+    setCiteSearching(true);
+    setCiteResults([]);
+    try {
+      const res = await fetch(
+        `https://api.crossref.org/works?rows=6&select=title,author,published,container-title,is-referenced-by-count,DOI,type&query.bibliographic=${encodeURIComponent(q)}`
+      );
+      const json = await res.json();
+      const items = (json?.message?.items || []).map((it: any) => ({
+        doi: it.DOI || '',
+        title: Array.isArray(it.title) ? it.title[0] : (it.title || 'Untitled'),
+        authors: (it.author || []).map((a: any) => ({ family: a.family || a.name || '', given: a.given || '' })),
+        year: String(it.published?.['date-parts']?.[0]?.[0] || ''),
+        container: Array.isArray(it['container-title']) ? it['container-title'][0] : (it['container-title'] || ''),
+        citedBy: typeof it['is-referenced-by-count'] === 'number' ? it['is-referenced-by-count'] : null,
+        type: (it.type || 'article').replace(/-/g, ' '),
+      }));
+      setCiteResults(items);
+    } catch {
+      setCiteResults([]);
+    } finally {
+      setCiteSearching(false);
+    }
+  };
+
+  const handleCiteInsert = (item: any) => {
+    if (!editor) return;
+    const intext = inTextCitation(item.authors, item.year);
+    const attrs = {
+      doi: item.doi || null,
+      title: item.title || null,
+      authors: item.authors && item.authors.length ? JSON.stringify(item.authors) : null,
+      year: item.year || null,
+      container: item.container || null,
+      citedBy: item.citedBy != null ? String(item.citedBy) : null,
+    };
+    editor.chain().focus().insertContent([
+      { type: 'text', text: intext, marks: [{ type: 'citation', attrs }] },
+      { type: 'text', text: ' ' },
+    ]).run();
+    setShowCiteSearch(false);
+    setCiteQuery('');
+    setCiteResults([]);
+  };
+
+  // Collect unique citations from the document (for the live bibliography)
+  const collectCitations = (ed: any) => {
+    const found: any[] = [];
+    const seen = new Set<string>();
+    ed.state.doc.descendants((node: any) => {
+      if (node.isText && node.marks) {
+        node.marks.forEach((m: any) => {
+          if (m.type.name === 'citation') {
+            const a = m.attrs || {};
+            const key = a.doi || (node.text || '').trim();
+            if (key && !seen.has(key)) {
+              seen.add(key);
+              found.push({ ...a, intext: node.text });
+            }
+          }
+        });
+      }
+      return true;
+    });
+    setCitations(found);
+  };
+  collectCitationsRef.current = collectCitations;
+
+  const insertBibliography = () => {
+    if (!editor || !citations.length) return;
+    const items = citations.map((c, i) => formatReference(c, citationStyle, i + 1));
+    const html = '<h2>References</h2>' + items.map(t => `<p>${t.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`).join('');
+    editor.chain().focus('end').insertContent(html).run();
   };
 
   const handleEditRequest = async () => {
@@ -669,11 +975,13 @@ Text to review: "${editor?.getText() || documentContent}"`, {
       Superscript,
       Subscript,
       Link.configure({ openOnClick: false, HTMLAttributes: { class: 'text-blue-600 underline' } }),
-      Image.configure({ inline: true, HTMLAttributes: { class: 'rounded-lg my-4 max-w-full shadow-md object-contain max-h-[400px] mx-auto' } })
+      Image.configure({ inline: true, HTMLAttributes: { class: 'rounded-lg my-4 max-w-full shadow-md object-contain max-h-[400px] mx-auto' } }),
+      AiAutocomplete,
     ],
     content: documentContent || '<h2 class="text-3xl font-bold mb-4">Quantum Computing with Artificial Intelligence</h2><p class="mb-4">The convergence of artificial intelligence and quantum computing represents a paradigm shift in computational science. Quantum machine learning algorithms can solve problems that lie beyond the reach of classical computers <span data-citation="true">(Pineda et al., 2025)</span>.</p>',
     onUpdate: ({ editor }) => {
       setDocumentContent(editor.getHTML());
+      collectCitationsRef.current?.(editor);
     },
     editorProps: {
       attributes: {
@@ -687,7 +995,7 @@ Text to review: "${editor?.getText() || documentContent}"`, {
           setEditorClickPos({
             visible: true,
             x: rect.left,
-            y: rect.bottom + window.scrollY,
+            y: rect.bottom,
             text: el.innerText
           });
           return true; // prevent default
@@ -705,6 +1013,52 @@ Text to review: "${editor?.getText() || documentContent}"`, {
       setCitationPopup(prev => prev.visible ? { ...prev, visible: false } : prev);
     }
   }, [editorClickPos]);
+
+  // AI autocomplete: debounce after typing, fetch a short continuation, show as ghost text
+  useEffect(() => {
+    if (!editor) return;
+    const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    const clearGhost = () => {
+      const st = autocompleteKey.getState(editor.state);
+      if (st && st.text) editor.view.dispatch(editor.state.tr.setMeta(autocompleteKey, ''));
+    };
+    const doFetch = async () => {
+      if (!autocompleteOnRef.current || !editor.isFocused) return;
+      const { state } = editor;
+      if (!state.selection.empty) return;
+      const head = state.selection.head;
+      const before = state.doc.textBetween(Math.max(0, head - 1500), head, '\n', '\n');
+      if (before.trim().length < 12) return;
+      const after = state.doc.textBetween(head, Math.min(state.doc.content.size, head + 1), '\n', '\n');
+      if (after && after.trim().length > 0) return; // only at end of a line/block
+      try {
+        const res = await fetch(`${API}/api/autocomplete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: before }),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        let sug = (data.completion || '').trim();
+        if (!sug) return;
+        if (before.length && !/\s$/.test(before) && !/^[\s.,;:!?)]/.test(sug)) sug = ' ' + sug;
+        if (editor.state.selection.head !== head || !editor.isFocused) return; // cursor moved
+        editor.view.dispatch(editor.state.tr.setMeta(autocompleteKey, sug));
+      } catch { /* ignore */ }
+    };
+    const schedule = () => {
+      if (acTimerRef.current) clearTimeout(acTimerRef.current);
+      if (!autocompleteOnRef.current) return;
+      acTimerRef.current = setTimeout(() => { void doFetch(); }, 650);
+    };
+    editor.on('update', schedule);
+    editor.on('selectionUpdate', clearGhost);
+    return () => {
+      editor.off('update', schedule);
+      editor.off('selectionUpdate', clearGhost);
+      if (acTimerRef.current) clearTimeout(acTimerRef.current);
+    };
+  }, [editor]);
 
   // Sync external changes (like live streaming) to the editor
   useEffect(() => {
@@ -859,6 +1213,10 @@ Text to review: "${editor?.getText() || documentContent}"`, {
   // Settings & User Dropup States
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const { theme, setTheme, resolvedTheme } = useTheme();
+  const [themeMounted, setThemeMounted] = useState(false);
+  useEffect(() => { setThemeMounted(true); }, []);
+  const currentTheme = theme === 'system' ? resolvedTheme : theme;
 
   const activeChat = chatHistory.find(c => c.id === activeChatId);
   const projectName = activeChat ? activeChat.title : '';
@@ -1030,27 +1388,30 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
             {userMenuOpen && (
               <div className="absolute bottom-full left-0 mb-2 w-full bg-[#111] border border-[#222] rounded-xl shadow-[0_0_20px_rgba(0,0,0,0.5)] overflow-hidden z-50 py-1">
                 <div className="flex flex-col">
-                  
-                  <div className="px-4 py-2.5 flex items-center justify-between group cursor-pointer hover:bg-[#1a1a1a]">
-                    <span className="text-[13px] font-medium text-gray-200">Route</span>
-                    <span className="text-[13px] text-gray-500">Static</span>
-                  </div>
-                  
-                  <div className="px-4 py-2.5 flex items-center justify-between group cursor-pointer hover:bg-[#1a1a1a]">
-                    <span className="text-[13px] font-medium text-gray-200">Bundler</span>
-                    <span className="text-[13px] text-gray-500">Turbopack</span>
-                  </div>
-                  
-                  <div className="px-4 py-2.5 flex items-center justify-between group cursor-pointer hover:bg-[#1a1a1a]">
-                    <span className="text-[13px] font-medium text-gray-200">Route Info</span>
-                    <ChevronRight className="w-4 h-4 text-gray-500" />
-                  </div>
-                  
-                  <div className="h-[1px] bg-[#222] my-1"></div>
-                  
-                  <div className="px-4 py-2.5 flex items-center justify-between group cursor-pointer hover:bg-[#1a1a1a]">
-                    <span className="text-[13px] font-medium text-[#7fa3ff]">Preferences</span>
+
+                  <div className="px-4 py-2.5 flex items-center justify-between">
+                    <span className="text-[13px] font-bold text-[#7fa3ff]">Preferences</span>
                     <Settings2 className="w-4 h-4 text-gray-500" />
+                  </div>
+
+                  <div className="h-[1px] bg-[#222] my-1"></div>
+
+                  <div className="px-4 py-3">
+                    <div className="text-[12px] font-medium text-gray-400 mb-2">Theme</div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setTheme('dark'); }}
+                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[13px] font-bold border transition-colors ${themeMounted && currentTheme === 'dark' ? 'bg-[#5b5fff] border-[#5b5fff] text-white' : 'border-[#333] text-gray-300 hover:bg-[#1a1a1a]'}`}
+                      >
+                        <Moon className="w-4 h-4" /> Dark
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setTheme('light'); }}
+                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[13px] font-bold border transition-colors ${themeMounted && currentTheme === 'light' ? 'bg-[#5b5fff] border-[#5b5fff] text-white' : 'border-[#333] text-gray-300 hover:bg-[#1a1a1a]'}`}
+                      >
+                        <Sun className="w-4 h-4" /> Light
+                      </button>
+                    </div>
                   </div>
 
                 </div>
@@ -1132,21 +1493,33 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                 )}
              </div>
              <div className="flex items-center gap-3 border-r border-[#333] pr-4">
-                <button onClick={() => editor?.chain().focus().insertContent('<span data-citation="true">(Author, Year)</span>&nbsp;').run()} className="hover:text-white transition-colors" title="Insert citation placeholder">@ Cite</button>
+                <button onClick={() => { setShowCiteSearch(true); }} className="hover:text-white transition-colors" title="Search & insert a citation">@ Cite</button>
              </div>
              <div className="flex items-center gap-3 border-r border-[#333] pr-4">
-                <button onClick={() => { const url = window.prompt('Enter image URL'); if (url) editor?.chain().focus().setImage({ src: url }).run(); }} className="hover:text-white transition-colors" title="Insert image">🖼️</button>
-                <span className="opacity-40 cursor-default" title="Charts (coming soon)">📊</span>
-                <span className="opacity-40 cursor-default" title="Variables (coming soon)">[x]</span>
-                <span className="opacity-40 cursor-default" title="Formula (coming soon)">∑</span>
+                <button onClick={() => imageInputRef.current?.click()} className="hover:text-white transition-colors" title="Insert image from your computer">🖼️</button>
+                <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageFileSelected} />
+                <button onClick={handleInsertChart} className="hover:text-white transition-colors" title="Insert chart (bar / line / pie / doughnut)">📊</button>
+                <button onClick={() => handleInsertEquation(true)} className="hover:text-white transition-colors" title="Insert inline math (LaTeX)">[x]</button>
+                <button onClick={() => handleInsertEquation(false)} className="hover:text-white transition-colors" title="Insert equation (LaTeX)">∑</button>
              </div>
-             <div className="flex items-center gap-2 ml-auto">
-                <Check className="w-3 h-3" />
+             <button
+                onClick={() => {
+                  const next = !autocompleteOn;
+                  setAutocompleteOn(next);
+                  if (!next && editor) {
+                    const st = autocompleteKey.getState(editor.state);
+                    if (st && st.text) editor.view.dispatch(editor.state.tr.setMeta(autocompleteKey, ''));
+                  }
+                }}
+                className="flex items-center gap-2 ml-auto"
+                title={autocompleteOn ? 'AI autocomplete on (type, pause, then press Tab to accept)' : 'AI autocomplete off'}
+             >
+                <Check className={`w-3 h-3 ${autocompleteOn ? 'text-[#5b5fff]' : 'text-gray-600'}`} />
                 <span className="text-gray-300 font-bold">Autocomplete</span>
-                <div className="w-8 h-4 bg-[#5b5fff] rounded-full relative">
-                   <div className="w-3 h-3 bg-white rounded-full absolute right-0.5 top-0.5"></div>
+                <div className={`w-8 h-4 rounded-full relative transition-colors ${autocompleteOn ? 'bg-[#5b5fff]' : 'bg-[#444]'}`}>
+                   <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-all ${autocompleteOn ? 'right-0.5' : 'left-0.5'}`}></div>
                 </div>
-             </div>
+             </button>
           </div>
         </div>
 
@@ -1467,13 +1840,38 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                   <span className="text-[11px] text-gray-400">Select text, then pick an action</span>
                 </div>
                 <EditorContent editor={editor} />
+
+                {citations.length > 0 && (
+                  <div className="mt-10 pt-6 border-t-2 border-gray-200 not-prose">
+                    <div className="flex items-center justify-between mb-3">
+                      <h2 className="text-2xl font-bold text-black">References <span className="text-gray-400 text-base font-normal">({citations.length} · {citationStyle})</span></h2>
+                      <div className="flex items-center gap-2">
+                        <button onClick={insertBibliography} title="Insert this list into the document" className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors">Insert into document</button>
+                        <button onClick={() => { const txt = citations.map((c, i) => formatReference(c, citationStyle, i + 1)).join('\n'); navigator.clipboard?.writeText(txt); }} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors">Copy all</button>
+                      </div>
+                    </div>
+                    <ol className="flex flex-col gap-2 list-none pl-0">
+                      {citations.map((c, i) => (
+                        <li key={(c.doi || c.intext || '') + i} className="text-[14px] text-gray-800 leading-relaxed">
+                          {formatReference(c, citationStyle, i + 1)}
+                          {c.doi && (
+                            <a href={`https://doi.org/${c.doi}`} target="_blank" rel="noreferrer" className="ml-1 text-indigo-600 hover:underline">↗</a>
+                          )}
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
               </div>
               
               {/* Citation Popup (hover) */}
               {citationPopup.visible && (
                 <div 
-                  className="absolute z-50 bg-[#252525] border border-[#333] rounded-xl shadow-2xl w-[420px] flex flex-col overflow-hidden"
-                  style={{ top: Math.min(citationPopup.y + 6, window.innerHeight - 320), left: citationPopup.x }}
+                  className="fixed z-[60] bg-[#252525] border border-[#333] rounded-xl shadow-2xl w-[440px] flex flex-col overflow-hidden"
+                  style={{
+                    top: Math.min(citationPopup.y + 8, (typeof window !== 'undefined' ? window.innerHeight : 800) - 380),
+                    left: Math.max(12, Math.min(citationPopup.x, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 460)),
+                  }}
                   onClick={(e) => e.stopPropagation()}
                   onMouseEnter={cancelHideCitation}
                   onMouseLeave={scheduleHideCitation}
@@ -1506,27 +1904,41 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                             </p>
                           )}
                           {citationMeta.data.abstract && (
-                            <div className="mt-1 bg-[#333]/50 rounded-lg p-3 text-[13px] text-gray-300 leading-relaxed border-l-2 border-[#5b5fff] max-h-32 overflow-y-auto">
-                              {citationMeta.data.abstract}{citationMeta.data.truncated ? '…' : ''}
+                            <div className="mt-1 bg-[#333]/50 rounded-lg p-3 text-[13px] text-gray-300 leading-relaxed border-l-2 border-[#5b5fff] max-h-44 overflow-y-auto">
+                              {citeExpanded || !citationMeta.data.truncated
+                                ? citationMeta.data.abstract
+                                : <>{citationMeta.data.abstract}… <button onClick={() => setCiteExpanded(true)} className="text-white font-bold hover:underline">See more</button></>}
                             </div>
-                          )}
-                          {citationMeta.data.url && (
-                            <a
-                              href={citationMeta.data.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="mt-1 flex items-center gap-1 text-[13px] font-bold text-gray-300 hover:text-white w-fit"
-                            >
-                              <ChevronUp className="w-4 h-4 rotate-45" /> View source
-                            </a>
                           )}
                         </>
                       ) : (
                         <>
                           <h3 className="text-[15px] font-bold text-white leading-snug">{citationPopup.text}</h3>
-                          <p className="text-[13px] text-gray-500">No additional metadata found for this citation.</p>
+                          <p className="text-[13px] text-gray-500">No additional metadata found for this citation. It may be unpublished or formatted differently.</p>
                         </>
                       )}
+                   </div>
+                   <div className="px-4 py-3 bg-[#1e1e1e] border-t border-[#333] flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {citationMeta.data?.url && (
+                          <a href={citationMeta.data.url} target="_blank" rel="noreferrer"
+                             className="bg-[#5b5fff] hover:bg-[#6b6fff] text-white px-3 py-1.5 rounded-lg text-[13px] font-bold flex items-center gap-1.5 transition-colors">
+                            View source <ChevronRight className="w-3.5 h-3.5" />
+                          </a>
+                        )}
+                        <button
+                          onClick={() => {
+                            const d = citationMeta.data;
+                            const ref = d
+                              ? [d.authors, d.year ? `(${d.year}).` : '', d.title ? `${d.title}.` : '', d.container ? `${d.container}.` : '']
+                                  .filter(Boolean).join(' ')
+                              : citationPopup.text;
+                            navigator.clipboard?.writeText(ref);
+                          }}
+                          className="border border-[#444] hover:bg-[#2a2a2a] text-white px-3 py-1.5 rounded-lg text-[13px] font-bold flex items-center gap-1.5 transition-colors">
+                          <Feather className="w-3.5 h-3.5" /> Copy reference
+                        </button>
+                      </div>
                    </div>
                 </div>
               )}
@@ -2089,6 +2501,53 @@ Required JSON structure:
               <textarea value={chatPdfQ} onChange={(e) => setChatPdfQ(e.target.value)} placeholder="e.g. What methods do the uploaded papers use?" rows={3} className="w-full bg-[#111] border border-[#444] rounded-lg p-3 text-[14px] text-white outline-none focus:border-blue-500 resize-none" />
               <button onClick={handleAskLibrary} disabled={chatPdfBusy || !chatPdfQ.trim()} className="self-start bg-[#5b5fff] hover:bg-[#6b6fff] disabled:opacity-50 text-white px-5 py-2 rounded-lg font-bold text-[14px] transition-colors">{chatPdfBusy ? 'Thinking...' : 'Ask'}</button>
               {chatPdfA && <div className="mt-2 max-h-[320px] overflow-y-auto bg-[#1a1a1a] border border-[#333] rounded-lg p-4 text-[14px] text-gray-200 whitespace-pre-wrap">{chatPdfA}</div>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Citation search modal */}
+      {showCiteSearch && (
+        <div className="fixed inset-0 z-[100] flex items-start justify-center bg-black/60 backdrop-blur-sm pt-24" onClick={() => setShowCiteSearch(false)}>
+          <div className="w-[640px] max-w-[92vw] bg-[#161616] border border-[#333] rounded-2xl shadow-2xl overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-[#2a2a2a] flex items-center justify-between">
+              <h2 className="text-lg font-bold text-white">Add citation</h2>
+              <button onClick={() => setShowCiteSearch(false)} className="text-gray-400 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-5 flex flex-col gap-3">
+              <div className="flex gap-2">
+                <input
+                  autoFocus
+                  type="text"
+                  value={citeQuery}
+                  onChange={(e) => setCiteQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleCiteSearch()}
+                  placeholder="Search by title, author, keywords or paste a DOI…"
+                  className="flex-1 bg-[#1a1a1a] border border-[#333] rounded-lg px-4 py-2.5 text-white text-[14px] outline-none focus:border-[#5b5fff] transition-colors"
+                />
+                <button onClick={handleCiteSearch} disabled={citeSearching || !citeQuery.trim()} className="bg-[#5b5fff] hover:bg-[#6b6fff] disabled:opacity-50 text-white px-4 py-2.5 rounded-lg font-bold text-[14px] flex items-center gap-2 transition-colors">
+                  {citeSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />} Search
+                </button>
+              </div>
+              <p className="text-[12px] text-gray-500">Powered by CrossRef. Inserts an in-text citation and stores the DOI so the reference list and hover cards stay accurate.</p>
+              <div className="flex flex-col gap-2 max-h-[46vh] overflow-y-auto custom-scrollbar">
+                {citeResults.map((r, i) => (
+                  <button key={(r.doi || r.title) + i} onClick={() => handleCiteInsert(r)} className="text-left bg-[#1a1a1a] hover:bg-[#222] border border-[#2a2a2a] hover:border-[#5b5fff] rounded-lg p-3 transition-colors group">
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="text-[14px] font-bold text-white leading-snug">{r.title}</h3>
+                      {r.citedBy != null && <span className="shrink-0 bg-[#333] rounded px-2 py-0.5 text-gray-300 text-[10px] font-bold">CITED BY {r.citedBy}</span>}
+                    </div>
+                    {r.authors?.length > 0 && (
+                      <p className="text-[12px] text-gray-400 mt-1">{r.authors.slice(0, 5).map((a: any) => [a.given, a.family].filter(Boolean).join(' ')).join(', ')}{r.authors.length > 5 ? ', et al.' : ''}</p>
+                    )}
+                    <p className="text-[12px] text-[#10b981] mt-0.5">{r.container}{r.year ? ` • ${r.year}` : ''}</p>
+                    <span className="inline-block mt-2 text-[12px] font-bold text-[#7fa3ff] opacity-0 group-hover:opacity-100 transition-opacity">Click to insert →</span>
+                  </button>
+                ))}
+                {!citeSearching && citeResults.length === 0 && citeQuery.trim() && (
+                  <p className="text-[13px] text-gray-500 text-center py-6">No results yet — press Search.</p>
+                )}
+              </div>
             </div>
           </div>
         </div>

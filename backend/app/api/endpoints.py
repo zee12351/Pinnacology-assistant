@@ -280,3 +280,38 @@ async def sync_mendeley(request: MendeleyRequest):
         return {"message": "Successfully synced 1 items from Mendeley"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class AutocompleteRequest(BaseModel):
+    text: str
+
+@router.post("/autocomplete")
+async def autocomplete(request: AutocompleteRequest):
+    text = (request.text or "").strip()
+    if not text:
+        return {"completion": ""}
+    try:
+        from app.agents.workflow import get_model
+        model = get_model()
+        if not model:
+            return {"completion": ""}
+        prompt = (
+            "You are an inline autocomplete for an academic writing editor. "
+            "Continue the text below naturally, matching its tone, tense and style. "
+            "Return ONLY the continuation that should come immediately next - do NOT repeat "
+            "any of the existing text, do not add quotes, labels or explanations. "
+            "Keep it concise: at most one sentence or clause (about 6-18 words).\n\n"
+            f"TEXT:\n{text[-1500:]}\n\nCONTINUATION:"
+        )
+        resp = await model.ainvoke([HumanMessage(content=prompt)])
+        completion = getattr(resp, "content", "") or ""
+        if isinstance(completion, list):
+            completion = " ".join(str(c) for c in completion)
+        completion = str(completion).strip().strip('"').strip()
+        if len(completion) > 220:
+            cut = completion[:220]
+            completion = cut.rsplit(" ", 1)[0] if " " in cut else cut
+        return {"completion": completion}
+    except Exception as e:
+        print(f"Autocomplete error: {e}")
+        return {"completion": ""}

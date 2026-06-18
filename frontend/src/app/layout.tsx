@@ -18,7 +18,7 @@ export default function RootLayout({
       <body className="font-sans antialiased bg-background text-foreground min-h-screen selection:bg-blue-500/30">
         <ThemeProvider
           attribute="class"
-          defaultTheme="system"
+          defaultTheme="dark"
           enableSystem
           disableTransitionOnChange
         >
