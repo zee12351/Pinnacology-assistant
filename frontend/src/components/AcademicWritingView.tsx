@@ -414,27 +414,40 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         return meta;
       }
       const { author, surname, year } = parseCitationSegment(segment);
-      const ctx = (context || '').replace(/\([^()]*\)/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 240);
+      const ctx = (context || '').replace(/\([^()]*\)/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 280);
+      // acronym authors (IDF, WHO, ADA, NICE) are organisations — don't constrain by author name
+      const isAcronym = /^[A-Z]{2,6}$/.test((surname || '').trim());
       const bib = [ctx, author].filter(Boolean).join(' ').trim() || segment;
-      let url = `https://api.crossref.org/works?rows=5&select=${sel}&query.bibliographic=${encodeURIComponent(bib)}`;
-      if (author) url += `&query.author=${encodeURIComponent(author)}`;
-      if (year) url += `&filter=from-pub-date:${year}-01-01,until-pub-date:${year}-12-31`;
-      const res = await fetch(url);
-      const json = await res.json();
-      const items: any[] = json?.message?.items || [];
+      const ctxWords = new Set(ctx.toLowerCase().split(/[^a-z]+/).filter(w => w.length > 4));
+      const fetchItems = async (u: string) => {
+        try { const r = await fetch(u); const j = await r.json(); return (j?.message?.items || []) as any[]; } catch { return []; }
+      };
+      // pass 1: bibliographic (context + author), optionally constrained by a person author
+      let url = `https://api.crossref.org/works?rows=8&select=${sel}&query.bibliographic=${encodeURIComponent(bib)}`;
+      if (author && !isAcronym) url += `&query.author=${encodeURIComponent(author)}`;
+      let items = await fetchItems(url);
+      // pass 2: broaden (drop author constraint), using context or the raw segment
+      if (!items.length) {
+        items = await fetchItems(`https://api.crossref.org/works?rows=8&select=${sel}&query.bibliographic=${encodeURIComponent(ctx || segment)}`);
+      }
       if (!items.length) return { none: true, raw: segment };
-      // score: prefer author-surname match + exact year + higher citation count
       const score = (it: any) => {
         let sc = 0;
         const fams = (it.author || []).map((a: any) => (a.family || a.name || '').toLowerCase());
-        if (surname && fams.some((f: string) => f.includes(surname.toLowerCase()) || surname.toLowerCase().includes(f))) sc += 5;
+        if (surname && !isAcronym && fams.some((f: string) => f.includes(surname.toLowerCase()) || surname.toLowerCase().includes(f))) sc += 5;
         const y = String(it.published?.['date-parts']?.[0]?.[0] || '');
         if (year && y === year) sc += 4;
+        else if (year && Math.abs(parseInt(y || '0', 10) - parseInt(year, 10)) <= 1) sc += 1.5;
+        // topical overlap between candidate title and the surrounding sentence
+        const titleWords = String(Array.isArray(it.title) ? it.title[0] : (it.title || '')).toLowerCase().split(/[^a-z]+/);
+        const overlap = titleWords.filter(w => w.length > 4 && ctxWords.has(w)).length;
+        sc += Math.min(overlap, 4);
         sc += Math.min((it['is-referenced-by-count'] || 0) / 500, 2);
         return sc;
       };
       const best = items.slice().sort((a, b) => score(b) - score(a))[0];
       const meta: any = buildMeta(best);
+      meta.weak = score(best) < 3; // low-confidence guess
       meta.isOA = await fetchOA(meta.doi);
       return meta;
     } catch {
@@ -2282,13 +2295,14 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                         it && it.none ? (
                           <div key={idx} className="p-4">
                             <h3 className="text-[14px] font-bold text-white leading-snug">{it.raw}</h3>
-                            <p className="text-[12px] text-gray-500 mt-1">No match found for this reference.</p>
+                            <p className="text-[12px] text-gray-500 mt-1">This looks like a report or non-indexed source. Use <span className="text-gray-300 font-semibold">Refine</span> to attach the exact reference.</p>
                           </div>
                         ) : (
                           <div key={idx} className="p-4 flex flex-col gap-1.5">
                             <div className="flex items-center justify-between gap-2">
                               <span className="text-gray-400 text-[11px] font-bold tracking-wide uppercase">{it.type || 'Article'}</span>
                               <div className="flex items-center gap-1.5">
+                                {it.weak && <span className="bg-amber-500/20 text-amber-300 rounded px-2 py-0.5 text-[10px] font-bold">BEST GUESS</span>}
                                 {it.citedBy != null && <span className="bg-[#333] rounded px-2 py-0.5 text-gray-300 text-[10px] font-bold">CITED BY {it.citedBy}</span>}
                                 {it.isOA === true && <span className="bg-[#10b981]/20 text-[#34d399] rounded px-2 py-0.5 text-[10px] font-bold">OPEN ACCESS</span>}
                               </div>
