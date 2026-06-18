@@ -315,3 +315,52 @@ async def autocomplete(request: AutocompleteRequest):
     except Exception as e:
         print(f"Autocomplete error: {e}")
         return {"completion": ""}
+
+
+class SuggestCitationsRequest(BaseModel):
+    text: str
+    max_claims: int = 6
+
+@router.post("/suggest-citations")
+async def suggest_citations(request: SuggestCitationsRequest):
+    text = (request.text or "").strip()
+    if not text:
+        return {"claims": []}
+    try:
+        from app.agents.workflow import get_model
+        model = get_model()
+        if not model:
+            return {"claims": []}
+        prompt = (
+            "You are an academic editor. From the text below, identify up to "
+            f"{request.max_claims} sentences that make a factual, empirical, statistical or "
+            "historical claim that SHOULD be backed by a citation but currently has NONE. "
+            "Skip any sentence that already contains a parenthetical citation like (Author, 2020) "
+            "or a bracketed number like [3]. For each, return the exact claim sentence copied "
+            "verbatim from the text, plus a short search query (key terms, author or topic) to find "
+            "a supporting peer-reviewed paper. Respond with ONLY a JSON array, no prose, like: "
+            '[{"claim":"<verbatim sentence>","query":"<search terms>"}]'
+            f"\n\nTEXT:\n{text[:6000]}"
+        )
+        resp = await model.ainvoke([HumanMessage(content=prompt)])
+        content = getattr(resp, "content", "") or ""
+        if isinstance(content, list):
+            content = " ".join(str(c) for c in content)
+        content = str(content)
+        m = re.search(r"\[.*\]", content, re.S)
+        raw = m.group(0) if m else content
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            parsed = []
+        out = []
+        for c in (parsed or [])[: request.max_claims]:
+            if isinstance(c, dict) and c.get("claim"):
+                out.append({
+                    "claim": str(c["claim"]).strip(),
+                    "query": str(c.get("query") or c["claim"]).strip(),
+                })
+        return {"claims": out}
+    except Exception as e:
+        print(f"suggest-citations error: {e}")
+        return {"claims": []}

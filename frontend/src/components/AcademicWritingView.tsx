@@ -252,6 +252,9 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const [styleIndexLoading, setStyleIndexLoading] = useState(false);
   const cslLocaleRef = useRef<string>('');
   const cslStyleCacheRef = useRef<Record<string, string>>({});
+  const [showSuggestModal, setShowSuggestModal] = useState(false);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const [suggestions, setSuggestions] = useState<any[]>([]);
   const citeCacheRef = useRef<Record<string, any>>({});
   const oaCacheRef = useRef<Record<string, boolean | null>>({});
   const lastCiteRef = useRef<string>('');
@@ -718,6 +721,82 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     collectCitations(editor);
     setCitationPopup(prev => ({ ...prev, visible: false }));
     lastCiteRef.current = '';
+  };
+
+  // ---- Proactive AI citation suggestions ----
+  const findClaimInsertPos = (claim: string): number | null => {
+    if (!editor) return null;
+    const target = (claim || '').trim();
+    if (!target) return null;
+    let result: number | null = null;
+    editor.state.doc.descendants((node: any, pos: number) => {
+      if (result != null) return false;
+      if (node.type.isBlock && node.textContent) {
+        const txt: string = node.textContent;
+        let idx = txt.indexOf(target);
+        let len = target.length;
+        if (idx === -1) {
+          const probe = target.slice(0, 50);
+          idx = txt.indexOf(probe);
+          if (idx !== -1) {
+            const e = txt.indexOf('.', idx + probe.length);
+            len = (e === -1 ? txt.length : e + 1) - idx;
+          }
+        }
+        if (idx !== -1) {
+          let endOffset = idx + len;
+          if (txt[endOffset - 1] === '.') endOffset -= 1;
+          result = pos + 1 + endOffset;
+        }
+      }
+      return true;
+    });
+    return result;
+  };
+
+  const handleSuggestCitations = async () => {
+    if (!editor) return;
+    const text = editor.getText();
+    if (text.trim().length < 40) { alert('Write a bit more first, then I can suggest citations.'); return; }
+    setShowSuggestModal(true);
+    setSuggestLoading(true);
+    setSuggestions([]);
+    try {
+      const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${API}/api/suggest-citations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      const data = await res.json();
+      const claims: any[] = data.claims || [];
+      if (!claims.length) { setSuggestLoading(false); return; }
+      const withPapers = await Promise.all(
+        claims.map(async (c: any) => ({ claim: c.claim, query: c.query || c.claim, paper: await lookupOne(c.query || c.claim), status: 'pending' }))
+      );
+      setSuggestions(withPapers);
+    } catch { /* ignore */ }
+    finally { setSuggestLoading(false); }
+  };
+
+  const acceptSuggestion = (sug: any) => {
+    if (!editor || !sug?.paper || sug.paper.none) return;
+    const p = sug.paper;
+    const intext = inTextCitation(p.authorsList || [], p.year);
+    const attrs = {
+      doi: p.doi || null,
+      title: p.title || null,
+      authors: p.authorsList && p.authorsList.length ? JSON.stringify(p.authorsList) : null,
+      year: p.year || null,
+      container: p.container || null,
+      citedBy: p.citedBy != null ? String(p.citedBy) : null,
+    };
+    const content = [{ type: 'text', text: ' ' + intext, marks: [{ type: 'citation', attrs }] }];
+    const pos = findClaimInsertPos(sug.claim);
+    if (pos != null) editor.chain().focus().insertContentAt(pos, content as any).run();
+    else editor.chain().focus('end').insertContent(content as any).run();
+    setSuggestions(prev => prev.map(x => (x === sug ? { ...x, status: 'accepted' } : x)));
+    setTimeout(() => editor && collectCitations(editor), 100);
   };
 
   const refineCitation = (intext: string) => {
@@ -2139,6 +2218,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                   <button onClick={handleApplyCitationStyle} disabled={inlineAiBusy} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 hover:bg-indigo-50 disabled:opacity-50 transition-colors">Apply citation style</button>
                   <button onClick={() => setChatPdfOpen(true)} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors">Ask your library</button>
                   <button onClick={() => { detectCitations(); setTimeout(() => editor && collectCitations(editor), 100); }} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100 transition-colors" title="Find plain-text citations and make them hoverable + add to references">Detect citations</button>
+                  <button onClick={handleSuggestCitations} disabled={suggestLoading} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50 transition-colors" title="AI finds claims that need a citation and suggests real papers">{suggestLoading ? 'Finding…' : '✨ Suggest citations'}</button>
                   <span className="text-[11px] text-gray-400">Select text, then pick an action</span>
                 </div>
                 <EditorContent editor={editor} />
@@ -2851,6 +2931,60 @@ Required JSON structure:
                   <p className="text-[13px] text-gray-500 text-center py-6">No results yet — press Search.</p>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI citation suggestions modal */}
+      {showSuggestModal && (
+        <div className="fixed inset-0 z-[100] flex items-start justify-center bg-black/60 backdrop-blur-sm pt-16" onClick={() => setShowSuggestModal(false)}>
+          <div className="w-[680px] max-w-[92vw] bg-[#161616] border border-[#333] rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-[#2a2a2a] flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2"><Sparkles className="w-4 h-4 text-amber-400" /> Suggested citations</h2>
+                <p className="text-[12px] text-gray-500 mt-0.5">Claims that may need a source, with a matching paper. Accept to insert it.</p>
+              </div>
+              <button onClick={() => setShowSuggestModal(false)} className="text-gray-400 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-5 flex flex-col gap-3 overflow-y-auto custom-scrollbar">
+              {suggestLoading ? (
+                <div className="flex items-center gap-2 text-gray-400 text-[14px] py-6 justify-center"><Loader2 className="w-5 h-5 animate-spin" /> Scanning your document for uncited claims…</div>
+              ) : suggestions.length === 0 ? (
+                <div className="text-gray-500 text-[14px] py-6 text-center">No uncited claims found. Your document looks well-supported, or there isn't enough text yet.</div>
+              ) : (
+                suggestions.map((sug, idx) => (
+                  <div key={idx} className={`rounded-xl border p-3 flex flex-col gap-2 ${sug.status === 'accepted' ? 'border-[#10b981]/40 bg-[#10b981]/5' : 'border-[#2a2a2a] bg-[#1a1a1a]'}`}>
+                    <p className="text-[13px] text-gray-300 italic leading-snug">“{sug.claim.length > 180 ? sug.claim.slice(0, 180) + '…' : sug.claim}”</p>
+                    {sug.paper && !sug.paper.none ? (
+                      <div className="bg-[#222] rounded-lg p-3 border border-[#2a2a2a]">
+                        <div className="flex items-start justify-between gap-2">
+                          <h3 className="text-[13px] font-bold text-white leading-snug">{sug.paper.title}</h3>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {sug.paper.citedBy != null && <span className="bg-[#333] rounded px-2 py-0.5 text-gray-300 text-[10px] font-bold">CITED BY {sug.paper.citedBy}</span>}
+                            {sug.paper.isOA === true && <span className="bg-[#10b981]/20 text-[#34d399] rounded px-2 py-0.5 text-[10px] font-bold">OA</span>}
+                          </div>
+                        </div>
+                        {sug.paper.authors && <p className="text-[12px] text-gray-400 mt-1">{sug.paper.authors}</p>}
+                        {sug.paper.container && <p className="text-[12px] text-[#10b981]">{sug.paper.container}{sug.paper.year ? ` • ${sug.paper.year}` : ''}</p>}
+                      </div>
+                    ) : (
+                      <p className="text-[12px] text-gray-500">No strong match found — try Refine to search manually.</p>
+                    )}
+                    <div className="flex items-center gap-2">
+                      {sug.status === 'accepted' ? (
+                        <span className="text-[13px] font-bold text-[#34d399] flex items-center gap-1"><CheckCircle2 className="w-4 h-4" /> Inserted</span>
+                      ) : (
+                        <>
+                          <button onClick={() => acceptSuggestion(sug)} disabled={!sug.paper || sug.paper.none} className="bg-[#5b5fff] hover:bg-[#6b6fff] disabled:opacity-40 text-white px-4 py-1.5 rounded-lg text-[13px] font-bold flex items-center gap-1.5 transition-colors">Accept <ChevronRight className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => { setShowSuggestModal(false); refineCitation(sug.query); }} className="border border-[#444] hover:bg-[#2a2a2a] text-white px-3 py-1.5 rounded-lg text-[13px] font-bold flex items-center gap-1.5 transition-colors"><Sparkles className="w-3.5 h-3.5" /> Refine</button>
+                          <button onClick={() => setSuggestions(prev => prev.filter(x => x !== sug))} className="text-gray-400 hover:text-white px-2 py-1.5 text-[13px]">Skip</button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
