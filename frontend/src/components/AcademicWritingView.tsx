@@ -1155,15 +1155,18 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     setTimeout(() => editor && collectCitations(editor), 100);
   };
 
-  const viewCitationSource = () => {
+  const viewCitationSource = async () => {
     const item = citationMeta.items.find((i: any) => i && !i.none);
     let url = item?.url || (item?.doi ? `https://doi.org/${item.doi}` : '');
     if (!url) {
-      // No resolved link yet: fall back to a scholarly search of the title or the in-text label
-      const q = (item?.title || citationPopup.text || '').replace(/[()]/g, ' ').trim();
-      url = `https://scholar.google.com/scholar?q=${encodeURIComponent(q)}`;
+      // Resolve the citation live and open the REAL paper page directly (never a search results list)
+      try {
+        const found: any = await multiSourceLookup(citationPopup.text, '');
+        if (found && !found.none) url = found.url || (found.doi ? `https://doi.org/${found.doi}` : '');
+      } catch { /* ignore */ }
     }
-    window.open(url, '_blank', 'noopener,noreferrer');
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    else alert('No linked source page was found for this citation.');
   };
 
   const saveCitationRef = () => {
