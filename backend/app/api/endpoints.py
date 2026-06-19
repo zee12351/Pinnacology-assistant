@@ -22,6 +22,7 @@ class ChatRequest(BaseModel):
     persona: Optional[str] = None
 
 import json
+import asyncio
 
 @router.post("/chat")
 async def chat(request: ChatRequest):
@@ -416,3 +417,144 @@ async def semantic_scholar(request: PaperSearchRequest):
     except Exception as e:
         print(f"semantic-scholar error: {e}")
         return {"results": []}
+
+
+def _format_authors_intext(authors):
+    authors = [a for a in authors if a]
+    if not authors:
+        return "Anonymous"
+    if len(authors) == 1:
+        return authors[0]
+    if len(authors) == 2:
+        return f"{authors[0]} & {authors[1]}"
+    return f"{authors[0]} et al."
+
+
+def retrieve_sources(topic: str, n: int = 20):
+    """Pull real, verified papers (Crossref + OpenAlex) for a topic, with author/year/DOI."""
+    sources = []
+    seen = set()
+    # --- Crossref ---
+    try:
+        r = requests.get("https://api.crossref.org/works", params={
+            "query.bibliographic": topic, "rows": 30,
+            "select": "title,author,published,container-title,DOI,is-referenced-by-count",
+            "filter": "type:journal-article",
+        }, headers={"User-Agent": "Pinnovix/1.0 (mailto:info@pinnovix.app)"}, timeout=15)
+        if r.status_code == 200:
+            for it in r.json().get("message", {}).get("items", []):
+                doi = (it.get("DOI") or "").lower()
+                t = it.get("title") or [""]
+                title = t[0] if isinstance(t, list) and t else (t if isinstance(t, str) else "")
+                authors = [a.get("family", "") for a in (it.get("author") or []) if a.get("family")]
+                dp = (it.get("published", {}) or {}).get("date-parts", [[None]])
+                year = dp[0][0] if dp and dp[0] else None
+                jc = it.get("container-title") or [""]
+                journal = jc[0] if isinstance(jc, list) and jc else (jc if isinstance(jc, str) else "")
+                if not (title and authors and year):
+                    continue
+                key = doi or title.lower()[:60]
+                if key in seen:
+                    continue
+                seen.add(key)
+                sources.append({
+                    "author": _format_authors_intext(authors), "year": str(year),
+                    "title": title, "journal": journal, "doi": doi,
+                    "cited": it.get("is-referenced-by-count", 0) or 0,
+                })
+    except Exception as e:
+        print(f"retrieve_sources crossref error: {e}")
+    # --- OpenAlex (supplement / breadth) ---
+    try:
+        r = requests.get("https://api.openalex.org/works", params={
+            "search": topic, "per-page": 20, "mailto": "info@pinnovix.app",
+            "filter": "type:article",
+        }, timeout=15)
+        if r.status_code == 200:
+            for it in r.json().get("results", []):
+                doi = (it.get("doi") or "").replace("https://doi.org/", "").lower()
+                title = it.get("title") or it.get("display_name") or ""
+                authors = []
+                for a in (it.get("authorships") or []):
+                    name = (a.get("author") or {}).get("display_name") or a.get("raw_author_name") or ""
+                    if name:
+                        authors.append(name.split()[-1])
+                year = it.get("publication_year")
+                journal = ((it.get("primary_location") or {}).get("source") or {}).get("display_name") or ""
+                if not (title and authors and year):
+                    continue
+                key = doi or title.lower()[:60]
+                if key in seen:
+                    continue
+                seen.add(key)
+                sources.append({
+                    "author": _format_authors_intext(authors), "year": str(year),
+                    "title": title, "journal": journal, "doi": doi,
+                    "cited": it.get("cited_by_count", 0) or 0,
+                })
+    except Exception as e:
+        print(f"retrieve_sources openalex error: {e}")
+    sources.sort(key=lambda s: s["cited"], reverse=True)
+    return sources[:n]
+
+
+class GeneratePaperRequest(BaseModel):
+    topic: str
+    persona: Optional[str] = None
+    max_sources: int = 20
+
+@router.post("/generate-paper")
+async def generate_paper(request: GeneratePaperRequest):
+    full = request.topic or ""
+
+    async def event_generator():
+        try:
+            from app.agents.workflow import get_model
+            model = get_model()
+            if not model:
+                yield f"data: {json.dumps({'error': 'GEMINI_API_KEY not set'})}\n\n"
+                return
+            # derive a clean search query for retrieval
+            m = re.search(r"Topic/Prompt:\s*(.+)", full)
+            search_topic = (m.group(1).strip() if m else full).split("\n")[0][:300]
+            if not search_topic.strip():
+                search_topic = full[:300]
+
+            sources = await asyncio.to_thread(retrieve_sources, search_topic, request.max_sources)
+
+            if sources:
+                src_block = "\n".join(
+                    f"- ({s['author']}, {s['year']}) {s['title']}. {s['journal']}." +
+                    (f" DOI: {s['doi']}" if s['doi'] else "")
+                    for s in sources
+                )
+                instruction = (
+                    full + "\n\n"
+                    "You are writing a REAL academic paper. You MUST use ONLY the verified sources listed "
+                    "below for every citation. Cite them in-text EXACTLY as shown, e.g. (Author, Year) - do "
+                    "NOT change an author's name or year, and do NOT invent, guess, or cite any source that "
+                    "is not in this list. Only cite a source where it genuinely supports the sentence. "
+                    "End the paper with a 'References' section listing every source you actually cited, "
+                    "including its DOI.\n\nVERIFIED SOURCES:\n" + src_block
+                )
+            else:
+                # Retrieval failed - avoid fabricating precise citations
+                instruction = (
+                    full + "\n\n"
+                    "Write the paper WITHOUT inventing specific author-year citations or fake references, "
+                    "since no verified sources are available right now. Use neutral phrasing like "
+                    "'studies have shown' instead of fabricated citations."
+                )
+
+            async for chunk in model.astream([HumanMessage(content=instruction)]):
+                content = getattr(chunk, "content", "")
+                if isinstance(content, list):
+                    content = "".join(str(c) for c in content)
+                if content:
+                    yield f"data: {json.dumps({'type': 'token', 'content': content})}\n\n"
+            yield "data: [DONE]\n\n"
+        except Exception as e:
+            print(f"generate-paper error: {e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")

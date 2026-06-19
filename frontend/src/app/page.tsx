@@ -306,13 +306,11 @@ export default function HomePage() {
     abortControllerRef.current = new AbortController();
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/chat`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/generate-paper`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          message: promptData, 
-          agent_type: "research",
-          use_rag: false,
+          topic: promptData, 
           persona: selectedPersona 
         }),
         signal: abortControllerRef.current.signal
