@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTheme } from 'next-themes';
-import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Upload, X, Search, Check, Star, Users, ListChecks, Play, SlidersHorizontal, ChevronsRight, ChevronsLeft, Type, Home, Settings2, Download, ThumbsUp, ThumbsDown, Info, ChevronDown, GraduationCap, FlaskConical, Feather, CheckCircle2, ChevronLeft, RotateCcw, Loader2, Sparkles, Trash2, Moon, Sun, Pencil } from 'lucide-react';
+import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Upload, X, Search, Check, Star, Users, ListChecks, Play, SlidersHorizontal, ChevronsRight, ChevronsLeft, Type, Home, Settings2, Download, ThumbsUp, ThumbsDown, Info, ChevronDown, GraduationCap, FlaskConical, Feather, CheckCircle2, ChevronLeft, RotateCcw, Loader2, Sparkles, Trash2, Moon, Sun, Pencil, ArrowLeftRight, ExternalLink, Bookmark } from 'lucide-react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
@@ -241,6 +241,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const [citationPopup, setCitationPopup] = useState({ visible: false, x: 0, y: 0, text: '' });
   const [citationMeta, setCitationMeta] = useState<{ loading: boolean; items: any[] }>({ loading: false, items: [] });
   const [citeExpanded, setCiteExpanded] = useState(false);
+  const [citeSaved, setCiteSaved] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [autocompleteOn, setAutocompleteOn] = useState(true);
   const autocompleteOnRef = useRef(true);
@@ -358,7 +359,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     cancelHideCitation();
     hideCiteTimerRef.current = setTimeout(() => {
       setCitationPopup(prev => prev.visible ? { ...prev, visible: false } : prev);
-    }, 220);
+    }, 500);
   };
 
   const fetchOA = async (doi?: string | null): Promise<boolean | null> => {
@@ -528,7 +529,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
 
   const handleCitationHoverOut = (e: React.MouseEvent) => {
     const related = e.relatedTarget as HTMLElement | null;
-    if (related && related.closest && related.closest('[data-citation="true"]')) return;
+    if (related && related.closest && (related.closest('[data-citation="true"]') || related.closest('[data-cite-popup="1"]'))) return;
     scheduleHideCitation();
   };
 
@@ -819,6 +820,62 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     else editor.chain().focus('end').insertContent(content as any).run();
     setSuggestions(prev => prev.map(x => (x === sug ? { ...x, status: 'accepted' } : x)));
     setTimeout(() => editor && collectCitations(editor), 100);
+  };
+
+  // Locate a citation mark's range + attrs in the document by its in-text label
+  const findCitationRange = (intext: string): { from: number; to: number; attrs: any } | null => {
+    if (!editor || !editor.schema?.marks?.citation) return null;
+    const citationType = editor.schema.marks.citation;
+    let res: any = null;
+    editor.state.doc.descendants((node: any, pos: number) => {
+      if (res) return false;
+      if (node.isText && node.text && citationType.isInSet(node.marks) && node.text.trim() === intext.trim()) {
+        const m = node.marks.find((mk: any) => mk.type.name === 'citation');
+        res = { from: pos, to: pos + node.nodeSize, attrs: m ? m.attrs : {} };
+      }
+      return true;
+    });
+    return res;
+  };
+
+  // Toggle the in-text citation between parenthetical "(Author, Year)" and narrative "Author (Year)"
+  const narrativeCitation = () => {
+    if (!editor) return;
+    const range = findCitationRange(citationPopup.text);
+    if (!range) return;
+    const item = citationMeta.items.find((i: any) => i && !i.none);
+    const authorsList = item?.authorsList || citeAuthorList(range.attrs?.authors);
+    const year = item?.year || range.attrs?.year || 'n.d.';
+    const a = authorsList || [];
+    let label = '';
+    const isNarrative = /\)\s*$/.test(citationPopup.text) === false && /\(\d/.test(citationPopup.text) === false;
+    if (!isNarrative) {
+      // make narrative: Author et al. (Year)
+      const names = !a.length ? 'Author' : a.length === 1 ? a[0].family : a.length === 2 ? `${a[0].family} & ${a[1].family}` : `${a[0].family} et al.`;
+      label = `${names} (${year})`;
+    } else {
+      label = inTextCitation(a, year); // back to parenthetical
+    }
+    editor.chain().focus().insertContentAt({ from: range.from, to: range.to }, [{ type: 'text', text: label, marks: [{ type: 'citation', attrs: range.attrs }] }]).run();
+    setCitationPopup(prev => ({ ...prev, visible: false }));
+    lastCiteRef.current = '';
+    setTimeout(() => editor && collectCitations(editor), 100);
+  };
+
+  const viewCitationSource = () => {
+    const item = citationMeta.items.find((i: any) => i && !i.none);
+    const url = item?.url || (item?.doi ? `https://doi.org/${item.doi}` : '');
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const saveCitationRef = () => {
+    const item = citationMeta.items.find((i: any) => i && !i.none);
+    const ref = item
+      ? [item.authors, item.year ? `(${item.year}).` : '', item.title ? `${item.title}.` : '', item.container ? `${item.container}.` : '', item.doi ? `https://doi.org/${item.doi}` : ''].filter(Boolean).join(' ')
+      : citationPopup.text;
+    navigator.clipboard?.writeText(ref);
+    setCiteSaved(true);
+    setTimeout(() => setCiteSaved(false), 1500);
   };
 
   const refineCitation = (intext: string) => {
@@ -2376,9 +2433,10 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
               {/* Citation Popup (hover) - one card per reference */}
               {citationPopup.visible && (
                 <div 
+                  data-cite-popup="1"
                   className="fixed z-[60] bg-[#252525] border border-[#333] rounded-xl shadow-2xl w-[440px] flex flex-col overflow-hidden"
                   style={{
-                    top: Math.min(citationPopup.y + 8, (typeof window !== 'undefined' ? window.innerHeight : 800) - 420),
+                    top: Math.min(citationPopup.y + 2, (typeof window !== 'undefined' ? window.innerHeight : 800) - 420),
                     left: Math.max(12, Math.min(citationPopup.x, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 460)),
                   }}
                   onClick={(e) => e.stopPropagation()}
@@ -2434,24 +2492,21 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                       ))
                     )}
                   </div>
-                  <div className="px-4 py-3 bg-[#1e1e1e] border-t border-[#333] flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => acceptCitationMeta(citationPopup.text, citationMeta.items)}
-                        disabled={citationMeta.loading || !citationMeta.items.some((i: any) => i && !i.none)}
-                        className="bg-[#5b5fff] hover:bg-[#6b6fff] disabled:opacity-40 text-white px-4 py-1.5 rounded-lg text-[13px] font-bold flex items-center gap-1.5 transition-colors">
-                        Accept <ChevronRight className="w-3.5 h-3.5" />
+                  <div className="px-3 py-2.5 bg-[#1e1e1e] border-t border-[#333] flex items-center justify-between text-gray-300">
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => refineCitation(citationPopup.text)} title="Edit / change the linked source" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] font-bold hover:bg-[#2a2a2a] transition-colors">
+                        <Pencil className="w-3.5 h-3.5" /> Edit
                       </button>
-                      <button
-                        onClick={() => refineCitation(citationPopup.text)}
-                        className="border border-[#444] hover:bg-[#2a2a2a] text-white px-3 py-1.5 rounded-lg text-[13px] font-bold flex items-center gap-1.5 transition-colors">
-                        <Sparkles className="w-3.5 h-3.5" /> Refine suggestion
+                      <button onClick={narrativeCitation} title="Switch between parenthetical and narrative form" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] font-bold hover:bg-[#2a2a2a] transition-colors">
+                        <ArrowLeftRight className="w-3.5 h-3.5" /> Narrative
+                      </button>
+                      <button onClick={viewCitationSource} title="Open the source page" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] font-bold hover:bg-[#2a2a2a] transition-colors">
+                        <ExternalLink className="w-3.5 h-3.5" /> View
                       </button>
                     </div>
-                    <div className="flex items-center gap-2 text-gray-400">
-                      <button onClick={() => acceptCitationMeta(citationPopup.text, citationMeta.items)} title="Looks right" className="hover:text-white"><ThumbsUp className="w-4 h-4" /></button>
-                      <button onClick={() => setCitationPopup(prev => ({ ...prev, visible: false }))} title="Dismiss" className="hover:text-white"><ThumbsDown className="w-4 h-4" /></button>
-                    </div>
+                    <button onClick={saveCitationRef} title="Copy the full reference" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] font-bold hover:bg-[#2a2a2a] transition-colors">
+                      <Bookmark className="w-3.5 h-3.5" /> {citeSaved ? 'Saved' : 'Save'}
+                    </button>
                   </div>
                 </div>
               )}
