@@ -218,6 +218,36 @@ const AiAutocomplete = Extension.create({
   },
 });
 
+// Heuristic prompt-strength meter (instant, no API): Weak / Medium / Strong
+function scorePrompt(text: string) {
+  const t = (text || '').trim();
+  const words = t ? t.split(/\s+/).filter(Boolean).length : 0;
+  if (!words) {
+    return { label: '', level: 0, color: 'text-gray-400', bar: 'bg-[#333]', tip: 'Describe the paper you want \u2014 topic, focus, scope and length.' };
+  }
+  let score = 0;
+  if (words >= 6) score++;
+  if (words >= 15) score++;
+  if (words >= 30) score++;
+  const lc = t.toLowerCase();
+  const signals = [
+    /\b\d{3,}\s*words?\b|\b\d+\s*pages?\b/,
+    /\b(introduction|methodology|results|discussion|conclusion|abstract|literature review|sections?)\b/,
+    /\b(apa|mla|ieee|harvard|chicago|vancouver)\b/,
+    /\b(focus|focusing|compare|comparing|impact|effect|role|relationship|between|trends?|review|analysis|case study|systematic|framework)\b/,
+    /\b(20\d{2}|19\d{2}|recent|last \d+ years|past \d+ years|decade)\b/,
+    /\b(students?|clinicians?|researchers?|audience|journal|undergraduate|graduate|policy)\b/,
+  ];
+  signals.forEach((re) => { if (re.test(lc)) score++; });
+  if (score <= 2) {
+    return { label: 'Weak', level: 1, color: 'text-red-400', bar: 'bg-red-400', tip: 'Add specifics: the angle/focus, scope, and length (e.g. \u201ca 2000-word review focusing on \u2026\u201d).' };
+  }
+  if (score <= 4) {
+    return { label: 'Medium', level: 2, color: 'text-amber-400', bar: 'bg-amber-400', tip: 'Good start \u2014 add the focus, time period, audience or citation style to strengthen it.' };
+  }
+  return { label: 'Strong', level: 3, color: 'text-emerald-400', bar: 'bg-emerald-400', tip: 'Clear and specific \u2014 this will produce a focused, high-quality paper.' };
+}
+
 export function AcademicWritingView({ documentContent, setDocumentContent, loading, handleToolAction, aiResponse, handleFileUpload, uploadingDoc, handleGoHome, handleGenerateDocument, generatedSources }: any) {
   
   // State for chat history
@@ -2412,9 +2442,24 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                         className="w-full h-[88px] bg-transparent border border-[#333] rounded-lg outline-none resize-none text-[14px] text-gray-300 placeholder:text-gray-500 p-3 focus:border-[#444]"
                       />
                       
-                      <div className="mt-3 text-[13px] text-gray-200 font-bold">
-                        Weak prompt: <span className="text-gray-400 font-normal">Add more context for higher quality generations</span>
-                      </div>
+                      {(() => {
+                        const ps = scorePrompt(promptInput);
+                        return (
+                          <div className="mt-3 flex flex-col gap-2">
+                            {ps.level > 0 && (
+                              <div className="flex items-center gap-1">
+                                {[1, 2, 3].map((i) => (
+                                  <span key={i} className={`h-1.5 w-10 rounded-full transition-colors ${i <= ps.level ? ps.bar : 'bg-[#333]'}`} />
+                                ))}
+                              </div>
+                            )}
+                            <div className="text-[13px] font-bold">
+                              {ps.label && <span className={ps.color}>{ps.label} prompt: </span>}
+                              <span className="text-gray-400 font-normal">{ps.tip}</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
                       
                       <div className="flex items-center justify-center gap-4 my-4 relative">
                         <div className="absolute left-0 right-0 h-[1px] bg-[#2a2a2a]"></div>
