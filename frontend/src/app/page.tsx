@@ -106,6 +106,7 @@ export default function HomePage() {
   const [documentContent, setDocumentContent] = useState('');
   const [structuredPapers, setStructuredPapers] = useState([]);
   const [aiResponse, setAiResponse] = useState('');
+  const [generatedSources, setGeneratedSources] = useState<any[]>([]);
 
   const [chatHistory, setChatHistory] = useState<ChatSession[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
@@ -302,6 +303,7 @@ export default function HomePage() {
   const handleGenerateDocument = async (promptData: string) => {
     setLoading(true);
     setDocumentContent('Thinking...');
+    setGeneratedSources([]);
     setIsChatActive(true);
     abortControllerRef.current = new AbortController();
 
@@ -341,6 +343,8 @@ export default function HomePage() {
               if (data.type === 'token') {
                 assistantMessage += data.content;
                 setDocumentContent(assistantMessage);
+              } else if (data.type === 'sources') {
+                setGeneratedSources(data.sources || []);
               } else if (data.error) {
                 assistantMessage = '⚠️ ' + data.error;
                 setDocumentContent(assistantMessage);
@@ -548,6 +552,7 @@ export default function HomePage() {
                   aiResponse={aiResponse}
                   handleGoHome={() => handleNewThread()}
                   handleGenerateDocument={handleGenerateDocument}
+                  generatedSources={generatedSources}
                 />
               ) : selectedPersona === 'LITERATURE REVIEW' ? (
                 <LiteratureReviewView 

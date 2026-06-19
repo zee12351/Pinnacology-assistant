@@ -218,7 +218,7 @@ const AiAutocomplete = Extension.create({
   },
 });
 
-export function AcademicWritingView({ documentContent, setDocumentContent, loading, handleToolAction, aiResponse, handleFileUpload, uploadingDoc, handleGoHome, handleGenerateDocument }: any) {
+export function AcademicWritingView({ documentContent, setDocumentContent, loading, handleToolAction, aiResponse, handleFileUpload, uploadingDoc, handleGoHome, handleGenerateDocument, generatedSources }: any) {
   
   // State for chat history
   const [chatHistory, setChatHistory] = useState<any[]>([
@@ -801,10 +801,73 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   };
   const detectCitationsRef = useRef(detectCitations);
   detectCitationsRef.current = detectCitations;
+
+  // Bind each detected citation to the EXACT verified source the AI was given (by surname + year),
+  // storing its DOI/metadata so the hover popup reads the real paper instead of re-guessing.
+  const generatedSourcesRef = useRef<any[]>([]);
+  useEffect(() => { generatedSourcesRef.current = generatedSources || []; }, [generatedSources]);
+
+  const attachSourcesToCitations = (sources: any[]) => {
+    if (!editor || !editor.schema?.marks?.citation || !sources || !sources.length) return;
+    const citationType = editor.schema.marks.citation;
+    const byKey: Record<string, any> = {};
+    sources.forEach((src: any) => {
+      const sur = String(src.surname || (src.families && src.families[0]) || '').toLowerCase();
+      if (sur && src.year) byKey[`${sur}|${src.year}`] = src;
+    });
+    let tr = editor.state.tr;
+    let changed = false;
+    editor.state.doc.descendants((node: any, pos: number) => {
+      if (!node.isText || !node.text) return;
+      const mk = node.marks.find((m: any) => m.type.name === 'citation');
+      if (!mk || (mk.attrs && mk.attrs.doi)) return; // unmarked, or already linked
+      const txt: string = node.text;
+      const ym = txt.match(/\b(19|20)\d{2}/);
+      const sm = txt.replace(/[()]/g, ' ').match(/[A-Z][a-zA-Z'’-]+/);
+      const year = ym ? ym[0] : '';
+      const sur = sm ? sm[0].toLowerCase() : '';
+      if (!sur || !year) return;
+      const src = byKey[`${sur}|${year}`];
+      if (!src) return;
+      const attrs = {
+        doi: src.doi || null,
+        title: src.title || null,
+        authors: (src.families && src.families.length) ? JSON.stringify(src.families.map((f: string) => ({ family: f }))) : null,
+        year: src.year || null,
+        container: src.journal || null,
+        citedBy: null,
+        refs: null,
+      };
+      tr = tr.addMark(pos, pos + node.nodeSize, citationType.create(attrs));
+      changed = true;
+    });
+    if (changed) {
+      tr.setMeta('addToHistory', false);
+      editor.view.dispatch(tr);
+      setTimeout(() => collectCitationsRef.current?.(editor), 60);
+    }
+  };
+  const attachSourcesRef = useRef(attachSourcesToCitations);
+  attachSourcesRef.current = attachSourcesToCitations;
+
   const scheduleDetect = () => {
     if (detectTimerRef.current) clearTimeout(detectTimerRef.current);
-    detectTimerRef.current = setTimeout(() => detectCitationsRef.current?.(), 500);
+    detectTimerRef.current = setTimeout(() => {
+      detectCitationsRef.current?.();
+      attachSourcesRef.current?.(generatedSourcesRef.current);
+    }, 500);
   };
+
+  // When verified sources arrive (or change), link them onto the citations already in the doc
+  useEffect(() => {
+    if (!editor || !generatedSources || !generatedSources.length) return;
+    const t = setTimeout(() => {
+      detectCitationsRef.current?.();
+      setTimeout(() => attachSourcesRef.current?.(generatedSources), 200);
+    }, 600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [generatedSources]);
 
   // Attach matched metadata (incl. DOI) to the hovered citation so cards + bibliography stay accurate.
   const acceptCitationMeta = (intext: string, items: any[]) => {

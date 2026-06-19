@@ -459,7 +459,7 @@ def retrieve_sources(topic: str, n: int = 20):
                 seen.add(key)
                 sources.append({
                     "author": _format_authors_intext(authors), "year": str(year),
-                    "title": title, "journal": journal, "doi": doi,
+                    "families": authors, "title": title, "journal": journal, "doi": doi,
                     "cited": it.get("is-referenced-by-count", 0) or 0,
                 })
     except Exception as e:
@@ -489,7 +489,7 @@ def retrieve_sources(topic: str, n: int = 20):
                 seen.add(key)
                 sources.append({
                     "author": _format_authors_intext(authors), "year": str(year),
-                    "title": title, "journal": journal, "doi": doi,
+                    "families": authors, "title": title, "journal": journal, "doi": doi,
                     "cited": it.get("cited_by_count", 0) or 0,
                 })
     except Exception as e:
@@ -523,6 +523,13 @@ async def generate_paper(request: GeneratePaperRequest):
             sources = await asyncio.to_thread(retrieve_sources, search_topic, request.max_sources)
 
             if sources:
+                sources_payload = [{
+                    "surname": (s.get("families") or [s["author"].split()[0]])[0],
+                    "families": s.get("families", []),
+                    "year": s["year"], "title": s["title"],
+                    "journal": s["journal"], "doi": s["doi"],
+                } for s in sources]
+                yield f"data: {json.dumps({'type': 'sources', 'sources': sources_payload})}\n\n"
                 src_block = "\n".join(
                     f"- ({s['author']}, {s['year']}) {s['title']}. {s['journal']}." +
                     (f" DOI: {s['doi']}" if s['doi'] else "")
