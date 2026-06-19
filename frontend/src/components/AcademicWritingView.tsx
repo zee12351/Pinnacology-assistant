@@ -1838,23 +1838,23 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                     </div>
                   </div>
                   <div className="flex items-center opacity-0 group-hover:opacity-100 transition-all shrink-0">
-                    <button onClick={(e) => { e.stopPropagation(); togglePinChat(chat.id); }} className={`p-1 hover:bg-[#555] rounded ${chat.pinned ? 'text-amber-400' : 'text-gray-400 hover:text-amber-300'}`} title={chat.pinned ? 'Unpin' : 'Pin to top'}>
-                      <Star className={`w-3.5 h-3.5 ${chat.pinned ? 'fill-amber-400' : ''}`} />
+                    <button onClick={(e) => { e.stopPropagation(); togglePinChat(chat.id); }} className={`p-1 hover:bg-black/10 dark:hover:bg-[#555] rounded ${chat.pinned ? 'text-amber-500 dark:text-amber-400' : 'text-gray-600 dark:text-gray-400 hover:text-amber-500'}`} title={chat.pinned ? 'Unpin' : 'Pin to top'}>
+                      <Star className={`w-3.5 h-3.5 ${chat.pinned ? 'fill-current' : ''}`} />
                     </button>
                     {reorderable && (
                       <>
-                        <button onClick={(e) => { e.stopPropagation(); moveChat(chat.id, 'up'); }} className="p-1 hover:bg-[#555] rounded text-gray-400 hover:text-white" title="Move up">
+                        <button onClick={(e) => { e.stopPropagation(); moveChat(chat.id, 'up'); }} className="p-1 hover:bg-black/10 dark:hover:bg-[#555] rounded text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white" title="Move up">
                           <ChevronUp className="w-3.5 h-3.5" />
                         </button>
-                        <button onClick={(e) => { e.stopPropagation(); moveChat(chat.id, 'down'); }} className="p-1 hover:bg-[#555] rounded text-gray-400 hover:text-white" title="Move down">
+                        <button onClick={(e) => { e.stopPropagation(); moveChat(chat.id, 'down'); }} className="p-1 hover:bg-black/10 dark:hover:bg-[#555] rounded text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white" title="Move down">
                           <ChevronDown className="w-3.5 h-3.5" />
                         </button>
                       </>
                     )}
-                    <button onClick={(e) => { e.stopPropagation(); setEditingChatId(chat.id); setEditingTitle(chat.title || ''); }} className="p-1 hover:bg-[#555] rounded text-gray-400 hover:text-white" title="Rename">
+                    <button onClick={(e) => { e.stopPropagation(); setEditingChatId(chat.id); setEditingTitle(chat.title || ''); }} className="p-1 hover:bg-black/10 dark:hover:bg-[#555] rounded text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white" title="Rename">
                       <Pencil className="w-3.5 h-3.5" />
                     </button>
-                    <button onClick={(e) => { e.stopPropagation(); deleteChat(chat.id); }} className="p-1 hover:bg-[#555] rounded text-gray-400 hover:text-red-400" title="Delete chat">
+                    <button onClick={(e) => { e.stopPropagation(); deleteChat(chat.id); }} className="p-1 hover:bg-black/10 dark:hover:bg-[#555] rounded text-gray-600 dark:text-gray-400 hover:text-red-500" title="Delete chat">
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
