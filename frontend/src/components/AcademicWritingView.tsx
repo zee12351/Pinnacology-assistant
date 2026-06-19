@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTheme } from 'next-themes';
-import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Upload, X, Search, Check, Star, Users, ListChecks, Play, SlidersHorizontal, ChevronsRight, ChevronsLeft, Type, Home, Settings2, Download, ThumbsUp, ThumbsDown, Info, ChevronDown, GraduationCap, FlaskConical, Feather, CheckCircle2, ChevronLeft, RotateCcw, Loader2, Sparkles, Trash2, Moon, Sun } from 'lucide-react';
+import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Upload, X, Search, Check, Star, Users, ListChecks, Play, SlidersHorizontal, ChevronsRight, ChevronsLeft, Type, Home, Settings2, Download, ThumbsUp, ThumbsDown, Info, ChevronDown, GraduationCap, FlaskConical, Feather, CheckCircle2, ChevronLeft, RotateCcw, Loader2, Sparkles, Trash2, Moon, Sun, Pencil } from 'lucide-react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
@@ -220,6 +220,9 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   ]);
   const [activeChatId, setActiveChatId] = useState(1);
   const [selectedChats, setSelectedChats] = useState<number[]>([]);
+  const [chatSearch, setChatSearch] = useState('');
+  const [editingChatId, setEditingChatId] = useState<number | null>(null);
+  const [editingTitle, setEditingTitle] = useState('');
   const [promptExpanded, setPromptExpanded] = useState(true);
   const [promptInput, setPromptInput] = useState('');
   
@@ -1334,6 +1337,49 @@ Text to review: "${editor?.getText() || documentContent}"`, {
     });
   }, [documentContent, activeChatId, isEditing]);
 
+  // ---- Chat history management (ChatGPT-style) ----
+  const saveChats = (list: any[]) => {
+    setChatHistory(list);
+    try { localStorage.setItem('academic_projects_history', JSON.stringify(list)); } catch {}
+  };
+  const moveChat = (id: number, dir: 'up' | 'down') => {
+    const idx = chatHistory.findIndex((c: any) => c.id === id);
+    if (idx === -1) return;
+    const j = dir === 'up' ? idx - 1 : idx + 1;
+    if (j < 0 || j >= chatHistory.length) return;
+    const list = [...chatHistory];
+    [list[idx], list[j]] = [list[j], list[idx]];
+    saveChats(list);
+  };
+  const togglePinChat = (id: number) => {
+    const chat = chatHistory.find((c: any) => c.id === id);
+    if (!chat) return;
+    const nowPinned = !chat.pinned;
+    let list = chatHistory.map((c: any) => (c.id === id ? { ...c, pinned: nowPinned } : c));
+    if (nowPinned) {
+      const item = list.find((c: any) => c.id === id);
+      list = [item, ...list.filter((c: any) => c.id !== id)];
+    }
+    saveChats(list);
+  };
+  const renameChat = (id: number, title: string) => {
+    const t = (title || '').trim() || 'Untitled';
+    saveChats(chatHistory.map((c: any) => (c.id === id ? { ...c, title: t } : c)));
+  };
+  const deleteChat = (id: number) => {
+    const updated = chatHistory.filter((c: any) => c.id !== id);
+    saveChats(updated);
+    if (activeChatId === id) {
+      if (updated.length > 0) {
+        setActiveChatId(updated[0].id);
+        setDocumentContent(updated[0].content || '');
+        if (editor) editor.commands.setContent(updated[0].content || '<p class="text-gray-400">Start writing or type / for commands</p>', { emitUpdate: false });
+      } else {
+        handleGoHome();
+      }
+    }
+  };
+
   const [editorClickPos, setEditorClickPos] = useState({ x: 0, y: 0, text: '', visible: false });
 
   // Tiptap Editor Initialization
@@ -1686,7 +1732,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
               onClick={() => {
                 if (selectedChats.length > 0) {
                   const updatedHistory = chatHistory.filter((c: any) => !selectedChats.includes(c.id));
-                  setChatHistory(updatedHistory);
+                  saveChats(updatedHistory);
                   setSelectedChats([]);
                   if (activeChatId && selectedChats.includes(activeChatId)) {
                     if (updatedHistory.length > 0) {
@@ -1698,7 +1744,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                   }
                 } else {
                   if (confirm("Are you sure you want to clear all chats?")) {
-                    setChatHistory([]);
+                    saveChats([]);
                     setSelectedChats([]);
                     handleGoHome();
                   }
@@ -1714,12 +1760,32 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
           {/* Chat History Section */}
           <div className="flex flex-col gap-2 mt-4 flex-1 overflow-y-auto custom-scrollbar">
             <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider px-2 mb-2">Chat History</h3>
-            
+
+            {/* Search */}
+            <div className="relative px-1 mb-1">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+              <input
+                type="text"
+                value={chatSearch}
+                onChange={(e) => setChatSearch(e.target.value)}
+                placeholder="Search chats"
+                className="w-full bg-[#222] border border-[#3d3d3d] rounded-lg pl-8 pr-2 py-1.5 text-[12px] text-gray-200 placeholder:text-gray-500 outline-none focus:border-[#5b5fff] transition-colors"
+              />
+            </div>
+
             <div className="flex flex-col gap-1">
-              {chatHistory.map((chat: any) => (
-                <div 
-                  key={chat.id} 
+              {(() => {
+                const ordered = [...chatHistory].sort((a: any, b: any) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+                const filtered = ordered.filter((c: any) => (c.title || 'Untitled').toLowerCase().includes(chatSearch.toLowerCase()));
+                if (filtered.length === 0) {
+                  return <p className="text-[12px] text-gray-500 px-2 py-3 text-center">{chatSearch ? 'No matching chats.' : 'No chats yet.'}</p>;
+                }
+                const reorderable = !chatSearch;
+                return filtered.map((chat: any) => (
+                <div
+                  key={chat.id}
                   onClick={() => {
+                    if (editingChatId === chat.id) return;
                     setActiveChatId(chat.id);
                     setDocumentContent(chat.content || '');
                     setIsEditing(chat.isEditing || false);
@@ -1727,11 +1793,11 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                       editor.commands.setContent(chat.content || '<p class="text-gray-400">Start writing or type / for commands</p>', { emitUpdate: false });
                     }
                   }}
-                  className={`flex items-center justify-between gap-3 w-full text-left px-2 py-2.5 rounded-lg transition-colors group cursor-pointer ${activeChatId === chat.id ? 'bg-[#3d3d3d]' : 'hover:bg-[#3d3d3d]'}`}
+                  className={`flex items-center justify-between gap-2 w-full text-left px-2 py-2.5 rounded-lg transition-colors group cursor-pointer ${activeChatId === chat.id ? 'bg-[#3d3d3d]' : 'hover:bg-[#3d3d3d]'}`}
                 >
-                  <div className="flex items-center gap-3 overflow-hidden flex-1">
-                    <input 
-                      type="checkbox" 
+                  <div className="flex items-center gap-2 overflow-hidden flex-1">
+                    <input
+                      type="checkbox"
                       checked={selectedChats.includes(chat.id)}
                       onClick={(e) => e.stopPropagation()}
                       onChange={(e) => {
@@ -1744,33 +1810,57 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                       }}
                       className="w-3.5 h-3.5 shrink-0 rounded border-gray-500 bg-transparent accent-[#5b5fff] cursor-pointer"
                     />
-                    <MessageSquare className={`w-4 h-4 shrink-0 ${activeChatId === chat.id ? 'text-gray-200' : 'text-gray-400 group-hover:text-gray-300'}`} />
-                    <div className="flex flex-col overflow-hidden">
-                      <span className={`text-sm truncate ${activeChatId === chat.id ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}>{chat.title || 'Untitled'}</span>
+                    {chat.pinned
+                      ? <Star className="w-4 h-4 shrink-0 text-amber-400 fill-amber-400" />
+                      : <MessageSquare className={`w-4 h-4 shrink-0 ${activeChatId === chat.id ? 'text-gray-200' : 'text-gray-400 group-hover:text-gray-300'}`} />}
+                    <div className="flex flex-col overflow-hidden flex-1">
+                      {editingChatId === chat.id ? (
+                        <input
+                          autoFocus
+                          value={editingTitle}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => setEditingTitle(e.target.value)}
+                          onBlur={() => { renameChat(chat.id, editingTitle); setEditingChatId(null); }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') { renameChat(chat.id, editingTitle); setEditingChatId(null); }
+                            if (e.key === 'Escape') setEditingChatId(null);
+                          }}
+                          className="bg-[#1a1a1a] border border-[#5b5fff] rounded px-1.5 py-0.5 text-sm text-white outline-none w-full"
+                        />
+                      ) : (
+                        <span
+                          onDoubleClick={(e) => { e.stopPropagation(); setEditingChatId(chat.id); setEditingTitle(chat.title || ''); }}
+                          title="Double-click to rename"
+                          className={`text-sm truncate ${activeChatId === chat.id ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}
+                        >{chat.title || 'Untitled'}</span>
+                      )}
                       <span className="text-[10px] text-gray-400">{chat.date}</span>
                     </div>
                   </div>
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const updatedHistory = chatHistory.filter((c: any) => c.id !== chat.id);
-                      setChatHistory(updatedHistory);
-                      if (activeChatId === chat.id) {
-                        if (updatedHistory.length > 0) {
-                          setActiveChatId(updatedHistory[0].id);
-                          setDocumentContent(updatedHistory[0].content || '');
-                        } else {
-                          handleGoHome();
-                        }
-                      }
-                    }}
-                    className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-[#555] rounded-md transition-all text-gray-400 hover:text-red-400"
-                    title="Delete Chat"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center opacity-0 group-hover:opacity-100 transition-all shrink-0">
+                    <button onClick={(e) => { e.stopPropagation(); togglePinChat(chat.id); }} className={`p-1 hover:bg-[#555] rounded ${chat.pinned ? 'text-amber-400' : 'text-gray-400 hover:text-amber-300'}`} title={chat.pinned ? 'Unpin' : 'Pin to top'}>
+                      <Star className={`w-3.5 h-3.5 ${chat.pinned ? 'fill-amber-400' : ''}`} />
+                    </button>
+                    {reorderable && (
+                      <>
+                        <button onClick={(e) => { e.stopPropagation(); moveChat(chat.id, 'up'); }} className="p-1 hover:bg-[#555] rounded text-gray-400 hover:text-white" title="Move up">
+                          <ChevronUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); moveChat(chat.id, 'down'); }} className="p-1 hover:bg-[#555] rounded text-gray-400 hover:text-white" title="Move down">
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        </button>
+                      </>
+                    )}
+                    <button onClick={(e) => { e.stopPropagation(); setEditingChatId(chat.id); setEditingTitle(chat.title || ''); }} className="p-1 hover:bg-[#555] rounded text-gray-400 hover:text-white" title="Rename">
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); deleteChat(chat.id); }} className="p-1 hover:bg-[#555] rounded text-gray-400 hover:text-red-400" title="Delete chat">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
-              ))}
+                ));
+              })()}
             </div>
           </div>
 
