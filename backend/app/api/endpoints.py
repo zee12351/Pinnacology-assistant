@@ -526,10 +526,14 @@ async def generate_paper(request: GeneratePaperRequest):
             style = (style_m.group(1).strip() if style_m else "APA")
             structure = (
                 "Use EXACTLY this structure, with Markdown headings, writing several substantial, "
-                "well-developed paragraphs in each section:\n"
+                "well-developed paragraphs in EACH section:\n"
                 "# <a specific, descriptive paper title>\n"
                 "## Abstract\n## Introduction\n## Literature Review\n## Methodology\n"
-                "## Results\n## Discussion\n## Conclusion\n"
+                "## Results\n## Discussion\n## Conclusion\n\n"
+                "LENGTH & COMPLETENESS (critical): Write the ENTIRE paper in this single response, from the "
+                "title all the way through to the end. Every section must be fully written with multiple "
+                "paragraphs - aim for 1800-2800 words total. Do NOT stop early, do NOT summarise, do NOT ask "
+                "to continue, and do NOT leave any section empty or unfinished.\n"
             )
             if sources:
                 sources_payload = [{
@@ -542,7 +546,7 @@ async def generate_paper(request: GeneratePaperRequest):
                 src_block = "\n".join(
                     f"- ({s['author']}, {s['year']}) {s['title']}. {s['journal']}." +
                     (f" DOI: {s['doi']}" if s['doi'] else "")
-                    for s in sources
+                    for s in sources[:12]
                 )
                 instruction = (
                     f"You are an expert academic researcher. Write a complete, in-depth research paper on:\n"
