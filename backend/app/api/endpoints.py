@@ -364,3 +364,55 @@ async def suggest_citations(request: SuggestCitationsRequest):
     except Exception as e:
         print(f"suggest-citations error: {e}")
         return {"claims": []}
+
+
+class PaperSearchRequest(BaseModel):
+    query: str
+    year: Optional[str] = None
+    limit: int = 6
+
+@router.post("/semantic-scholar")
+async def semantic_scholar(request: PaperSearchRequest):
+    """Proxy to Semantic Scholar Graph API (browser-blocked by CORS, so done server-side)."""
+    q = (request.query or "").strip()
+    if not q:
+        return {"results": []}
+    try:
+        params = {
+            "query": q,
+            "limit": min(request.limit or 6, 10),
+            "fields": "title,authors,year,venue,externalIds,citationCount,openAccessPdf,abstract",
+        }
+        if request.year:
+            params["year"] = str(request.year)
+        headers = {}
+        key = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
+        if key:
+            headers["x-api-key"] = key
+        resp = requests.get(
+            "https://api.semanticscholar.org/graph/v1/paper/search",
+            params=params, headers=headers, timeout=12,
+        )
+        if resp.status_code != 200:
+            return {"results": []}
+        data = resp.json().get("data", []) or []
+        out = []
+        for it in data:
+            ext = it.get("externalIds") or {}
+            doi = ext.get("DOI", "") or ""
+            oa = it.get("openAccessPdf") or {}
+            out.append({
+                "doi": doi,
+                "title": it.get("title", "") or "",
+                "authors": [a.get("name", "") for a in (it.get("authors") or [])],
+                "year": it.get("year"),
+                "venue": it.get("venue", "") or "",
+                "citedBy": it.get("citationCount"),
+                "abstract": it.get("abstract") or "",
+                "isOA": bool(oa.get("url")),
+                "url": oa.get("url") or (f"https://doi.org/{doi}" if doi else ""),
+            })
+        return {"results": out}
+    except Exception as e:
+        print(f"semantic-scholar error: {e}")
+        return {"results": []}

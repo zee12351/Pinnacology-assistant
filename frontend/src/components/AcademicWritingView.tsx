@@ -485,6 +485,25 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       }));
     } catch { return []; }
   };
+  const semanticScholarCands = async (q: string, year: string) => {
+    const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    try {
+      const r = await fetch(`${API}/api/semantic-scholar`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: q, year: year || undefined }),
+      });
+      if (!r.ok) return [];
+      const j = await r.json();
+      return (j?.results || []).map((it: any) => normCand({
+        doi: it.doi, title: it.title,
+        authorsList: (it.authors || []).map((n: string) => splitName(n)),
+        year: it.year, container: it.venue, citedBy: it.citedBy,
+        abstract: it.abstract, url: it.url, type: 'article', isOA: it.isOA,
+        source: 'Semantic Scholar',
+      }));
+    } catch { return []; }
+  };
+
   // Query CrossRef + OpenAlex + Europe PMC together; pick the best year/author/topic match
   const multiSourceLookup = async (segment: string, context?: string) => {
     const { author, surname, year } = parseCitationSegment(segment);
@@ -497,6 +516,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       crossrefCands(bib, author, isAcronym),
       openalexCands(q, year),
       europepmcCands(q),
+      semanticScholarCands(q, year),
     ]);
     let cands: any[] = [];
     settled.forEach(r => { if (r.status === 'fulfilled') cands = cands.concat(r.value); });
