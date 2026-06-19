@@ -156,6 +156,12 @@ const toCslJson = (c: any, idx: number) => {
 
 const stripHtml = (h: string) => h.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 
+// Remove AI-inserted page markers like "_Page 1_", "**Page 2**" or a lone "Page 3" line.
+const stripPageMarkers = (md: string) => (md || '')
+  .replace(/^\s*[_*]{0,2}\s*Page\s*\d+\s*[_*]{0,2}\s*$/gim, '')
+  .replace(/[_*]{1,2}\s*Page\s*\d+\s*[_*]{1,2}/gi, '')
+  .replace(/\n{3,}/g, '\n\n');
+
 // AI ghost-text autocomplete: shows a grey suggestion at the cursor, Tab accepts it.
 const autocompleteKey = new PluginKey('aiAutocomplete');
 const AiAutocomplete = Extension.create({
@@ -1484,7 +1490,7 @@ Text to review: "${editor?.getText() || documentContent}"`, {
         if (documentContent === 'Thinking...') {
           htmlContent = '<p class="text-gray-400 italic">Thinking...</p>';
         } else {
-          htmlContent = marked.parse(documentContent, { breaks: true, gfm: true }) as string;
+          htmlContent = marked.parse(stripPageMarkers(documentContent), { breaks: true, gfm: true }) as string;
         }
         if (editor.getHTML() !== htmlContent) {
           editor.commands.setContent(htmlContent, { emitUpdate: false });
@@ -1669,20 +1675,29 @@ Text to review: "${editor?.getText() || documentContent}"`, {
 
   const onStartWriting = () => {
     setIsEditing(true);
-    
-    // Construct the prompt string from the settings
-    const prompt = `Topic/Prompt: ${promptInput || 'Please write an academic paper.'}
+
+    const hasPrompt = !!(promptInput && promptInput.trim());
+    const hasImported = !!(importedFileName && documentContent && documentContent.trim());
+
+    // Only generate a new document with AI when the user actually typed a prompt.
+    if (hasPrompt) {
+      const prompt = `Topic/Prompt: ${promptInput}
 Project Name: ${projectName || 'Untitled'}
 Publish Year Constraints: ${publishYear === 'Custom' ? customPublishYear || 'Not specified' : publishYear}
 Impact Factor: ${impactFactor}
 Citation Style: ${citationStyle}
 Include External Web Sources: ${externalSources ? 'Yes' : 'No'}
-Show Page Numbers: ${pageNumbers ? 'Yes' : 'No'}
 Headings Preference: ${headingsOption}
+Do NOT insert any page markers, page breaks or "_Page N_" text anywhere in the document.
 MANDATORY: You MUST include realistic scholarly inline citations at the end of every claim or paragraph using the requested citation style!`;
-
-    if (handleGenerateDocument) {
-      handleGenerateDocument(prompt);
+      if (handleGenerateDocument) handleGenerateDocument(prompt);
+    } else if (hasImported) {
+      // An uploaded document is present: open it for editing as-is (no AI generation).
+      if (editor) editor.commands.setContent(marked.parse(stripPageMarkers(documentContent), { breaks: true, gfm: true }) as string, { emitUpdate: false });
+    } else {
+      // Nothing provided: start a blank document for manual writing.
+      setDocumentContent('');
+      if (editor) editor.commands.setContent('<p></p>', { emitUpdate: false });
     }
   };
 
