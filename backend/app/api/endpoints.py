@@ -522,6 +522,15 @@ async def generate_paper(request: GeneratePaperRequest):
 
             sources = await asyncio.to_thread(retrieve_sources, search_topic, request.max_sources)
 
+            style_m = re.search(r"Citation Style:\s*(.+)", full)
+            style = (style_m.group(1).strip() if style_m else "APA")
+            structure = (
+                "Use EXACTLY this structure, with Markdown headings, writing several substantial, "
+                "well-developed paragraphs in each section:\n"
+                "# <a specific, descriptive paper title>\n"
+                "## Abstract\n## Introduction\n## Literature Review\n## Methodology\n"
+                "## Results\n## Discussion\n## Conclusion\n"
+            )
             if sources:
                 sources_payload = [{
                     "surname": (s.get("families") or [s["author"].split()[0]])[0],
@@ -536,21 +545,29 @@ async def generate_paper(request: GeneratePaperRequest):
                     for s in sources
                 )
                 instruction = (
-                    full + "\n\n"
-                    "You are writing a REAL academic paper. You MUST use ONLY the verified sources listed "
-                    "below for every citation. Cite them in-text EXACTLY as shown, e.g. (Author, Year) - do "
-                    "NOT change an author's name or year, and do NOT invent, guess, or cite any source that "
-                    "is not in this list. Only cite a source where it genuinely supports the sentence. "
-                    "End the paper with a 'References' section listing every source you actually cited, "
-                    "including its DOI.\n\nVERIFIED SOURCES:\n" + src_block
+                    f"You are an expert academic researcher. Write a complete, in-depth research paper on:\n"
+                    f"\"{search_topic}\".\n\n" + structure + "## References\n\n"
+                    "CITATION RULES:\n"
+                    f"- Support claims with in-text citations in {style} style, e.g. (Author, Year).\n"
+                    "- Use ONLY the Verified Sources listed below. Use each author name and year EXACTLY as "
+                    "given - never invent a citation, never change a year, never cite anything not in the list.\n"
+                    "- Only cite a source where it genuinely supports the sentence; you need not use them all.\n"
+                    f"- The References section must list ONLY the sources you actually cited, formatted in {style} "
+                    "style, each ending with its DOI link.\n\n"
+                    "OUTPUT RULES (very important):\n"
+                    "- Output ONLY the paper itself. Do NOT add any notes, checklists, self-review, reminders, "
+                    "or commentary to the reader.\n"
+                    "- Do NOT print the verified-sources list anywhere except as formatted References entries "
+                    "for sources you actually cited.\n\n"
+                    "VERIFIED SOURCES (for your citation use only):\n" + src_block
                 )
             else:
-                # Retrieval failed - avoid fabricating precise citations
                 instruction = (
-                    full + "\n\n"
-                    "Write the paper WITHOUT inventing specific author-year citations or fake references, "
-                    "since no verified sources are available right now. Use neutral phrasing like "
-                    "'studies have shown' instead of fabricated citations."
+                    f"You are an expert academic researcher. Write a complete, in-depth research paper on:\n"
+                    f"\"{search_topic}\".\n\n" + structure + "\n"
+                    "Do NOT invent specific author-year citations or a fake reference list (no verified sources "
+                    "are available right now). Use neutral phrasing such as 'prior studies have shown'. "
+                    "Output ONLY the paper, with no notes, checklists or commentary."
                 )
 
             async for chunk in model.astream([HumanMessage(content=instruction)]):
