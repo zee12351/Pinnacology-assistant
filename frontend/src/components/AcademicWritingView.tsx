@@ -411,6 +411,122 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     return { author: author || surname, surname, year };
   };
 
+  // Normalize any source's record into one shape
+  const normCand = (c: any) => {
+    const doi = String(c.doi || '').replace(/^https?:\/\/(dx\.)?doi\.org\//i, '').toLowerCase();
+    return {
+      doi,
+      title: c.title || '',
+      authorsList: c.authorsList || [],
+      year: c.year ? String(c.year) : '',
+      container: c.container || '',
+      citedBy: typeof c.citedBy === 'number' ? c.citedBy : null,
+      abstract: c.abstract || '',
+      url: c.url || (doi ? `https://doi.org/${doi}` : ''),
+      type: c.type || 'article',
+      isOA: (c.isOA === true || c.isOA === false) ? c.isOA : null,
+      source: c.source || '',
+    };
+  };
+  const splitName = (full: string) => {
+    const parts = (full || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return { family: '', given: '' };
+    return { family: parts[parts.length - 1], given: parts.slice(0, -1).join(' ') };
+  };
+  const crossrefCands = async (bib: string, author: string, isAcronym: boolean) => {
+    const sel = 'title,author,published,container-title,is-referenced-by-count,abstract,URL,type,DOI';
+    let url = `https://api.crossref.org/works?rows=6&select=${sel}&query.bibliographic=${encodeURIComponent(bib)}`;
+    if (author && !isAcronym) url += `&query.author=${encodeURIComponent(author)}`;
+    try {
+      const r = await fetch(url); const j = await r.json();
+      return (j?.message?.items || []).map((it: any) => normCand({
+        doi: it.DOI, title: Array.isArray(it.title) ? it.title[0] : it.title,
+        authorsList: (it.author || []).map((a: any) => ({ family: a.family || a.name || '', given: a.given || '' })),
+        year: it.published?.['date-parts']?.[0]?.[0],
+        container: Array.isArray(it['container-title']) ? it['container-title'][0] : it['container-title'],
+        citedBy: it['is-referenced-by-count'],
+        abstract: it.abstract ? String(it.abstract).replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim() : '',
+        url: it.URL, type: (it.type || 'article').replace(/-/g, ' '), source: 'Crossref',
+      }));
+    } catch { return []; }
+  };
+  const openalexCands = async (q: string, year: string) => {
+    let url = `https://api.openalex.org/works?per-page=6&search=${encodeURIComponent(q)}&mailto=info@pinnovix.app`;
+    if (year) url += `&filter=publication_year:${year}`;
+    try {
+      const r = await fetch(url); const j = await r.json();
+      return (j?.results || []).map((it: any) => normCand({
+        doi: it.doi, title: it.title || it.display_name,
+        authorsList: (it.authorships || []).map((a: any) => splitName(a.author?.display_name || a.raw_author_name || '')),
+        year: it.publication_year,
+        container: it.primary_location?.source?.display_name || it.host_venue?.display_name || '',
+        citedBy: it.cited_by_count, abstract: '',
+        url: it.doi || it.primary_location?.landing_page_url || '',
+        type: it.type || 'article', isOA: it.open_access?.is_oa, source: 'OpenAlex',
+      }));
+    } catch { return []; }
+  };
+  const europepmcCands = async (q: string) => {
+    const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(q)}&format=json&pageSize=6&resultType=core`;
+    try {
+      const r = await fetch(url); const j = await r.json();
+      const srcMap: any = { MED: 'PubMed', PMC: 'PubMed Central', PPR: 'Preprint (bioRxiv/medRxiv)', AGR: 'Agricola' };
+      return (j?.resultList?.result || []).map((it: any) => normCand({
+        doi: it.doi, title: it.title,
+        authorsList: (it.authorString || '').split(',').map((n: string) => splitName(n.trim())).filter((a: any) => a.family),
+        year: it.pubYear,
+        container: it.journalInfo?.journal?.title || '',
+        citedBy: typeof it.citedByCount === 'number' ? it.citedByCount : null,
+        abstract: it.abstractText ? String(it.abstractText).replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim() : '',
+        url: it.doi ? `https://doi.org/${it.doi}` : (it.fullTextUrlList?.fullTextUrl?.[0]?.url || ''),
+        type: it.pubTypeList?.pubType?.[0] || 'article',
+        isOA: it.isOpenAccess === 'Y' ? true : (it.isOpenAccess === 'N' ? false : null),
+        source: srcMap[it.source] || it.source || 'Europe PMC',
+      }));
+    } catch { return []; }
+  };
+  // Query CrossRef + OpenAlex + Europe PMC together; pick the best year/author/topic match
+  const multiSourceLookup = async (segment: string, context?: string) => {
+    const { author, surname, year } = parseCitationSegment(segment);
+    const ctx = (context || '').replace(/\([^()]*\)/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 280);
+    const isAcronym = /^[A-Z]{2,6}$/.test((surname || '').trim());
+    const bib = [ctx, author].filter(Boolean).join(' ').trim() || segment;
+    const q = [author, ctx].filter(Boolean).join(' ').slice(0, 200) || segment;
+    const ctxWords = new Set(ctx.toLowerCase().split(/[^a-z]+/).filter(w => w.length > 4));
+    const settled = await Promise.allSettled([
+      crossrefCands(bib, author, isAcronym),
+      openalexCands(q, year),
+      europepmcCands(q),
+    ]);
+    let cands: any[] = [];
+    settled.forEach(r => { if (r.status === 'fulfilled') cands = cands.concat(r.value); });
+    if (year && !cands.some(c => c.year === year)) {
+      try { cands = cands.concat(await openalexCands(q, '')); } catch {}
+    }
+    if (!cands.length) return { none: true, raw: segment };
+    const seen = new Set<string>(); const uniq: any[] = [];
+    for (const c of cands) { const k = c.doi || c.title.toLowerCase().slice(0, 60); if (k && !seen.has(k)) { seen.add(k); uniq.push(c); } }
+    const score = (c: any) => {
+      let sc = 0;
+      const fams = (c.authorsList || []).map((a: any) => (a.family || '').toLowerCase());
+      if (surname && !isAcronym && fams.some((f: string) => f && (f.includes(surname.toLowerCase()) || surname.toLowerCase().includes(f)))) sc += 5;
+      if (year && c.year === year) sc += 6;
+      else if (year && Math.abs(parseInt(c.year || '0', 10) - parseInt(year, 10)) <= 1) sc += 1;
+      const tw = (c.title || '').toLowerCase().split(/[^a-z]+/);
+      sc += Math.min(tw.filter((w: string) => w.length > 4 && ctxWords.has(w)).length, 4);
+      sc += Math.min((c.citedBy || 0) / 500, 2);
+      if (c.doi) sc += 0.5;
+      return sc;
+    };
+    const best = uniq.slice().sort((a, b) => score(b) - score(a))[0];
+    const meta: any = { ...best };
+    meta.authors = (best.authorsList || []).map((a: any) => [a.given, a.family].filter(Boolean).join(' ')).filter(Boolean).slice(0, 8).join(', ');
+    if (best.abstract && best.abstract.length > 320) { meta.abstract = best.abstract.slice(0, 320).trim(); meta.truncated = true; } else { meta.truncated = false; }
+    meta.weak = !!(year && best.year && best.year !== year) || score(best) < 4;
+    if (meta.isOA === null && meta.doi) meta.isOA = await fetchOA(meta.doi);
+    return meta;
+  };
+
   const lookupOne = async (segment: string, doi?: string | null, context?: string) => {
     const sel = 'title,author,published,container-title,is-referenced-by-count,abstract,URL,type,DOI';
     try {
@@ -423,43 +539,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         meta.isOA = await fetchOA(meta.doi);
         return meta;
       }
-      const { author, surname, year } = parseCitationSegment(segment);
-      const ctx = (context || '').replace(/\([^()]*\)/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 280);
-      // acronym authors (IDF, WHO, ADA, NICE) are organisations — don't constrain by author name
-      const isAcronym = /^[A-Z]{2,6}$/.test((surname || '').trim());
-      const bib = [ctx, author].filter(Boolean).join(' ').trim() || segment;
-      const ctxWords = new Set(ctx.toLowerCase().split(/[^a-z]+/).filter(w => w.length > 4));
-      const fetchItems = async (u: string) => {
-        try { const r = await fetch(u); const j = await r.json(); return (j?.message?.items || []) as any[]; } catch { return []; }
-      };
-      // pass 1: bibliographic (context + author), optionally constrained by a person author
-      let url = `https://api.crossref.org/works?rows=8&select=${sel}&query.bibliographic=${encodeURIComponent(bib)}`;
-      if (author && !isAcronym) url += `&query.author=${encodeURIComponent(author)}`;
-      let items = await fetchItems(url);
-      // pass 2: broaden (drop author constraint), using context or the raw segment
-      if (!items.length) {
-        items = await fetchItems(`https://api.crossref.org/works?rows=8&select=${sel}&query.bibliographic=${encodeURIComponent(ctx || segment)}`);
-      }
-      if (!items.length) return { none: true, raw: segment };
-      const score = (it: any) => {
-        let sc = 0;
-        const fams = (it.author || []).map((a: any) => (a.family || a.name || '').toLowerCase());
-        if (surname && !isAcronym && fams.some((f: string) => f.includes(surname.toLowerCase()) || surname.toLowerCase().includes(f))) sc += 5;
-        const y = String(it.published?.['date-parts']?.[0]?.[0] || '');
-        if (year && y === year) sc += 4;
-        else if (year && Math.abs(parseInt(y || '0', 10) - parseInt(year, 10)) <= 1) sc += 1.5;
-        // topical overlap between candidate title and the surrounding sentence
-        const titleWords = String(Array.isArray(it.title) ? it.title[0] : (it.title || '')).toLowerCase().split(/[^a-z]+/);
-        const overlap = titleWords.filter(w => w.length > 4 && ctxWords.has(w)).length;
-        sc += Math.min(overlap, 4);
-        sc += Math.min((it['is-referenced-by-count'] || 0) / 500, 2);
-        return sc;
-      };
-      const best = items.slice().sort((a, b) => score(b) - score(a))[0];
-      const meta: any = buildMeta(best);
-      meta.weak = score(best) < 3; // low-confidence guess
-      meta.isOA = await fetchOA(meta.doi);
-      return meta;
+      return await multiSourceLookup(segment, context);
     } catch {
       return { none: true, raw: segment };
     }
@@ -2463,7 +2543,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                         ) : (
                           <div key={idx} className="p-4 flex flex-col gap-1.5">
                             <div className="flex items-center justify-between gap-2">
-                              <span className="text-gray-400 text-[11px] font-bold tracking-wide uppercase">{it.type || 'Article'}</span>
+                              <span className="text-gray-400 text-[11px] font-bold tracking-wide uppercase">{it.type || 'Article'}{it.source ? ` · via ${it.source}` : ''}</span>
                               <div className="flex items-center gap-1.5">
                                 {it.weak && <span className="bg-amber-500/20 text-amber-300 rounded px-2 py-0.5 text-[10px] font-bold">BEST GUESS</span>}
                                 {it.citedBy != null && <span className="bg-[#333] rounded px-2 py-0.5 text-gray-300 text-[10px] font-bold">CITED BY {it.citedBy}</span>}
