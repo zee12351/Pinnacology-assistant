@@ -1027,8 +1027,13 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
 
   const viewCitationSource = () => {
     const item = citationMeta.items.find((i: any) => i && !i.none);
-    const url = item?.url || (item?.doi ? `https://doi.org/${item.doi}` : '');
-    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    let url = item?.url || (item?.doi ? `https://doi.org/${item.doi}` : '');
+    if (!url) {
+      // No resolved link yet: fall back to a scholarly search of the title or the in-text label
+      const q = (item?.title || citationPopup.text || '').replace(/[()]/g, ' ').trim();
+      url = `https://scholar.google.com/scholar?q=${encodeURIComponent(q)}`;
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const saveCitationRef = () => {
