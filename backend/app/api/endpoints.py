@@ -514,65 +514,30 @@ async def generate_paper(request: GeneratePaperRequest):
             if not model:
                 yield f"data: {json.dumps({'error': 'GEMINI_API_KEY not set'})}\n\n"
                 return
-            # derive a clean search query for retrieval
+            # derive a clean topic
             m = re.search(r"Topic/Prompt:\s*(.+)", full)
             search_topic = (m.group(1).strip() if m else full).split("\n")[0][:300]
             if not search_topic.strip():
                 search_topic = full[:300]
 
-            sources = await asyncio.to_thread(retrieve_sources, search_topic, request.max_sources)
-
-            style_m = re.search(r"Citation Style:\s*(.+)", full)
-            style = (style_m.group(1).strip() if style_m else "APA")
-            structure = (
-                "Use EXACTLY this structure, with Markdown headings, writing several substantial, "
-                "well-developed paragraphs in EACH section:\n"
+            # Jenni-style: the model writes the prose with NO citations. Real citations are
+            # inserted afterwards by /api/cite-claims (database lookups), never by the model.
+            instruction = (
+                f"You are an expert academic researcher. Write a complete, in-depth research paper on:\n"
+                f"\"{search_topic}\".\n\n"
+                "Use EXACTLY this structure, with Markdown headings and several substantial, well-developed "
+                "paragraphs in EACH section:\n"
                 "# <a specific, descriptive paper title>\n"
                 "## Abstract\n## Introduction\n## Literature Review\n## Methodology\n"
                 "## Results\n## Discussion\n## Conclusion\n\n"
-                "LENGTH & COMPLETENESS (critical): Write the ENTIRE paper in this single response, from the "
-                "title all the way through to the end. Every section must be fully written with multiple "
-                "paragraphs - aim for 1800-2800 words total. Do NOT stop early, do NOT summarise, do NOT ask "
-                "to continue, and do NOT leave any section empty or unfinished.\n"
+                "CRITICAL RULES:\n"
+                "- Do NOT include ANY in-text citations, (Author, Year) references, bracketed numbers like [1], "
+                "or a References/Bibliography section. Citations will be added separately by the system.\n"
+                "- State each claim directly and clearly in your own words.\n"
+                "- Write the ENTIRE paper in this single response - every section fully developed, 1800-2800 "
+                "words total. Do NOT stop early, summarise, or ask to continue.\n"
+                "- Output ONLY the paper itself, with no notes, checklists or commentary."
             )
-            if sources:
-                sources_payload = [{
-                    "surname": (s.get("families") or [s["author"].split()[0]])[0],
-                    "families": s.get("families", []),
-                    "year": s["year"], "title": s["title"],
-                    "journal": s["journal"], "doi": s["doi"],
-                } for s in sources]
-                yield f"data: {json.dumps({'type': 'sources', 'sources': sources_payload})}\n\n"
-                src_block = "\n".join(
-                    f"- ({s['author']}, {s['year']}) {s['title']}. {s['journal']}." +
-                    (f" DOI: {s['doi']}" if s['doi'] else "")
-                    for s in sources[:12]
-                )
-                instruction = (
-                    f"You are an expert academic researcher. Write a complete, in-depth research paper on:\n"
-                    f"\"{search_topic}\".\n\n" + structure + "## References\n\n"
-                    "CITATION RULES:\n"
-                    f"- Support claims with in-text citations in {style} style, e.g. (Author, Year).\n"
-                    "- Use ONLY the Verified Sources listed below. Use each author name and year EXACTLY as "
-                    "given - never invent a citation, never change a year, never cite anything not in the list.\n"
-                    "- Only cite a source where it genuinely supports the sentence; you need not use them all.\n"
-                    f"- The References section must list ONLY the sources you actually cited, formatted in {style} "
-                    "style, each ending with its DOI link.\n\n"
-                    "OUTPUT RULES (very important):\n"
-                    "- Output ONLY the paper itself. Do NOT add any notes, checklists, self-review, reminders, "
-                    "or commentary to the reader.\n"
-                    "- Do NOT print the verified-sources list anywhere except as formatted References entries "
-                    "for sources you actually cited.\n\n"
-                    "VERIFIED SOURCES (for your citation use only):\n" + src_block
-                )
-            else:
-                instruction = (
-                    f"You are an expert academic researcher. Write a complete, in-depth research paper on:\n"
-                    f"\"{search_topic}\".\n\n" + structure + "\n"
-                    "Do NOT invent specific author-year citations or a fake reference list (no verified sources "
-                    "are available right now). Use neutral phrasing such as 'prior studies have shown'. "
-                    "Output ONLY the paper, with no notes, checklists or commentary."
-                )
 
             async for chunk in model.astream([HumanMessage(content=instruction)]):
                 content = getattr(chunk, "content", "")
@@ -586,3 +551,59 @@ async def generate_paper(request: GeneratePaperRequest):
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+def _best_source_for_claim(claim: str):
+    """Find one real, verified paper (with DOI) that supports a claim sentence."""
+    q = (claim or "").strip()
+    if len(q) < 25:
+        return None
+    try:
+        r = requests.get("https://api.crossref.org/works", params={
+            "query.bibliographic": q[:250], "rows": 3,
+            "select": "title,author,published,container-title,DOI,is-referenced-by-count",
+            "filter": "type:journal-article",
+        }, headers={"User-Agent": "Pinnovix/1.0 (mailto:info@pinnovix.app)"}, timeout=10)
+        if r.status_code != 200:
+            return None
+        best = None
+        best_cited = -1
+        for it in r.json().get("message", {}).get("items", []):
+            doi = (it.get("DOI") or "").lower()
+            if not doi:
+                continue
+            authors = [a.get("family", "") for a in (it.get("author") or []) if a.get("family")]
+            dp = (it.get("published", {}) or {}).get("date-parts", [[None]])
+            year = dp[0][0] if dp and dp[0] else None
+            if not (authors and year):
+                continue
+            cited = it.get("is-referenced-by-count", 0) or 0
+            if cited > best_cited:
+                t = it.get("title") or [""]
+                title = t[0] if isinstance(t, list) and t else (t if isinstance(t, str) else "")
+                jc = it.get("container-title") or [""]
+                journal = jc[0] if isinstance(jc, list) and jc else (jc if isinstance(jc, str) else "")
+                best_cited = cited
+                best = {
+                    "author": _format_authors_intext(authors), "surname": authors[0],
+                    "families": authors, "year": str(year), "title": title,
+                    "journal": journal, "doi": doi,
+                }
+        return best
+    except Exception as e:
+        print(f"_best_source_for_claim error: {e}")
+        return None
+
+
+class CiteClaimsRequest(BaseModel):
+    claims: list
+
+@router.post("/cite-claims")
+async def cite_claims(request: CiteClaimsRequest):
+    """For each claim sentence, return a real supporting paper (author/year/DOI) - jenni-style."""
+    claims = request.claims or []
+    results = []
+    for idx, claim in enumerate(claims[:30]):
+        paper = await asyncio.to_thread(_best_source_for_claim, str(claim))
+        results.append({"idx": idx, "paper": paper})
+    return {"results": results}

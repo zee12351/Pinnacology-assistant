@@ -242,6 +242,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const [citationMeta, setCitationMeta] = useState<{ loading: boolean; items: any[] }>({ loading: false, items: [] });
   const [citeExpanded, setCiteExpanded] = useState(false);
   const [citeSaved, setCiteSaved] = useState(false);
+  const [autoCiting, setAutoCiting] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [autocompleteOn, setAutocompleteOn] = useState(true);
   const autocompleteOnRef = useRef(true);
@@ -849,6 +850,135 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   };
   const attachSourcesRef = useRef(attachSourcesToCitations);
   attachSourcesRef.current = attachSourcesToCitations;
+
+  // Run ONCE after generation finishes: bind citations that match a verified source, and DELETE any
+  // citation the AI fabricated (not in the verified list). Result: only real, paper-linked citations remain.
+  const finalizeCitations = (sources: any[]) => {
+    if (!editor || !editor.schema?.marks?.citation) return;
+    const citationType = editor.schema.marks.citation;
+    const byKey: Record<string, any> = {};
+    (sources || []).forEach((src: any) => {
+      const sur = String(src.surname || (src.families && src.families[0]) || '').toLowerCase();
+      if (sur && src.year) byKey[`${sur}|${src.year}`] = src;
+    });
+    const cites: any[] = [];
+    editor.state.doc.descendants((node: any, pos: number) => {
+      if (!node.isText || !node.text) return;
+      const mk = node.marks.find((m: any) => m.type.name === 'citation');
+      if (!mk) return;
+      cites.push({ from: pos, to: pos + node.nodeSize, text: node.text, attrs: mk.attrs });
+    });
+    if (!cites.length) return;
+    let tr = editor.state.tr;
+    // process last -> first so deletions don't shift earlier positions
+    for (let i = cites.length - 1; i >= 0; i--) {
+      const c = cites[i];
+      const ym = c.text.match(/\b(19|20)\d{2}/);
+      const sm = c.text.replace(/[()]/g, ' ').match(/[A-Z][a-zA-Z'’-]+/);
+      const year = ym ? ym[0] : '';
+      const sur = sm ? sm[0].toLowerCase() : '';
+      const src = (sur && year) ? byKey[`${sur}|${year}`] : null;
+      if (src) {
+        const attrs = {
+          doi: src.doi || null,
+          title: src.title || null,
+          authors: (src.families && src.families.length) ? JSON.stringify(src.families.map((f: string) => ({ family: f }))) : null,
+          year: src.year || null,
+          container: src.journal || null,
+          citedBy: null,
+          refs: null,
+        };
+        tr = tr.addMark(c.from, c.to, citationType.create(attrs));
+      } else if (!(c.attrs && c.attrs.doi)) {
+        // fabricated / unverifiable citation -> remove it (and a preceding space)
+        let from = c.from;
+        const before = editor.state.doc.textBetween(Math.max(0, c.from - 1), c.from);
+        if (before === ' ' || before === '\u00a0') from = c.from - 1;
+        tr = tr.delete(from, c.to);
+      }
+    }
+    tr.setMeta('addToHistory', true);
+    editor.view.dispatch(tr);
+    setTimeout(() => collectCitationsRef.current?.(editor), 80);
+  };
+  const finalizeCitationsRef = useRef(finalizeCitations);
+  finalizeCitationsRef.current = finalizeCitations;
+
+  // Jenni-style auto-citer: after the (citation-free) paper is written, find a REAL paper for each
+  // claim via the backend and insert a verified, DOI-bound citation at the end of that sentence.
+  const autoCiteDocument = async () => {
+    if (!editor) return;
+    const claims: string[] = [];
+    let inRefs = false;
+    editor.state.doc.descendants((node: any) => {
+      if (node.type.name === 'heading') {
+        const h = (node.textContent || '').toLowerCase();
+        inRefs = h.includes('reference') || h.includes('bibliograph');
+        return false;
+      }
+      if (inRefs) return false;
+      if (node.type.name === 'paragraph' && node.textContent) {
+        const txt = node.textContent.trim();
+        const sents = txt.match(/[^.!?]+[.!?]+/g) || (txt.length > 70 ? [txt] : []);
+        sents.filter((x: string) => x.trim().length > 70).slice(-2).forEach((x: string) => claims.push(x.trim()));
+      }
+      return true;
+    });
+    const unique = Array.from(new Set(claims)).slice(0, 30);
+    if (!unique.length) return;
+    setAutoCiting(true);
+    try {
+      const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${API}/api/cite-claims`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ claims: unique }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const citationType = editor.schema.marks.citation;
+      const inserts: { pos: number; paper: any }[] = [];
+      (data.results || []).forEach((r: any) => {
+        if (!r.paper) return;
+        const pos = findClaimInsertPos(unique[r.idx]);
+        if (pos != null) inserts.push({ pos, paper: r.paper });
+      });
+      inserts.sort((a, b) => b.pos - a.pos); // insert last->first to keep positions valid
+      let tr = editor.state.tr;
+      inserts.forEach(({ pos, paper }) => {
+        const intext = `(${paper.author}, ${paper.year})`;
+        const attrs = {
+          doi: paper.doi || null,
+          title: paper.title || null,
+          authors: (paper.families && paper.families.length) ? JSON.stringify(paper.families.map((f: string) => ({ family: f }))) : null,
+          year: paper.year || null,
+          container: paper.journal || null,
+          citedBy: null,
+          refs: null,
+        };
+        tr = tr.insert(pos, editor.schema.text(' ' + intext, [citationType.create(attrs)]));
+      });
+      tr.setMeta('addToHistory', true);
+      editor.view.dispatch(tr);
+      setTimeout(() => collectCitations(editor), 120);
+    } catch { /* ignore */ }
+    finally { setAutoCiting(false); }
+  };
+  const autoCiteRef = useRef(autoCiteDocument);
+  autoCiteRef.current = autoCiteDocument;
+
+  // Fire the finalize pass when a generation run completes (loading goes true -> false)
+  const prevLoadingRef = useRef(loading);
+  useEffect(() => {
+    if (prevLoadingRef.current && !loading && editor) {
+      const t = setTimeout(() => {
+        autoCiteRef.current?.();
+      }, 600);
+      prevLoadingRef.current = loading;
+      return () => clearTimeout(t);
+    }
+    prevLoadingRef.current = loading;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
 
   const scheduleDetect = () => {
     if (detectTimerRef.current) clearTimeout(detectTimerRef.current);
@@ -2562,7 +2692,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                   <button onClick={() => setChatPdfOpen(true)} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors">Ask your library</button>
                   <button onClick={() => { detectCitations(); setTimeout(() => editor && collectCitations(editor), 100); }} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100 transition-colors" title="Find plain-text citations and make them hoverable + add to references">Detect citations</button>
                   <button onClick={handleSuggestCitations} disabled={suggestLoading} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50 transition-colors" title="AI finds claims that need a citation and suggests real papers">{suggestLoading ? 'Finding…' : '✨ Suggest citations'}</button>
-                  <span className="text-[11px] text-gray-400">Select text, then pick an action</span>
+                  {autoCiting ? <span className="text-[12px] text-indigo-500 font-semibold flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Finding &amp; inserting real citations…</span> : <span className="text-[11px] text-gray-400">Select text, then pick an action</span>}
                 </div>
                 <EditorContent editor={editor} />
 
