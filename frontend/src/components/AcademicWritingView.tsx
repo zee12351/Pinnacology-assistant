@@ -275,6 +275,9 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const [autoCiting, setAutoCiting] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [autocompleteOn, setAutocompleteOn] = useState(true);
+  const [savedCitations, setSavedCitations] = useState<any[]>([]);
+  const [showSavedModal, setShowSavedModal] = useState(false);
+  useEffect(() => { try { const sv = localStorage.getItem('pinnovix_saved_citations'); if (sv) setSavedCitations(JSON.parse(sv)); } catch {} }, []);
   const autocompleteOnRef = useRef(true);
   useEffect(() => { autocompleteOnRef.current = autocompleteOn; }, [autocompleteOn]);
   const acTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1201,12 +1204,54 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
 
   const saveCitationRef = () => {
     const item = citationMeta.items.find((i: any) => i && !i.none);
-    const ref = item
-      ? [item.authors, item.year ? `(${item.year}).` : '', item.title ? `${item.title}.` : '', item.container ? `${item.container}.` : '', item.doi ? `https://doi.org/${item.doi}` : ''].filter(Boolean).join(' ')
-      : citationPopup.text;
-    navigator.clipboard?.writeText(ref);
+    if (!item) return;
+    const entry = {
+      doi: item.doi || '',
+      title: item.title || citationPopup.text,
+      authors: item.authors || '',
+      authorsList: item.authorsList || [],
+      year: item.year || '',
+      container: item.container || '',
+      url: item.url || (item.doi ? `https://doi.org/${item.doi}` : ''),
+    };
+    setSavedCitations(prev => {
+      const key = entry.doi || entry.title;
+      if (prev.some((c: any) => (c.doi || c.title) === key)) return prev;
+      const next = [entry, ...prev];
+      try { localStorage.setItem('pinnovix_saved_citations', JSON.stringify(next)); } catch {}
+      return next;
+    });
     setCiteSaved(true);
     setTimeout(() => setCiteSaved(false), 1500);
+  };
+
+  const removeSavedCitation = (key: string) => {
+    setSavedCitations(prev => {
+      const next = prev.filter((c: any) => (c.doi || c.title) !== key);
+      try { localStorage.setItem('pinnovix_saved_citations', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
+  const insertSavedCitation = (c: any) => {
+    if (!editor) return;
+    const al = (c.authorsList && c.authorsList.length) ? c.authorsList : [];
+    const intext = inTextCitation(al, c.year);
+    const attrs = {
+      doi: c.doi || null,
+      title: c.title || null,
+      authors: al.length ? JSON.stringify(al) : null,
+      year: c.year || null,
+      container: c.container || null,
+      citedBy: null,
+      refs: null,
+    };
+    editor.chain().focus().insertContent([
+      { type: 'text', text: intext, marks: [{ type: 'citation', attrs }] },
+      { type: 'text', text: ' ' },
+    ]).run();
+    setShowSavedModal(false);
+    setTimeout(() => collectCitations(editor), 60);
   };
 
   const refineCitation = (intext: string) => {
@@ -2157,6 +2202,14 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
             >
               <Trash2 className="w-4 h-4" />
               {selectedChats.length > 0 ? `Delete ${selectedChats.length} selected` : 'Clear all chats'}
+            </button>
+
+            <button
+              onClick={() => setShowSavedModal(true)}
+              className="flex items-center gap-2 w-full hover:bg-[#3d3d3d] text-gray-300 hover:text-white px-4 py-2.5 rounded-lg text-[13px] font-semibold transition-colors"
+            >
+              <Bookmark className="w-4 h-4" />
+              Saved citations{savedCitations.length > 0 ? ` (${savedCitations.length})` : ''}
             </button>
           </div>
 
@@ -3501,6 +3554,36 @@ Required JSON structure:
                           <button onClick={() => setSuggestions(prev => prev.filter(x => x !== sug))} className="text-gray-400 hover:text-white px-2 py-1.5 text-[13px]">Skip</button>
                         </>
                       )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showSavedModal && (
+        <div className="fixed inset-0 z-[100] flex items-start justify-center bg-black/60 backdrop-blur-sm pt-20" onClick={() => setShowSavedModal(false)}>
+          <div className="w-[680px] max-w-[92vw] bg-[#161616] border border-[#333] rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-[#2a2a2a] flex items-center justify-between">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2"><Bookmark className="w-4 h-4 text-[#7fa3ff]" /> Saved citations <span className="text-gray-500 text-[13px] font-normal">({savedCitations.length})</span></h2>
+              <button onClick={() => setShowSavedModal(false)} className="text-gray-400 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-5 flex flex-col gap-3 overflow-y-auto custom-scrollbar">
+              {savedCitations.length === 0 ? (
+                <p className="text-gray-500 text-[14px] py-8 text-center">No saved citations yet. Hover a citation and click <span className="text-gray-300 font-semibold">Save</span> to add it here.</p>
+              ) : (
+                savedCitations.map((c: any, idx: number) => (
+                  <div key={(c.doi || c.title) + idx} className="rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-3 flex flex-col gap-1.5">
+                    <h3 className="text-[14px] font-bold text-white leading-snug">{c.title}</h3>
+                    {c.authors && <p className="text-[12px] text-gray-400">{c.authors}</p>}
+                    {c.container && <p className="text-[12px] text-[#10b981]">{c.container}{c.year ? ` · ${c.year}` : ''}</p>}
+                    <div className="flex items-center gap-2 mt-1">
+                      <button onClick={() => insertSavedCitation(c)} className="bg-[#5b5fff] hover:bg-[#6b6fff] text-white px-3 py-1.5 rounded-lg text-[12px] font-bold flex items-center gap-1.5 transition-colors">Insert <ChevronRight className="w-3.5 h-3.5" /></button>
+                      {c.url && <a href={c.url} target="_blank" rel="noreferrer" className="border border-[#444] hover:bg-[#2a2a2a] text-white px-3 py-1.5 rounded-lg text-[12px] font-bold flex items-center gap-1.5 transition-colors"><ExternalLink className="w-3.5 h-3.5" /> View</a>}
+                      <button onClick={() => { const ref = [c.authors, c.year ? `(${c.year}).` : '', c.title ? `${c.title}.` : '', c.container ? `${c.container}.` : '', c.url].filter(Boolean).join(' '); navigator.clipboard?.writeText(ref); }} className="border border-[#444] hover:bg-[#2a2a2a] text-white px-3 py-1.5 rounded-lg text-[12px] font-bold transition-colors">Copy</button>
+                      <button onClick={() => removeSavedCitation(c.doi || c.title)} className="ml-auto text-gray-400 hover:text-red-400 p-1.5" title="Remove"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   </div>
                 ))
