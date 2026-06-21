@@ -1049,6 +1049,54 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   };
   generateNextSectionRef.current = generateNextSection;
 
+  // "Detect citations": wrap any plain-text citations, then resolve EACH one against the
+  // databases and bind the real paper (DOI + metadata) so the hover cards fill in and View works.
+  const resolveAllCitations = async () => {
+    if (!editor || !editor.schema?.marks?.citation) return;
+    detectCitations();
+    setAutoCiting(true);
+    try {
+      const citationType = editor.schema.marks.citation;
+      const targets: { from: number; to: number; text: string }[] = [];
+      const seenText = new Set<string>();
+      editor.state.doc.descendants((node: any, pos: number) => {
+        if (!node.isText || !node.text) return;
+        const mk = node.marks.find((m: any) => m.type.name === 'citation');
+        if (!mk || (mk.attrs && mk.attrs.doi)) return; // skip already-linked
+        targets.push({ from: pos, to: pos + node.nodeSize, text: node.text });
+        return false;
+      });
+      if (!targets.length) { setAutoCiting(false); return; }
+      const cache: Record<string, any> = {};
+      const updates: { from: number; to: number; meta: any }[] = [];
+      for (const t of targets) {
+        const key = t.text.trim();
+        let meta = cache[key];
+        if (meta === undefined) { meta = await multiSourceLookup(t.text, ''); cache[key] = meta; }
+        if (meta && !meta.none && (meta.doi || meta.title)) updates.push({ from: t.from, to: t.to, meta });
+      }
+      if (!updates.length) { setAutoCiting(false); return; }
+      updates.sort((a, b) => b.from - a.from);
+      let tr = editor.state.tr;
+      updates.forEach(({ from, to, meta }) => {
+        const attrs = {
+          doi: meta.doi || null,
+          title: meta.title || null,
+          authors: (meta.authorsList && meta.authorsList.length) ? JSON.stringify(meta.authorsList) : null,
+          year: meta.year || null,
+          container: meta.container || null,
+          citedBy: meta.citedBy != null ? String(meta.citedBy) : null,
+          refs: null,
+        };
+        tr = tr.addMark(from, to, citationType.create(attrs));
+      });
+      tr.setMeta('addToHistory', false);
+      editor.view.dispatch(tr);
+      setTimeout(() => collectCitations(editor), 80);
+    } catch { /* ignore */ }
+    finally { setAutoCiting(false); }
+  };
+
   // Fire the finalize pass when a generation run completes (loading goes true -> false)
   const prevLoadingRef = useRef(loading);
   useEffect(() => {
@@ -2855,7 +2903,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                   </button>
                   <button onClick={handleApplyCitationStyle} disabled={inlineAiBusy} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 hover:bg-indigo-50 disabled:opacity-50 transition-colors">Apply citation style</button>
                   <button onClick={() => setChatPdfOpen(true)} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors">Ask your library</button>
-                  <button onClick={() => { detectCitations(); setTimeout(() => editor && collectCitations(editor), 100); }} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100 transition-colors" title="Find plain-text citations and make them hoverable + add to references">Detect citations</button>
+                  <button onClick={resolveAllCitations} disabled={autoCiting} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100 disabled:opacity-50 transition-colors" title="Find every citation and link it to the real paper (fills in the hover cards + References)">{autoCiting ? 'Linking…' : 'Detect citations'}</button>
                   <button onClick={handleSuggestCitations} disabled={suggestLoading} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50 transition-colors" title="AI finds claims that need a citation and suggests real papers">{suggestLoading ? 'Finding…' : '✨ Suggest citations'}</button>
                   {autoCiting ? <span className="text-[12px] text-indigo-500 font-semibold flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Finding &amp; inserting real citations…</span> : <span className="text-[11px] text-gray-400">Select text, then pick an action</span>}
                 </div>
