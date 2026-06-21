@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTheme } from 'next-themes';
-import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Upload, X, Search, Check, Star, Users, ListChecks, Play, SlidersHorizontal, ChevronsRight, ChevronsLeft, Type, Home, Settings2, Download, ThumbsUp, ThumbsDown, Info, ChevronDown, GraduationCap, FlaskConical, Feather, CheckCircle2, ChevronLeft, RotateCcw, Loader2, Sparkles, Trash2, Moon, Sun, Pencil, ArrowLeftRight, ExternalLink, Bookmark } from 'lucide-react';
+import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Upload, X, Search, Check, Star, Users, ListChecks, Play, SlidersHorizontal, ChevronsRight, ChevronsLeft, Type, Home, Settings2, Download, ThumbsUp, ThumbsDown, Info, ChevronDown, GraduationCap, FlaskConical, Feather, CheckCircle2, ChevronLeft, RotateCcw, Loader2, Sparkles, Trash2, Moon, Sun, Pencil, ArrowLeftRight, ExternalLink, Bookmark, Menu } from 'lucide-react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
@@ -252,7 +252,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   
   // State for chat history
   const [chatHistory, setChatHistory] = useState<any[]>([
-    { id: 1, title: 'New Project', date: 'Today', content: '', isEditing: false }
+    { id: 1, title: '', date: 'Today', content: '', isEditing: false }
   ]);
   const [activeChatId, setActiveChatId] = useState(1);
   const [selectedChats, setSelectedChats] = useState<number[]>([]);
@@ -277,6 +277,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const [autocompleteOn, setAutocompleteOn] = useState(true);
   const [savedCitations, setSavedCitations] = useState<any[]>([]);
   const [showSavedModal, setShowSavedModal] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [genMode, setGenMode] = useState<'full' | 'paragraph'>('full');
   const [genBusy, setGenBusy] = useState(false);
   const [paperComplete, setPaperComplete] = useState(false);
@@ -942,7 +943,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const finalizeCitationsRef = useRef(finalizeCitations);
   finalizeCitationsRef.current = finalizeCitations;
 
-  // Jenni-style auto-citer: after the (citation-free) paper is written, find a REAL paper for each
+  // Pinnovix-style auto-citer: after the (citation-free) paper is written, find a REAL paper for each
   // claim via the backend and insert a verified, DOI-bound citation at the end of that sentence.
   const autoCiteDocument = async () => {
     if (!editor) return;
@@ -1849,7 +1850,7 @@ Text to review: "${editor?.getText() || documentContent}"`, {
         const parsed = JSON.parse(saved);
         if (parsed && parsed.length > 0) {
           setChatHistory(parsed);
-          setActiveChatId(Date.now());
+          setActiveChatId(parsed[0].id);
           if (parsed[0].content) {
             setDocumentContent('');
           }
@@ -2210,6 +2211,18 @@ Text to review: "${editor?.getText() || documentContent}"`, {
     const hasPrompt = !!(promptInput && promptInput.trim());
     const hasImported = !!(importedFileName && documentContent && documentContent.trim());
 
+    // Auto-name the project from the prompt if the user hasn't set a name
+    if (hasPrompt && !projectName.trim()) {
+      let auto = promptInput.trim()
+        .replace(/^(please\s+)?(give me|can you|could you|write|generate|create|make|produce|draft)\s+(me\s+)?(a |an |the )?/i, '')
+        .replace(/\bin\s+\d+\s*words?\b/i, '')
+        .replace(/[.?!]+$/, '')
+        .trim();
+      auto = auto.charAt(0).toUpperCase() + auto.slice(1);
+      auto = auto.slice(0, 70) || 'Untitled';
+      setChatHistory(prev => prev.map(c => (c.id === activeChatId ? { ...c, title: auto } : c)));
+    }
+
     // Paragraph-by-paragraph mode: generate the first section, then let the user click Continue.
     if (genMode === 'paragraph' && hasPrompt) {
       paperTopicRef.current = promptInput.trim();
@@ -2244,9 +2257,10 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
 
   return (
     <div className="flex w-full h-full bg-[#111111] text-gray-200 font-sans overflow-hidden">
+      {sidebarOpen && <div className="md:hidden fixed inset-0 bg-black/50 z-40" onClick={() => setSidebarOpen(false)} />}
       
       {/* 1. LEFT SECTION */}
-      <div className="w-[260px] bg-[#2d2d2d] border-r border-[#3d3d3d] flex flex-col shrink-0 h-full">
+      <div className={`w-[260px] bg-[#2d2d2d] border-r border-[#3d3d3d] flex flex-col shrink-0 h-full fixed md:static inset-y-0 left-0 z-50 transition-transform duration-200 md:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="p-4 flex flex-col gap-4 h-full">
           
           <div className="flex flex-col gap-2">
@@ -2263,7 +2277,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
             <button 
               onClick={() => {
                 const newId = chatHistory.length > 0 ? Math.max(...chatHistory.map((c: any) => c.id)) + 1 : 1;
-                const newChat = { id: newId, title: 'New Project', date: 'Today', content: '', isEditing: false };
+                const newChat = { id: newId, title: '', date: 'Today', content: '', isEditing: false };
                 setChatHistory([newChat, ...chatHistory]);
                 setActiveChatId(newId);
                 setIsEditing(false);
@@ -2484,7 +2498,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
         <div className="flex flex-col border-b border-[#2a2a2a] bg-[#161616]">
           {/* Header Row */}
           <div className="flex items-center justify-between px-4 py-2 border-b border-[#2a2a2a]">
-            <div className="text-[14px] text-gray-400 font-medium truncate w-32">{projectName || 'Untitled'}</div>
+            <div className="flex items-center gap-2 min-w-0"><button onClick={() => setSidebarOpen(true)} className="md:hidden text-gray-300 hover:text-white shrink-0" title="Menu"><Menu className="w-5 h-5" /></button><div className="flex items-baseline gap-2 min-w-0"><span className="text-[15px] font-bold text-white font-serif tracking-wide">Pinnovix</span>{projectName ? <span className="text-[13px] text-gray-500 truncate max-w-[120px] md:max-w-[160px]">/ {projectName}</span> : null}</div></div>
             <div className="flex items-center gap-3">
               <button className="flex items-center gap-2 text-gray-300 hover:text-white transition-colors text-[13px] font-bold">
                 <Users className="w-4 h-4" /> Share
@@ -2506,7 +2520,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
           </div>
           
           {/* Format Toolbar Row */}
-          <div className="flex items-center px-4 py-2 gap-4 text-gray-400 text-[13px]">
+          <div className="flex items-center px-4 py-2 gap-4 text-gray-400 text-[13px] overflow-x-auto custom-scrollbar whitespace-nowrap">
              <div className="flex items-center gap-3 border-r border-[#333] pr-4">
                 <button onClick={() => editor?.chain().focus().undo().run()} className="hover:text-white transition-colors" title="Undo">↩</button>
                 <button onClick={() => editor?.chain().focus().redo().run()} className="hover:text-white transition-colors" title="Redo">↪</button>
@@ -2716,7 +2730,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                       <div className="flex items-center justify-between">
                         <div className="flex flex-col gap-1">
                           <span className="text-[14px] font-bold text-white">Consider external sources</span>
-                          <span className="text-[13px] text-gray-500">Jenni will consider sources from the web</span>
+                          <span className="text-[13px] text-gray-500">Pinnovix will consider sources from the web</span>
                         </div>
                         <div onClick={() => setExternalSources(!externalSources)} className={`w-[42px] h-[24px] rounded-full flex items-center px-0.5 cursor-pointer transition-colors ${externalSources ? 'bg-[#5b5fff]' : 'bg-[#3d3d3d]'}`}>
                           <div className={`w-[18px] h-[18px] bg-white rounded-full shadow-sm transition-transform ${externalSources ? 'translate-x-[20px]' : 'translate-x-0'}`} />
@@ -2736,7 +2750,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                       <div className="flex items-center justify-between">
                         <div className="flex flex-col gap-1">
                           <span className="text-[14px] font-bold text-white">Limit to a collection</span>
-                          <span className="text-[13px] text-gray-500">Jenni will focus on sources from this collection</span>
+                          <span className="text-[13px] text-gray-500">Pinnovix will focus on sources from this collection</span>
                         </div>
                         <div className="px-4 py-2.5 border border-[#444] rounded-lg text-[14px] font-bold text-gray-400 flex items-center justify-between gap-4 w-[240px] bg-[#1a1a1a] cursor-pointer">
                           <span>All Sources</span>
@@ -3069,7 +3083,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
 
       {/* 3. RIGHT SECTION: Review Panel */}
       {isRightPanelOpen && (
-        <div className="w-[340px] bg-[#1a1a1a] border-l border-[#2a2a2a] flex flex-col shrink-0 h-full transition-all duration-300">
+        <div className="w-full sm:w-[340px] bg-[#1a1a1a] border-l border-[#2a2a2a] hidden lg:flex flex-col shrink-0 h-full transition-all duration-300">
         
         {/* Header */}
         <div className="px-5 py-5 flex items-center gap-3 border-b border-[#2a2a2a]">
@@ -3750,7 +3764,7 @@ Required JSON structure:
                 <div className="flex items-center justify-between">
                   <div className="flex flex-col gap-1">
                     <span className="text-[15px] font-bold text-white">Consider external sources</span>
-                    <span className="text-[13px] text-gray-400">Jenni will consider sources from the web</span>
+                    <span className="text-[13px] text-gray-400">Pinnovix will consider sources from the web</span>
                   </div>
                   <div onClick={() => setExternalSources(!externalSources)} className={`w-11 h-6 rounded-full flex items-center px-1 cursor-pointer transition-colors ${externalSources ? 'bg-[#5b5fff]' : 'bg-[#3d3d3d]'}`}>
                     <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${externalSources ? 'translate-x-[20px]' : 'translate-x-0'}`} />
@@ -3760,7 +3774,7 @@ Required JSON structure:
                 <div className="flex items-center justify-between">
                   <div className="flex flex-col gap-1">
                     <span className="text-[15px] font-bold text-white">Consider library sources</span>
-                    <span className="text-[13px] text-gray-400">Jenni will consider sources from your library</span>
+                    <span className="text-[13px] text-gray-400">Pinnovix will consider sources from your library</span>
                   </div>
                   <div onClick={() => setLibrarySources(!librarySources)} className={`w-11 h-6 rounded-full flex items-center px-1 cursor-pointer transition-colors ${librarySources ? 'bg-[#5b5fff]' : 'bg-[#3d3d3d]'}`}>
                     <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${librarySources ? 'translate-x-[20px]' : 'translate-x-0'}`} />
@@ -3770,7 +3784,7 @@ Required JSON structure:
                 <div className="flex items-center justify-between">
                   <div className="flex flex-col gap-1">
                     <span className="text-[15px] font-bold text-white">Limit to a collection</span>
-                    <span className="text-[13px] text-gray-400">Jenni will focus on sources from this collection</span>
+                    <span className="text-[13px] text-gray-400">Pinnovix will focus on sources from this collection</span>
                   </div>
                   <div className="px-4 py-2.5 border border-[#333] rounded-lg text-[14px] font-bold text-gray-400 flex items-center justify-between gap-4 w-[240px] bg-[#1a1a1a] cursor-pointer hover:border-[#444]">
                     <span>{limitCollection}</span>
