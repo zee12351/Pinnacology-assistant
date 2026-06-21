@@ -607,3 +607,52 @@ async def cite_claims(request: CiteClaimsRequest):
         paper = await asyncio.to_thread(_best_source_for_claim, str(claim))
         results.append({"idx": idx, "paper": paper})
     return {"results": results}
+
+
+class ContinuePaperRequest(BaseModel):
+    topic: str
+    existing: str = ""
+
+@router.post("/continue-paper")
+async def continue_paper(request: ContinuePaperRequest):
+    """Paragraph-by-paragraph (jenni-style) generation: write only the NEXT section each call."""
+    topic = (request.topic or "").strip()
+    existing = (request.existing or "").strip()
+
+    async def event_generator():
+        try:
+            from app.agents.workflow import get_model
+            model = get_model()
+            if not model:
+                yield f"data: {json.dumps({'error': 'GEMINI_API_KEY not set'})}\n\n"
+                return
+            if not existing:
+                instruction = (
+                    f"Begin a research paper on: \"{topic}\".\n"
+                    "Write ONLY the title as a Markdown '# ' heading, then '## Abstract' with one paragraph, "
+                    "then '## Introduction' with 2-3 paragraphs. Stop after the Introduction.\n"
+                    "Do NOT include any in-text citations, bracketed numbers, or a References section - "
+                    "citations are added separately. Output only the content, no commentary."
+                )
+            else:
+                instruction = (
+                    f"You are continuing a research paper on: \"{topic}\".\n\n"
+                    f"=== PAPER SO FAR ===\n{existing[-3500:]}\n=== END ===\n\n"
+                    "Write ONLY the NEXT section: the next '## ' heading and its 2-4 paragraphs. The usual "
+                    "order is Literature Review, Methodology, Results, Discussion, then Conclusion. "
+                    "Do NOT repeat anything already written, do NOT add a References section, and do NOT "
+                    "include any in-text citations or bracketed numbers. "
+                    "If the paper already contains a Conclusion section, reply with exactly: DONE"
+                )
+            async for chunk in model.astream([HumanMessage(content=instruction)]):
+                content = getattr(chunk, "content", "")
+                if isinstance(content, list):
+                    content = "".join(str(c) for c in content)
+                if content:
+                    yield f"data: {json.dumps({'type': 'token', 'content': content})}\n\n"
+            yield "data: [DONE]\n\n"
+        except Exception as e:
+            print(f"continue-paper error: {e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")

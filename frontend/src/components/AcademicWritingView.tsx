@@ -277,6 +277,11 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const [autocompleteOn, setAutocompleteOn] = useState(true);
   const [savedCitations, setSavedCitations] = useState<any[]>([]);
   const [showSavedModal, setShowSavedModal] = useState(false);
+  const [genMode, setGenMode] = useState<'full' | 'paragraph'>('full');
+  const [genBusy, setGenBusy] = useState(false);
+  const [paperComplete, setPaperComplete] = useState(false);
+  const paperTopicRef = useRef('');
+  const generateNextSectionRef = useRef<null | (() => void)>(null);
   useEffect(() => { try { const sv = localStorage.getItem('pinnovix_saved_citations'); if (sv) setSavedCitations(JSON.parse(sv)); } catch {} }, []);
   const autocompleteOnRef = useRef(true);
   useEffect(() => { autocompleteOnRef.current = autocompleteOn; }, [autocompleteOn]);
@@ -951,6 +956,9 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       }
       if (inRefs) return false;
       if (node.type.name === 'paragraph' && node.textContent) {
+        let already = false;
+        node.descendants((ch: any) => { if (ch.isText && ch.marks.some((m: any) => m.type.name === 'citation')) already = true; });
+        if (already) return false; // skip paragraphs that already have a citation
         const txt = node.textContent.trim();
         const sents = txt.match(/[^.!?]+[.!?]+/g) || (txt.length > 70 ? [txt] : []);
         sents.filter((x: string) => x.trim().length > 70).slice(-2).forEach((x: string) => claims.push(x.trim()));
@@ -998,6 +1006,48 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   };
   const autoCiteRef = useRef(autoCiteDocument);
   autoCiteRef.current = autoCiteDocument;
+
+  // Paragraph-by-paragraph generation (jenni-style): write the NEXT section, append it, then auto-cite.
+  const generateNextSection = async () => {
+    if (!editor || genBusy) return;
+    setGenBusy(true);
+    try {
+      const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const existing = editor.getText().trim();
+      const res = await fetch(`${API}/api/continue-paper`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: paperTopicRef.current, existing }),
+      });
+      if (!res.ok) { setGenBusy(false); return; }
+      const reader = res.body?.getReader();
+      const dec = new TextDecoder();
+      let buffer = '', section = '';
+      if (reader) {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += dec.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const d = line.slice(6);
+              if (d === '[DONE]') continue;
+              try { const j = JSON.parse(d); if (j.type === 'token') section += j.content; } catch {}
+            }
+          }
+        }
+      }
+      section = section.trim();
+      if (!section || /^DONE\b/i.test(section)) { setPaperComplete(true); return; }
+      const html = marked.parse(stripPageMarkers(section), { breaks: true, gfm: true }) as string;
+      editor.chain().focus('end').insertContent(html).run();
+      setDocumentContent(editor.getHTML());
+      setTimeout(() => autoCiteRef.current?.(), 400);
+    } catch { /* ignore */ }
+    finally { setGenBusy(false); }
+  };
+  generateNextSectionRef.current = generateNextSection;
 
   // Fire the finalize pass when a generation run completes (loading goes true -> false)
   const prevLoadingRef = useRef(loading);
@@ -2112,6 +2162,16 @@ Text to review: "${editor?.getText() || documentContent}"`, {
     const hasPrompt = !!(promptInput && promptInput.trim());
     const hasImported = !!(importedFileName && documentContent && documentContent.trim());
 
+    // Paragraph-by-paragraph mode: generate the first section, then let the user click Continue.
+    if (genMode === 'paragraph' && hasPrompt) {
+      paperTopicRef.current = promptInput.trim();
+      setPaperComplete(false);
+      setDocumentContent('');
+      if (editor) editor.commands.setContent('<p></p>', { emitUpdate: false });
+      setTimeout(() => generateNextSectionRef.current?.(), 150);
+      return;
+    }
+
     // Only generate a new document with AI when the user actually typed a prompt.
     if (hasPrompt) {
       const prompt = `Topic/Prompt: ${promptInput}
@@ -2441,6 +2501,10 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                 <button onClick={() => handleInsertEquation(true)} className="hover:text-white transition-colors" title="Insert inline math (LaTeX)">[x]</button>
                 <button onClick={() => handleInsertEquation(false)} className="hover:text-white transition-colors" title="Insert equation (LaTeX)">∑</button>
              </div>
+             <div className="ml-auto flex items-center gap-1 bg-[#1a1a1a] border border-[#333] rounded-lg p-0.5 mr-3">
+                <button onClick={() => setGenMode('full')} title="Generate the whole paper at once" className={`px-2.5 py-1 rounded-md text-[12px] font-bold transition-colors ${genMode === 'full' ? 'bg-[#5b5fff] text-white' : 'text-gray-400 hover:text-white'}`}>Full paper</button>
+                <button onClick={() => setGenMode('paragraph')} title="Generate one section at a time, like jenni" className={`px-2.5 py-1 rounded-md text-[12px] font-bold transition-colors ${genMode === 'paragraph' ? 'bg-[#5b5fff] text-white' : 'text-gray-400 hover:text-white'}`}>Paragraph</button>
+             </div>
              <button
                 onClick={() => {
                   const next = !autocompleteOn;
@@ -2450,7 +2514,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                     if (st && st.text) editor.view.dispatch(editor.state.tr.setMeta(autocompleteKey, ''));
                   }
                 }}
-                className="flex items-center gap-2 ml-auto"
+                className="flex items-center gap-2"
                 title={autocompleteOn ? 'AI autocomplete on (type, pause, then press Tab to accept)' : 'AI autocomplete off'}
              >
                 <Check className={`w-3 h-3 ${autocompleteOn ? 'text-[#5b5fff]' : 'text-gray-600'}`} />
@@ -2796,6 +2860,21 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                   {autoCiting ? <span className="text-[12px] text-indigo-500 font-semibold flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Finding &amp; inserting real citations…</span> : <span className="text-[11px] text-gray-400">Select text, then pick an action</span>}
                 </div>
                 <EditorContent editor={editor} />
+
+                {genMode === 'paragraph' && isEditing && !paperComplete && (
+                  <div className="not-prose my-6 flex justify-center">
+                    <button
+                      onClick={() => generateNextSectionRef.current?.()}
+                      disabled={genBusy}
+                      className="flex items-center gap-2 px-5 py-2.5 rounded-full border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 text-[14px] font-bold transition-colors shadow-sm"
+                    >
+                      {genBusy ? <><Loader2 className="w-4 h-4 animate-spin" /> Writing next section…</> : <>Continue writing <ChevronRight className="w-4 h-4" /></>}
+                    </button>
+                  </div>
+                )}
+                {genMode === 'paragraph' && isEditing && paperComplete && (
+                  <p className="not-prose my-6 text-center text-[13px] text-gray-400">Paper complete. Use the toolbar or AI bar to keep editing.</p>
+                )}
 
                 {citations.length > 0 && (
                   <div className="mt-10 pt-6 border-t-2 border-gray-200 not-prose">
