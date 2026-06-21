@@ -1854,11 +1854,15 @@ Text to review: "${editor?.getText() || documentContent}"`, {
         const parsed = JSON.parse(saved);
         if (parsed && parsed.length > 0) {
           setChatHistory(parsed);
-          setActiveChatId(parsed[0].id);
-          if (parsed[0].content) {
+          const first = parsed[0];
+          setActiveChatId(first.id);
+          if (first.content && first.content.trim()) {
+            setDocumentContent(first.content);
+            setIsEditing(true);
+          } else {
             setDocumentContent('');
+            setIsEditing(false);
           }
-          setIsEditing(false);
         }
       } catch (e) {
         console.error("Failed to load academic history", e);
@@ -2499,7 +2503,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
       </div>
 
       {/* 2. MIDDLE SECTION */}
-      <div className="flex-1 bg-[#161616] flex flex-col border-r border-[#2a2a2a] relative">
+      <div className="flex-1 min-w-0 bg-[#161616] flex flex-col border-r border-[#2a2a2a] relative">
         
         {/* Top Toolbar */}
         <div className="flex flex-col border-b border-[#2a2a2a] bg-[#161616]">
@@ -2527,7 +2531,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
           </div>
           
           {/* Format Toolbar Row */}
-          <div className="flex items-center px-4 py-2 gap-4 text-gray-400 text-[13px] overflow-x-auto custom-scrollbar whitespace-nowrap">
+          <div className="flex items-center px-4 py-2 gap-4 gap-y-2 text-gray-400 text-[13px] flex-wrap">
              <div className="flex items-center gap-3 border-r border-[#333] pr-4">
                 <button onClick={() => editor?.chain().focus().undo().run()} className="hover:text-white transition-colors" title="Undo">↩</button>
                 <button onClick={() => editor?.chain().focus().redo().run()} className="hover:text-white transition-colors" title="Redo">↪</button>
