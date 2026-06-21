@@ -288,6 +288,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   useEffect(() => { autocompleteOnRef.current = autocompleteOn; }, [autocompleteOn]);
   const acTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const collectCitationsRef = useRef<((ed: any) => void) | null>(null);
+  const isInternalUpdateRef = useRef(false);
   const detectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showCiteSearch, setShowCiteSearch] = useState(false);
   const [citeQuery, setCiteQuery] = useState('');
@@ -406,7 +407,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     if (!doi) return null;
     if (oaCacheRef.current[doi] !== undefined) return oaCacheRef.current[doi];
     try {
-      const r = await fetch(`https://api.unpaywall.org/v2/${encodeURIComponent(doi)}?email=info@pinnovix.app`);
+      const r = await fetch(`https://api.unpaywall.org/v2/${encodeURIComponent(doi).replace(/%2F/gi, '/')}?email=info@pinnovix.app`);
       if (!r.ok) { oaCacheRef.current[doi] = null; return null; }
       const j = await r.json();
       const isOA = !!j.is_oa;
@@ -591,7 +592,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     const sel = 'title,author,published,container-title,is-referenced-by-count,abstract,URL,type,DOI';
     try {
       if (doi) {
-        const r = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi)}?select=${sel}`);
+        const r = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi).replace(/%2F/gi, '/')}?select=${sel}`);
         const j = await r.json();
         const it = j?.message || null;
         if (!it) return { none: true, raw: segment };
@@ -1043,6 +1044,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       if (!section || /^DONE\b/i.test(section)) { setPaperComplete(true); return; }
       const html = marked.parse(stripPageMarkers(section), { breaks: true, gfm: true }) as string;
       editor.chain().focus('end').insertContent(html).run();
+      isInternalUpdateRef.current = true;
       setDocumentContent(editor.getHTML());
       setTimeout(() => autoCiteRef.current?.(), 400);
     } catch { /* ignore */ }
@@ -1934,6 +1936,7 @@ Text to review: "${editor?.getText() || documentContent}"`, {
     ],
     content: documentContent || '<h2 class="text-3xl font-bold mb-4">Quantum Computing with Artificial Intelligence</h2><p class="mb-4">The convergence of artificial intelligence and quantum computing represents a paradigm shift in computational science. Quantum machine learning algorithms can solve problems that lie beyond the reach of classical computers <span data-citation="true">(Pineda et al., 2025)</span>.</p>',
     onUpdate: ({ editor }) => {
+      isInternalUpdateRef.current = true;
       setDocumentContent(editor.getHTML());
       collectCitationsRef.current?.(editor);
     },
@@ -2016,6 +2019,7 @@ Text to review: "${editor?.getText() || documentContent}"`, {
 
   // Sync external changes (like live streaming) to the editor
   useEffect(() => {
+    if (isInternalUpdateRef.current) { isInternalUpdateRef.current = false; return; }
     if (editor && documentContent) {
       try {
         let htmlContent = documentContent;
