@@ -592,7 +592,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     const sel = 'title,author,published,container-title,is-referenced-by-count,abstract,URL,type,DOI';
     try {
       if (doi) {
-        const r = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi).replace(/%2F/gi, '/')}?select=${sel}`);
+        const r = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi).replace(/%2F/gi, '/')}`);
         const j = await r.json();
         const it = j?.message || null;
         if (!it) return { none: true, raw: segment };
@@ -1060,13 +1060,15 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     setAutoCiting(true);
     try {
       const citationType = editor.schema.marks.citation;
-      const targets: { from: number; to: number; text: string }[] = [];
+      const targets: { from: number; to: number; text: string; context: string }[] = [];
       const seenText = new Set<string>();
       editor.state.doc.descendants((node: any, pos: number) => {
         if (!node.isText || !node.text) return;
         const mk = node.marks.find((m: any) => m.type.name === 'citation');
         if (!mk || (mk.attrs && mk.attrs.doi)) return; // skip already-linked
-        targets.push({ from: pos, to: pos + node.nodeSize, text: node.text });
+        let context = '';
+        try { context = editor.state.doc.resolve(pos).parent.textContent || ''; } catch {}
+        targets.push({ from: pos, to: pos + node.nodeSize, text: node.text, context });
         return false;
       });
       if (!targets.length) { setAutoCiting(false); return; }
@@ -1075,7 +1077,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       for (const t of targets) {
         const key = t.text.trim();
         let meta = cache[key];
-        if (meta === undefined) { meta = await multiSourceLookup(t.text, ''); cache[key] = meta; }
+        if (meta === undefined) { meta = await multiSourceLookup(t.text, t.context || ''); cache[key] = meta; }
         if (meta && !meta.none && (meta.doi || meta.title)) updates.push({ from: t.from, to: t.to, meta });
       }
       if (!updates.length) { setAutoCiting(false); return; }
@@ -2020,6 +2022,7 @@ Text to review: "${editor?.getText() || documentContent}"`, {
   // Sync external changes (like live streaming) to the editor
   useEffect(() => {
     if (isInternalUpdateRef.current) { isInternalUpdateRef.current = false; return; }
+    if (editor && documentContent === editor.getHTML()) return; // editor-originated change; do not re-render (prevents loop/crash)
     if (editor && documentContent) {
       try {
         let htmlContent = documentContent;
