@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTheme } from 'next-themes';
-import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Upload, X, Search, Check, Star, Users, ListChecks, Play, SlidersHorizontal, ChevronsRight, ChevronsLeft, Type, Home, Settings2, Download, ThumbsUp, ThumbsDown, Info, ChevronDown, GraduationCap, FlaskConical, Feather, CheckCircle2, ChevronLeft, RotateCcw, Loader2, Sparkles, Trash2, Moon, Sun, Pencil, ArrowLeftRight, ExternalLink, Bookmark, Menu } from 'lucide-react';
+import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Upload, X, Search, Check, Star, Users, ListChecks, Play, SlidersHorizontal, ChevronsRight, ChevronsLeft, Type, Home, Settings2, Download, ThumbsUp, ThumbsDown, Info, ChevronDown, GraduationCap, FlaskConical, Feather, CheckCircle2, ChevronLeft, RotateCcw, Loader2, Sparkles, Trash2, Moon, Sun, Pencil, ArrowLeftRight, ExternalLink, Bookmark, Menu, Link2 } from 'lucide-react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
@@ -305,6 +305,11 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const [savedCitations, setSavedCitations] = useState<any[]>([]);
   const [showSavedModal, setShowSavedModal] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareEmail, setShareEmail] = useState('');
+  const [shareAccess, setShareAccess] = useState('Restricted');
+  const [shareCopied, setShareCopied] = useState(false);
+  const [collaborators, setCollaborators] = useState<any[]>([{ name: 'Zeeshan', email: 'zee12351@gmail.com', role: 'Owner' }]);
   const [genMode, setGenMode] = useState<'full' | 'paragraph'>('full');
   const [genBusy, setGenBusy] = useState(false);
   const [paperComplete, setPaperComplete] = useState(false);
@@ -2651,7 +2656,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
           <div className="flex items-center justify-between px-4 py-2 border-b border-[#2a2a2a]">
             <div className="flex items-center gap-2 min-w-0"><button onClick={() => setSidebarOpen(true)} className="md:hidden text-gray-300 hover:text-white shrink-0" title="Menu"><Menu className="w-5 h-5" /></button><div className="flex items-baseline gap-2 min-w-0"><span className="text-[15px] font-bold text-white font-serif tracking-wide">Pinnovix</span>{projectName ? <span className="text-[13px] text-gray-500 truncate max-w-[120px] md:max-w-[160px]">/ {projectName}</span> : null}</div></div>
             <div className="flex items-center gap-3">
-              <button className="flex items-center gap-2 text-gray-300 hover:text-white transition-colors text-[13px] font-bold">
+              <button onClick={() => setShowShareModal(true)} className="flex items-center gap-2 text-gray-300 hover:text-white transition-colors text-[13px] font-bold">
                 <Users className="w-4 h-4" /> Share
               </button>
               <button className="bg-[#5b5fff] hover:bg-[#6b6fff] text-white px-3 py-1.5 rounded flex items-center gap-2 text-[13px] font-bold transition-colors">
@@ -3897,6 +3902,66 @@ Required JSON structure:
                   </div>
                 ))
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showShareModal && (
+        <div className="fixed inset-0 z-[100] flex items-start justify-center bg-black/60 backdrop-blur-sm pt-24" onClick={() => setShowShareModal(false)}>
+          <div className="w-[480px] max-w-[94vw] bg-[#161616] border border-[#333] rounded-2xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center border-b border-[#2a2a2a]">
+              <button className="flex-1 flex items-center justify-center gap-2 py-3 text-[14px] font-bold text-white border-b-2 border-[#5b5fff]"><Users className="w-4 h-4" /> Share</button>
+              <button disabled title="Coming soon" className="flex-1 flex items-center justify-center gap-2 py-3 text-[14px] font-bold text-gray-600 cursor-not-allowed">Publish</button>
+              <button onClick={() => setShowShareModal(false)} className="px-4 text-gray-400 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-5 flex flex-col gap-4">
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  value={shareEmail}
+                  onChange={(e) => setShareEmail(e.target.value)}
+                  placeholder="Invite people via email address"
+                  className="flex-1 bg-[#1a1a1a] border border-[#333] rounded-lg px-3 py-2.5 text-[14px] text-white outline-none focus:border-[#5b5fff] transition-colors"
+                />
+                <button
+                  onClick={() => {
+                    const em = shareEmail.trim();
+                    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return;
+                    if (!collaborators.some((c: any) => c.email === em)) {
+                      setCollaborators(prev => [...prev, { name: em.split('@')[0], email: em, role: 'Editor' }]);
+                    }
+                    setShareEmail('');
+                  }}
+                  className="bg-[#5b5fff] hover:bg-[#6b6fff] text-white px-4 py-2.5 rounded-lg text-[14px] font-bold transition-colors"
+                >Invite</button>
+              </div>
+              <div>
+                <h3 className="text-[15px] font-bold text-white mb-2">Collaborators</h3>
+                <div className="flex flex-col gap-2">
+                  {collaborators.map((c: any, i: number) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-teal-400 to-blue-500 flex items-center justify-center text-white font-bold text-xs shrink-0">{(c.name || c.email)[0].toUpperCase()}</div>
+                      <div className="flex flex-col min-w-0 flex-1">
+                        <span className="text-[14px] text-gray-200 truncate">{c.name}{c.role === 'Owner' ? ' (You)' : ''}</span>
+                        <span className="text-[12px] text-gray-500 truncate">{c.email}</span>
+                      </div>
+                      <span className="text-[13px] text-gray-400 shrink-0">{c.role}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <h3 className="text-[15px] font-bold text-white mb-1">General access</h3>
+                <button onClick={() => setShareAccess(a => a === 'Restricted' ? 'Anyone with the link' : 'Restricted')} className="flex items-center gap-1 text-[14px] font-bold text-gray-200 hover:text-white">
+                  {shareAccess} <ChevronDown className="w-4 h-4" />
+                </button>
+                <p className="text-[12px] text-gray-500 mt-0.5">{shareAccess === 'Restricted' ? 'Only people with access can open with the link' : 'Anyone with the link can view this document'}</p>
+              </div>
+              <button
+                onClick={() => { try { navigator.clipboard?.writeText(window.location.href); setShareCopied(true); setTimeout(() => setShareCopied(false), 1500); } catch {} }}
+                className="self-start bg-[#5b5fff] hover:bg-[#6b6fff] text-white px-4 py-2.5 rounded-lg text-[14px] font-bold flex items-center gap-2 transition-colors"
+              ><Link2 className="w-4 h-4" /> {shareCopied ? 'Link copied!' : 'Copy Link'}</button>
             </div>
           </div>
         </div>

@@ -525,7 +525,7 @@ export default function HomePage() {
         )}
         
         {!isChatActive ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-6 h-full overflow-y-auto custom-scrollbar">
+          <div className="flex-1 min-h-0 flex flex-col items-center justify-start md:justify-center p-6 h-full overflow-y-auto custom-scrollbar">
             <PersonaGrid 
               selectedPersona={selectedPersona} 
               onSelectPersona={setSelectedPersona} 
