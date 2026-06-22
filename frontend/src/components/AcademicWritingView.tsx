@@ -58,6 +58,33 @@ function inTextCitation(authors: any, year?: string) {
   if (a.length === 2) return `(${a[0].family} & ${a[1].family}, ${y})`;
   return `(${a[0].family} et al., ${y})`;
 }
+function isNumberedStyle(idOrLabel: string) {
+  const x = (idOrLabel || '').toLowerCase();
+  return /ieee|vancouver|nature|science|chemical-society|\bacs\b|american-medical|\bama\b|numeric|nlm|cell|lancet|bmj|pnas|jama/.test(x);
+}
+const PAPER_TEMPLATES: { id: string; name: string; desc: string; md: string }[] = [
+  { id: 'litreview', name: 'Literature Review', desc: 'Synthesise existing research on a topic', md: '# Literature Review: <Your Topic>\n\n## Abstract\n\n## Introduction\n\n## Methods (Search Strategy)\n\n## Thematic Synthesis\n\n## Discussion\n\n## Conclusion\n' },
+  { id: 'proposal', name: 'Research Proposal', desc: 'Plan and justify a study', md: '# Research Proposal: <Title>\n\n## Abstract\n\n## Background and Rationale\n\n## Research Questions and Objectives\n\n## Methodology\n\n## Expected Outcomes and Significance\n\n## Timeline\n' },
+  { id: 'labreport', name: 'Lab Report', desc: 'Document an experiment', md: '# <Experiment Title>\n\n## Abstract\n\n## Introduction\n\n## Materials and Methods\n\n## Results\n\n## Discussion\n\n## Conclusion\n' },
+  { id: 'thesis', name: 'Thesis Chapter', desc: 'A full dissertation chapter', md: '# Chapter: <Title>\n\n## Introduction\n\n## Literature Background\n\n## Methodology\n\n## Results and Analysis\n\n## Discussion\n\n## Chapter Summary\n' },
+];
+
+function toBibtex(cites: any[]): string {
+  return cites.map((c, i) => {
+    const al = citeAuthorList(c.authors);
+    const authors = al.map((a: any) => `${a.family}${a.given ? ', ' + a.given : ''}`).join(' and ') || 'Unknown';
+    const key = ((al[0] && al[0].family) || 'ref').replace(/\s+/g, '') + (c.year || '') + (i + 1);
+    return `@article{${key},\n  title={${c.title || c.intext || ''}},\n  author={${authors}},\n  journal={${c.container || ''}},\n  year={${c.year || ''}},\n  doi={${c.doi || ''}}\n}`;
+  }).join('\n\n');
+}
+function toRis(cites: any[]): string {
+  return cites.map((c) => {
+    const al = citeAuthorList(c.authors);
+    const au = al.map((a: any) => `AU  - ${a.family}${a.given ? ', ' + a.given : ''}`).join('\n');
+    return `TY  - JOUR\n${au || 'AU  - Unknown'}\nTI  - ${c.title || c.intext || ''}\nJO  - ${c.container || ''}\nPY  - ${c.year || ''}\nDO  - ${c.doi || ''}\nER  - `;
+  }).join('\n\n');
+}
+
 function formatReference(meta: any, style: string, index: number) {
   const authors = citeAuthorList(meta.authors);
   const year = meta.year || 'n.d.';
@@ -834,6 +861,62 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   };
   collectCitationsRef.current = collectCitations;
 
+  // Numbered styles (IEEE/Vancouver/etc): show in-text citations as [1], [2]... in order of first
+  // appearance and renumber as they're added/removed. Author-year styles restore (Author, Year).
+  const renumberCitations = () => {
+    if (!editor || !editor.schema?.marks?.citation) return;
+    const numbered = isNumberedStyle(citationStyleId);
+    const citationType = editor.schema.marks.citation;
+    const items: { from: number; to: number; text: string; attrs: any }[] = [];
+    editor.state.doc.descendants((node: any, pos: number) => {
+      if (!node.isText || !node.text) return;
+      const mk = node.marks.find((m: any) => m.type.name === 'citation');
+      if (!mk) return;
+      items.push({ from: pos, to: pos + node.nodeSize, text: node.text, attrs: mk.attrs || {} });
+    });
+    if (!items.length) return;
+    // assign a stable number to each unique source, in document order
+    const numByKey: Record<string, number> = {};
+    let next = 1;
+    const keyOf = (a: any, text: string) => {
+      if (a.doi) return 'doi:' + a.doi;
+      const al = citeAuthorList(a.authors);
+      if (al.length && a.year) return 'ay:' + (al[0].family || '') + a.year;
+      return 'tx:' + text.replace(/[\[\]()]/g, '').trim().toLowerCase();
+    };
+    items.forEach(it => { const k = keyOf(it.attrs, it.text); if (!(k in numByKey)) numByKey[k] = next++; });
+    const updates: { from: number; to: number; text: string; attrs: any }[] = [];
+    items.forEach(it => {
+      let desired: string;
+      if (numbered) {
+        desired = `[${numByKey[keyOf(it.attrs, it.text)]}]`;
+      } else {
+        const al = citeAuthorList(it.attrs.authors);
+        desired = (al.length || it.attrs.year) ? inTextCitation(it.attrs.authors, it.attrs.year)
+          : (/^\[\d/.test(it.text.trim()) ? it.text : it.text); // can't restore without attrs; keep
+      }
+      if (desired && desired !== it.text) updates.push({ from: it.from, to: it.to, text: desired, attrs: it.attrs });
+    });
+    if (!updates.length) return;
+    updates.sort((a, b) => b.from - a.from); // last -> first keeps positions valid
+    let tr = editor.state.tr;
+    updates.forEach(u => {
+      tr = tr.replaceWith(u.from, u.to, editor.schema.text(u.text, [citationType.create(u.attrs)]));
+    });
+    tr.setMeta('addToHistory', false);
+    isInternalUpdateRef.current = true;
+    editor.view.dispatch(tr);
+  };
+  const renumberCitationsRef = useRef(renumberCitations);
+  renumberCitationsRef.current = renumberCitations;
+  // re-run when the style changes or citations are added/removed (debounced; idempotent)
+  useEffect(() => {
+    if (!editor) return;
+    const t = setTimeout(() => renumberCitationsRef.current?.(), 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [citationStyleId, citations.length]);
+
   // Auto-detect plain-text citations like "(Author, 2020)" and wrap them as citation marks,
   // so they become hoverable and feed the bibliography (works on AI-generated docs).
   const detectCitations = () => {
@@ -1441,6 +1524,22 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     } finally {
       setStyleIndexLoading(false);
     }
+  };
+
+  const downloadText = (content: string, filename: string, mime: string) => {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const insertTemplate = (tpl: { name: string; md: string }) => {
+    setIsEditing(true);
+    setDocumentContent(tpl.md);
+    setChatHistory(prev => prev.map(c => (c.id === activeChatId && !c.title?.trim() ? { ...c, title: tpl.name } : c)));
+    if (editor) editor.commands.setContent(marked.parse(tpl.md, { breaks: true, gfm: true }) as string, { emitUpdate: false });
   };
 
   const insertBibliography = () => {
@@ -2143,7 +2242,29 @@ Text to review: "${editor?.getText() || documentContent}"`, {
     setDownloadMenuOpen(false);
     
     if (format === 'pdf') {
-      window.print();
+      try {
+        const turndownService = new TurndownService();
+        const markdown = turndownService.turndown(editor?.getHTML() || '');
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/export-pdf`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ markdown_text: markdown })
+        });
+        if (!response.ok) throw new Error('Failed to generate PDF');
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${projectName || 'Research_Paper'}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (error) {
+        console.error("PDF download failed", error);
+        // fallback to browser print if the server is unavailable
+        window.print();
+      }
       return;
     }
     
@@ -2905,7 +3026,18 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                   </div>
                 )}
               </div>
-              <div className="flex justify-center mt-2">
+              <div className="mt-4">
+                <h3 className="text-[13px] font-bold text-gray-400 mb-2 px-1">Or start from a template</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  {PAPER_TEMPLATES.map(tpl => (
+                    <button key={tpl.id} onClick={() => insertTemplate(tpl)} className="text-left rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] hover:border-[#5b5fff] hover:bg-[#222] p-3 transition-colors">
+                      <div className="text-[14px] font-bold text-gray-200">{tpl.name}</div>
+                      <div className="text-[12px] text-gray-500 leading-snug">{tpl.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex justify-center mt-4">
                 <button onClick={onStartWriting} className="text-[14px] font-bold text-gray-400 hover:text-white transition-colors">Skip and start writing</button>
               </div>
 
@@ -2975,6 +3107,8 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                       <div className="flex items-center gap-2">
                         <button onClick={() => { setShowCitationModal(true); loadStyleIndex(); }} title="Choose from 2,600+ styles" className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors">Change style</button>
                         <button onClick={insertBibliography} title="Insert this list into the document" className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors">Insert into document</button>
+                        <button onClick={() => downloadText(toBibtex(citations), `${projectName || 'references'}.bib`, 'application/x-bibtex')} title="Export BibTeX (.bib)" className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors">.bib</button>
+                        <button onClick={() => downloadText(toRis(citations), `${projectName || 'references'}.ris`, 'application/x-research-info-systems')} title="Export RIS (.ris)" className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors">.ris</button>
                         <button onClick={() => { const txt = (cslBib && cslBib.length) ? cslBib.map(stripHtml).join('\n') : citations.map((c, i) => formatReference(c, citationStyle, i + 1)).join('\n'); navigator.clipboard?.writeText(txt); }} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors">Copy all</button>
                       </div>
                     </div>
@@ -3045,13 +3179,17 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                             {it.container && (
                               <p className="text-[12px] text-[#10b981]">{it.container}{it.year && <span className="text-gray-500"> • {it.year}</span>}</p>
                             )}
-                            {it.abstract && (
+                            {it.abstract ? (
                               <div className="mt-1 bg-[#333]/50 rounded-lg p-2.5 text-[12px] text-gray-300 leading-relaxed border-l-2 border-[#5b5fff]">
                                 {citeExpanded || !it.truncated
                                   ? it.abstract
                                   : <>{it.abstract}… <button onClick={() => setCiteExpanded(true)} className="text-white font-bold hover:underline">See more</button></>}
                               </div>
-                            )}
+                            ) : (it.title && (
+                              <div className="mt-1 bg-[#333]/50 rounded-lg p-2.5 text-[12px] text-gray-400 italic leading-relaxed border-l-2 border-[#5b5fff]">
+                                {`A ${it.type || 'paper'}${it.container ? ` published in ${it.container}` : ''}${it.year ? ` in ${it.year}` : ''}${it.authors ? ` by ${it.authors.split(',')[0]}${it.authors.includes(',') ? ' et al.' : ''}` : ''}${it.citedBy != null ? `, cited ${it.citedBy} times` : ''}. No abstract was available from the indexing databases.`}
+                              </div>
+                            ))}
                             {it.url && (
                               <a href={it.url} target="_blank" rel="noreferrer" className="mt-1 flex items-center gap-1 text-[12px] font-bold text-[#7fa3ff] hover:text-white w-fit">
                                 <ChevronUp className="w-3.5 h-3.5 rotate-45" /> Open source

@@ -13,3 +13,4 @@ pydantic==2.6.4
 typing-extensions==4.10.0
 python-docx>=1.1.0
 markdown>=3.5.0
+reportlab>=4.0.0

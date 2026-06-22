@@ -9,6 +9,7 @@ from app.agents.workflow import app_graph
 from app.rag.processor import processor
 from app.vectorstore.chroma_client import chroma_store
 from app.utils.docx_generator import create_docx_from_markdown
+from app.utils.pdf_generator import create_pdf_from_markdown
 
 router = APIRouter()
 
@@ -168,6 +169,18 @@ async def export_docx(request: ExportDocxRequest):
             iter([buffer.getvalue()]), 
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             headers={"Content-Disposition": "attachment; filename=Pinnovix_Expert_Output.docx"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/export-pdf")
+async def export_pdf(request: ExportDocxRequest):
+    try:
+        buffer = create_pdf_from_markdown(request.markdown_text)
+        return StreamingResponse(
+            iter([buffer.getvalue()]),
+            media_type="application/pdf",
+            headers={"Content-Disposition": "attachment; filename=Pinnovix_Document.pdf"}
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -382,7 +395,7 @@ async def semantic_scholar(request: PaperSearchRequest):
         params = {
             "query": q,
             "limit": min(request.limit or 6, 10),
-            "fields": "title,authors,year,venue,externalIds,citationCount,openAccessPdf,abstract",
+            "fields": "title,authors,year,venue,externalIds,citationCount,openAccessPdf,abstract,tldr",
         }
         if request.year:
             params["year"] = str(request.year)
@@ -409,7 +422,7 @@ async def semantic_scholar(request: PaperSearchRequest):
                 "year": it.get("year"),
                 "venue": it.get("venue", "") or "",
                 "citedBy": it.get("citationCount"),
-                "abstract": it.get("abstract") or "",
+                "abstract": it.get("abstract") or ((it.get("tldr") or {}).get("text") or ""),
                 "isOA": bool(oa.get("url")),
                 "url": oa.get("url") or (f"https://doi.org/{doi}" if doi else ""),
             })
