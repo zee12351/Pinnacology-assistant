@@ -491,6 +491,13 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       }));
     } catch { return []; }
   };
+  const openAlexAbstract = (inv: any): string => {
+    if (!inv || typeof inv !== 'object') return '';
+    const words: string[] = [];
+    for (const w of Object.keys(inv)) { for (const p of inv[w]) words[p] = w; }
+    let a = words.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    return a;
+  };
   const openalexCands = async (q: string, year: string) => {
     let url = `https://api.openalex.org/works?per-page=6&search=${encodeURIComponent(q)}&mailto=info@pinnovix.app`;
     if (year) url += `&filter=publication_year:${year}`;
@@ -501,7 +508,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         authorsList: (it.authorships || []).map((a: any) => splitName(a.author?.display_name || a.raw_author_name || '')),
         year: it.publication_year,
         container: it.primary_location?.source?.display_name || it.host_venue?.display_name || '',
-        citedBy: it.cited_by_count, abstract: '',
+        citedBy: it.cited_by_count, abstract: openAlexAbstract(it.abstract_inverted_index),
         url: it.doi || it.primary_location?.landing_page_url || '',
         type: it.type || 'article', isOA: it.open_access?.is_oa, source: 'OpenAlex',
       }));
@@ -565,8 +572,20 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       try { cands = cands.concat(await openalexCands(q, '')); } catch {}
     }
     if (!cands.length) return { none: true, raw: segment };
-    const seen = new Set<string>(); const uniq: any[] = [];
-    for (const c of cands) { const k = c.doi || c.title.toLowerCase().slice(0, 60); if (k && !seen.has(k)) { seen.add(k); uniq.push(c); } }
+    const seen = new Map<string, any>(); const uniq: any[] = [];
+    for (const c of cands) {
+      const k = c.doi || (c.title || '').toLowerCase().slice(0, 60);
+      if (!k) continue;
+      if (!seen.has(k)) { seen.set(k, c); uniq.push(c); }
+      else {
+        const e = seen.get(k);
+        if (!e.abstract && c.abstract) e.abstract = c.abstract;
+        if ((e.citedBy == null) && c.citedBy != null) e.citedBy = c.citedBy;
+        if (!e.doi && c.doi) e.doi = c.doi;
+        if (e.isOA == null && c.isOA != null) e.isOA = c.isOA;
+        if (!e.container && c.container) e.container = c.container;
+      }
+    }
     const score = (c: any) => {
       let sc = 0;
       const fams = (c.authorsList || []).map((a: any) => (a.family || '').toLowerCase());
@@ -2985,7 +3004,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
               {citationPopup.visible && (
                 <div 
                   data-cite-popup="1"
-                  className="fixed z-[60] bg-[#252525] border border-[#333] rounded-xl shadow-2xl w-[440px] flex flex-col overflow-hidden"
+                  className="fixed z-[60] bg-[#252525] border border-[#333] rounded-xl shadow-2xl w-[440px] max-w-[calc(100vw-16px)] flex flex-col overflow-hidden"
                   style={{
                     top: Math.min(citationPopup.y + 2, (typeof window !== 'undefined' ? window.innerHeight : 800) - 420),
                     left: Math.max(12, Math.min(citationPopup.x, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 460)),
@@ -3464,7 +3483,7 @@ Required JSON structure:
       {/* Citation Style Modal */}
       {showCitationModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-[850px] bg-[#151515] rounded-xl border border-[#333] shadow-2xl flex flex-col overflow-hidden">
+          <div className="w-[850px] max-w-[94vw] bg-[#151515] rounded-xl border border-[#333] shadow-2xl flex flex-col overflow-hidden">
             {/* Header */}
             <div className="px-6 py-5 border-b border-[#2a2a2a] flex justify-between items-center">
               <h2 className="text-xl font-bold text-white">Citation Style</h2>
@@ -3755,7 +3774,7 @@ Required JSON structure:
       {/* Claim Confidence Settings Modal */}
       {showClaimConfidenceSettings && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-[600px] bg-[#161616] border border-[#333] rounded-2xl shadow-2xl overflow-hidden flex flex-col relative animate-in fade-in zoom-in duration-200">
+          <div className="w-[600px] max-w-[92vw] bg-[#161616] border border-[#333] rounded-2xl shadow-2xl overflow-hidden flex flex-col relative animate-in fade-in zoom-in duration-200">
             <div className="px-6 py-5 border-b border-[#2a2a2a] flex items-center justify-between">
               <h2 className="text-xl font-bold text-white">Claim confidence settings</h2>
               <button onClick={() => setShowClaimConfidenceSettings(false)} className="text-gray-400 hover:text-white transition-colors">
