@@ -340,6 +340,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const citeCacheRef = useRef<Record<string, any>>({});
   const oaCacheRef = useRef<Record<string, boolean | null>>({});
+  const ifCacheRef = useRef<Record<string, number | null>>({});
   const lastCiteRef = useRef<string>('');
   const hideCiteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isReviewing, setIsReviewing] = useState(false);
@@ -448,6 +449,27 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     } catch { oaCacheRef.current[doi] = null; return null; }
   };
 
+  // Journal impact metric via OpenAlex (2-year mean citedness) - free, real, and consistent per journal.
+  const fetchImpactFactor = async (sourceId?: string, issn?: string, container?: string): Promise<number | null> => {
+    const key = sourceId || (issn ? 'issn:' + issn : '') || (container ? 'c:' + container.toLowerCase() : '');
+    if (!key) return null;
+    if (ifCacheRef.current[key] !== undefined) return ifCacheRef.current[key];
+    let val: number | null = null;
+    try {
+      let url = '';
+      if (sourceId) url = `https://api.openalex.org/sources/${sourceId.split('/').pop()}?select=summary_stats`;
+      else if (issn) url = `https://api.openalex.org/sources/issn:${issn}?select=summary_stats`;
+      else url = `https://api.openalex.org/sources?search=${encodeURIComponent(container || '')}&per-page=1&select=summary_stats&mailto=info@pinnovix.app`;
+      const r = await fetch(url);
+      const j = await r.json();
+      const src = (sourceId || issn) ? j : (j?.results?.[0]);
+      const m = src?.summary_stats?.['2yr_mean_citedness'];
+      if (typeof m === 'number') val = Math.round(m * 100) / 100;
+    } catch { /* ignore */ }
+    ifCacheRef.current[key] = val;
+    return val;
+  };
+
   const buildMeta = (it: any) => {
     const authorsList = (it.author || []).map((a: any) => ({ family: a.family || a.name || '', given: a.given || '' }));
     const authors = authorsList.map((a: any) => [a.given, a.family].filter(Boolean).join(' ')).filter(Boolean).slice(0, 8).join(', ');
@@ -499,6 +521,8 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       type: c.type || 'article',
       isOA: (c.isOA === true || c.isOA === false) ? c.isOA : null,
       source: c.source || '',
+      sourceId: c.sourceId || '',
+      issn: c.issn || '',
     };
   };
   const splitName = (full: string) => {
@@ -507,7 +531,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     return { family: parts[parts.length - 1], given: parts.slice(0, -1).join(' ') };
   };
   const crossrefCands = async (bib: string, author: string, isAcronym: boolean) => {
-    const sel = 'title,author,published,container-title,is-referenced-by-count,abstract,URL,type,DOI';
+    const sel = 'title,author,published,container-title,is-referenced-by-count,abstract,URL,type,DOI,ISSN';
     let url = `https://api.crossref.org/works?rows=6&select=${sel}&query.bibliographic=${encodeURIComponent(bib)}`;
     if (author && !isAcronym) url += `&query.author=${encodeURIComponent(author)}`;
     try {
@@ -519,7 +543,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         container: Array.isArray(it['container-title']) ? it['container-title'][0] : it['container-title'],
         citedBy: it['is-referenced-by-count'],
         abstract: it.abstract ? String(it.abstract).replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim() : '',
-        url: it.URL, type: (it.type || 'article').replace(/-/g, ' '), source: 'Crossref',
+        url: it.URL, type: (it.type || 'article').replace(/-/g, ' '), source: 'Crossref', issn: Array.isArray(it.ISSN) ? it.ISSN[0] : (it.ISSN || ''),
       }));
     } catch { return []; }
   };
@@ -542,7 +566,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         container: it.primary_location?.source?.display_name || it.host_venue?.display_name || '',
         citedBy: it.cited_by_count, abstract: openAlexAbstract(it.abstract_inverted_index),
         url: it.doi || it.primary_location?.landing_page_url || '',
-        type: it.type || 'article', isOA: it.open_access?.is_oa, source: 'OpenAlex',
+        type: it.type || 'article', isOA: it.open_access?.is_oa, source: 'OpenAlex', sourceId: it.primary_location?.source?.id || '', issn: it.primary_location?.source?.issn_l || '',
       }));
     } catch { return []; }
   };
@@ -616,6 +640,8 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         if (!e.doi && c.doi) e.doi = c.doi;
         if (e.isOA == null && c.isOA != null) e.isOA = c.isOA;
         if (!e.container && c.container) e.container = c.container;
+        if (!e.sourceId && c.sourceId) e.sourceId = c.sourceId;
+        if (!e.issn && c.issn) e.issn = c.issn;
       }
     }
     const score = (c: any) => {
@@ -636,6 +662,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     if (best.abstract && best.abstract.length > 320) { meta.abstract = best.abstract.slice(0, 320).trim(); meta.truncated = true; } else { meta.truncated = false; }
     meta.weak = !!(year && best.year && best.year !== year) || score(best) < 4;
     if (meta.isOA === null && meta.doi) meta.isOA = await fetchOA(meta.doi);
+    meta.impactFactor = await fetchImpactFactor(best.sourceId, best.issn, best.container);
     return meta;
   };
 
@@ -1902,13 +1929,17 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
   "overview": "Brief overall assessment of the document's quality and arguments.",
   "strengths": ["strength 1", "strength 2"],
   "weaknesses": ["weakness 1", "weakness 2"],
-  "recommendations": ["actionable recommendation 1", "recommendation 2"]
+  "recommendations": ["actionable recommendation 1", "recommendation 2"],
+  "fixes": [{ "original": "<exact weak sentence copied verbatim>", "suggestion": "<a stronger, clearer, more precise rewrite>", "reason": "<short reason>" }]
 }
+For "fixes", select the weakest sentences and give concrete improved replacements. Copy each "original" EXACTLY so it can be located in the document.
 Document: "${editor?.getText() || documentContent}"`, {
+      type: 'analysis',
       overview: "Could not generate an overview. Please try again.",
       strengths: [],
       weaknesses: [],
-      recommendations: []
+      recommendations: [],
+      fixes: []
     });
   };
 
@@ -1923,8 +1954,10 @@ Document: "${editor?.getText() || documentContent}"`, {
   "unsupported": ["Claim 1"],
   "weaklySupported": ["Sentence 1 lacking citation"],
   "overstated": ["Claim 1"],
-  "unverifiable": ["Claim 1"]
+  "unverifiable": ["Claim 1"],
+  "fixes": [{ "original": "<exact problematic sentence copied verbatim>", "suggestion": "<a corrected, more cautious and precisely-worded rewrite>", "reason": "<short reason e.g. needs citation / overstated>" }]
 }
+For "fixes", pick the most important unsupported/overstated/weak sentences and give an improved replacement. Copy each "original" EXACTLY so it can be found in the text.
 Text to review: "${editor?.getText() || documentContent}"`, {
       type: 'claim',
       summary: "Review completed, but no specific claims could be extracted.",
@@ -1933,7 +1966,8 @@ Text to review: "${editor?.getText() || documentContent}"`, {
       unsupported: [],
       weaklySupported: [],
       overstated: [],
-      unverifiable: []
+      unverifiable: [],
+      fixes: []
     });
   };
 
@@ -1956,24 +1990,46 @@ Text to review: "${editor?.getText() || documentContent}"`, {
 
   const handleToneOfVoice = () => {
     setActiveReviewTab('tone');
-    fetchReview(`Review the following text for tone. Return ONLY a valid JSON object. Do not use markdown formatting. Format must be exactly:
+    fetchReview(`You are an academic writing-style editor. Find sentences whose tone is too informal, wordy, vague, or unscholarly. Return ONLY a valid JSON object (no markdown, no code fences) in exactly this shape:
 {
   "type": "tone",
-  "suggestions": ["Suggestion 1", "Suggestion 2"]
+  "suggestions": [
+    { "original": "<the exact sentence copied verbatim from the text>", "suggestion": "<a more precise, formal academic rewrite>", "reason": "<short reason>" }
+  ]
 }
+Copy each "original" EXACTLY so it can be found and replaced. If the tone is already good, return an empty suggestions array.
 Text to review: "${editor?.getText() || documentContent}"`, {
       type: 'tone',
       suggestions: []
     });
   };
 
+  // Replace an exact phrase in the document with a corrected version
+  const applyTextFix = (original: string, suggestion: string) => {
+    if (!editor || !original) return;
+    let found: { from: number; to: number } | null = null;
+    editor.state.doc.descendants((node: any, pos: number) => {
+      if (found) return false;
+      if (node.isText && node.text) {
+        const i = node.text.indexOf(original);
+        if (i !== -1) found = { from: pos + i, to: pos + i + original.length };
+      }
+      return true;
+    });
+    if (found) editor.chain().focus().insertContentAt(found, suggestion).run();
+    else alert('Could not locate that exact text (it may have already been edited).');
+  };
+
   const handleProofread = () => {
     setActiveReviewTab('proofread');
-    fetchReview(`Proofread the following text for grammar. Return ONLY a valid JSON object. Do not use markdown formatting. Format must be exactly:
+    fetchReview(`You are an expert academic proofreader. Find grammar, punctuation, spelling and word-choice issues in the text. Return ONLY a valid JSON object (no markdown, no code fences) in exactly this shape:
 {
   "type": "proofread",
-  "issues": ["Issue 1 found", "Issue 2 found"]
+  "issues": [
+    { "original": "<the exact phrase copied verbatim from the text>", "suggestion": "<the corrected, precise replacement>", "reason": "<short reason>" }
+  ]
 }
+Copy each "original" EXACTLY as it appears so it can be found and replaced. Keep replacements minimal and correct. If there are no issues, return an empty issues array.
 Text to review: "${editor?.getText() || documentContent}"`, {
       type: 'proofread',
       issues: []
@@ -3187,6 +3243,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                               <div className="flex items-center gap-1.5">
                                 {it.weak && <span className="bg-amber-500/20 text-amber-300 rounded px-2 py-0.5 text-[10px] font-bold">BEST GUESS</span>}
                                 {it.citedBy != null && <span className="bg-[#333] rounded px-2 py-0.5 text-gray-300 text-[10px] font-bold">CITED BY {it.citedBy}</span>}
+                                {it.impactFactor != null && <span className="bg-[#333] rounded px-2 py-0.5 text-gray-300 text-[10px] font-bold" title="Journal 2-year mean citedness (OpenAlex)">IF {it.impactFactor}</span>}
                                 {it.isOA === true && <span className="bg-[#10b981]/20 text-[#34d399] rounded px-2 py-0.5 text-[10px] font-bold">OPEN ACCESS</span>}
                               </div>
                             </div>
@@ -3451,6 +3508,23 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                          </div>
                        )})}
                      </div>
+                     {Array.isArray(reviewData.fixes) && reviewData.fixes.length > 0 && (
+                       <div className="mt-4">
+                         <h3 className="text-[14px] font-bold text-white mb-2">Suggested fixes</h3>
+                         <div className="flex flex-col gap-3">
+                           {reviewData.fixes.map((it: any, i: number) => (
+                             <div key={i} className="bg-[#222] rounded-lg p-3 border border-[#333] flex flex-col gap-1.5">
+                               {it.reason && <div className="text-[12px] text-gray-400">{it.reason}</div>}
+                               {it.original && <div className="text-[13px] text-red-300 line-through">{it.original}</div>}
+                               {it.suggestion && <div className="text-[13px] text-[#34d399]">{it.suggestion}</div>}
+                               {it.original && it.suggestion && (
+                                 <button onClick={() => applyTextFix(it.original, it.suggestion)} className="self-start mt-1 px-3 py-1 bg-[#5b5fff] hover:bg-[#6b6fff] text-white rounded-lg text-[12px] font-bold">Apply fix</button>
+                               )}
+                             </div>
+                           ))}
+                         </div>
+                       </div>
+                     )}
                    </>
                 ) : null}
               </div>
@@ -3498,6 +3572,23 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                           )}
                         </div>
                       ))}
+                     {Array.isArray(reviewData.fixes) && reviewData.fixes.length > 0 && (
+                       <div className="mt-4">
+                         <h3 className="text-[14px] font-bold text-white mb-2">Suggested fixes</h3>
+                         <div className="flex flex-col gap-3">
+                           {reviewData.fixes.map((it: any, i: number) => (
+                             <div key={i} className="bg-[#222] rounded-lg p-3 border border-[#333] flex flex-col gap-1.5">
+                               {it.reason && <div className="text-[12px] text-gray-400">{it.reason}</div>}
+                               {it.original && <div className="text-[13px] text-red-300 line-through">{it.original}</div>}
+                               {it.suggestion && <div className="text-[13px] text-[#34d399]">{it.suggestion}</div>}
+                               {it.original && it.suggestion && (
+                                 <button onClick={() => applyTextFix(it.original, it.suggestion)} className="self-start mt-1 px-3 py-1 bg-[#5b5fff] hover:bg-[#6b6fff] text-white rounded-lg text-[12px] font-bold">Apply fix</button>
+                               )}
+                             </div>
+                           ))}
+                         </div>
+                       </div>
+                     )}
                    </>
                 ) : (
                    <button onClick={() => {
@@ -3587,9 +3678,26 @@ Required JSON structure:
                  {reviewData?.type === 'tone' && (
                    <div className="mt-4 flex flex-col gap-2">
                      <h3 className="text-[15px] font-bold text-white">Suggestions:</h3>
-                     <ul className="list-disc pl-5 text-[13px] text-gray-300 flex flex-col gap-2">
-                       {reviewData.suggestions.map((s: string, i: number) => <li key={i}>{s}</li>)}
-                     </ul>
+                     {(!reviewData.suggestions || reviewData.suggestions.length === 0) ? (
+                       <p className="text-[13px] text-[#34d399]">Tone looks appropriately academic - no changes suggested.</p>
+                     ) : (
+                       <div className="flex flex-col gap-3">
+                         {reviewData.suggestions.map((it: any, i: number) => (
+                           typeof it === 'string' ? (
+                             <div key={i} className="text-[13px] text-gray-300 bg-[#222] rounded-lg p-3 border border-[#333]">{it}</div>
+                           ) : (
+                             <div key={i} className="bg-[#222] rounded-lg p-3 border border-[#333] flex flex-col gap-1.5">
+                               {it.reason && <div className="text-[12px] text-gray-400">{it.reason}</div>}
+                               {it.original && <div className="text-[13px] text-red-300 line-through">{it.original}</div>}
+                               {it.suggestion && <div className="text-[13px] text-[#34d399]">{it.suggestion}</div>}
+                               {it.original && it.suggestion && (
+                                 <button onClick={() => applyTextFix(it.original, it.suggestion)} className="self-start mt-1 px-3 py-1 bg-[#5b5fff] hover:bg-[#6b6fff] text-white rounded-lg text-[12px] font-bold">Apply rewrite</button>
+                               )}
+                             </div>
+                           )
+                         ))}
+                       </div>
+                     )}
                      <button className="mt-4 w-full py-2 bg-[#5b5fff] hover:bg-[#6b6fff] rounded-lg text-white font-bold flex items-center justify-center gap-2 transition-colors">
                        Review Changes
                      </button>
@@ -3610,12 +3718,26 @@ Required JSON structure:
                      <div className="flex items-center justify-between mb-2">
                        <h3 className="text-[18px] font-bold text-white">Results</h3>
                      </div>
-                     <ul className="list-disc pl-5 text-[14px] text-gray-200 mb-4 leading-relaxed flex flex-col gap-2">
-                       {reviewData.issues.map((i: string, idx: number) => <li key={idx}>{i}</li>)}
-                     </ul>
-                     <button className="w-full py-2.5 bg-[#5b5fff] hover:bg-[#6b6fff] rounded-lg text-white font-bold flex items-center justify-center gap-2 mb-6">
-                       <Play className="w-4 h-4" /> Review Changes
-                     </button>
+                     {(!reviewData.issues || reviewData.issues.length === 0) ? (
+                       <p className="text-[14px] text-[#34d399] mb-4">No issues found - your text looks clean.</p>
+                     ) : (
+                       <div className="flex flex-col gap-3 mb-4">
+                         {reviewData.issues.map((it: any, idx: number) => (
+                           typeof it === 'string' ? (
+                             <div key={idx} className="text-[14px] text-gray-200 bg-[#222] rounded-lg p-3 border border-[#333]">{it}</div>
+                           ) : (
+                             <div key={idx} className="bg-[#222] rounded-lg p-3 border border-[#333] flex flex-col gap-1.5">
+                               {it.reason && <div className="text-[12px] text-gray-400">{it.reason}</div>}
+                               {it.original && <div className="text-[13px] text-red-300 line-through">{it.original}</div>}
+                               {it.suggestion && <div className="text-[13px] text-[#34d399]">{it.suggestion}</div>}
+                               {it.original && it.suggestion && (
+                                 <button onClick={() => applyTextFix(it.original, it.suggestion)} className="self-start mt-1 px-3 py-1 bg-[#5b5fff] hover:bg-[#6b6fff] text-white rounded-lg text-[12px] font-bold">Apply fix</button>
+                               )}
+                             </div>
+                           )
+                         ))}
+                       </div>
+                     )}
                    </>
                 ) : (
                    <>
