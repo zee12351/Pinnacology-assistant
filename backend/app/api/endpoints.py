@@ -642,8 +642,8 @@ async def continue_paper(request: ContinuePaperRequest):
             if not existing:
                 instruction = (
                     f"Begin a research paper on: \"{topic}\".\n"
-                    "Write ONLY the title as a Markdown '# ' heading, then '## Abstract' with one paragraph, "
-                    "then '## Introduction' with 2-3 paragraphs. Stop after the Introduction.\n"
+                    "Write ONLY: the title as a Markdown '# ' heading, then a '## Introduction' heading, then "
+                    "ONE short opening paragraph of about 90-140 words. Do not write any other section yet.\n"
                     "Do NOT include any in-text citations, bracketed numbers, or a References section - "
                     "citations are added separately. Output only the content, no commentary."
                 )
@@ -651,11 +651,15 @@ async def continue_paper(request: ContinuePaperRequest):
                 instruction = (
                     f"You are continuing a research paper on: \"{topic}\".\n\n"
                     f"=== PAPER SO FAR ===\n{existing[-3500:]}\n=== END ===\n\n"
-                    "Write ONLY the NEXT section: the next '## ' heading and its 2-4 paragraphs. The usual "
-                    "order is Literature Review, Methodology, Results, Discussion, then Conclusion. "
-                    "Do NOT repeat anything already written, do NOT add a References section, and do NOT "
-                    "include any in-text citations or bracketed numbers. "
-                    "If the paper already contains a Conclusion section, reply with exactly: DONE"
+                    "Write ONLY ONE short paragraph (about 90-150 words) - never more than one paragraph.\n"
+                    "- If the most recent section currently has fewer than 3 paragraphs, continue THAT section "
+                    "with one more paragraph that advances the discussion (no heading, do not repeat anything).\n"
+                    "- If the most recent section already has about 3 paragraphs, start the next section: output "
+                    "its '## ' heading (usual order: Literature Review, Methodology, Results, Discussion, "
+                    "Conclusion) followed by ONE opening paragraph.\n"
+                    "Do NOT add a References section and do NOT include any in-text citations or bracketed "
+                    "numbers (they are added automatically). "
+                    "If the paper already has a Conclusion with 2+ paragraphs, reply with exactly: DONE"
                 )
             async for chunk in model.astream([HumanMessage(content=instruction)]):
                 content = getattr(chunk, "content", "")
