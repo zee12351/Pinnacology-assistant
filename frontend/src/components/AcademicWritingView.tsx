@@ -790,19 +790,26 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     setCiteSearching(true);
     setCiteResults([]);
     try {
-      const res = await fetch(
-        `https://api.crossref.org/works?rows=6&select=title,author,published,container-title,is-referenced-by-count,DOI,type&query.bibliographic=${encodeURIComponent(q)}`
-      );
+      const _cy = new Date().getFullYear();
+      const fromYear = publishYear === 'Last 5 years' ? _cy - 5
+        : (publishYear === 'Custom' && parseInt(customPublishYear) ? parseInt(customPublishYear) : null);
+      const minCited = citedBy === '5+' ? 5 : citedBy === '20+' ? 20 : citedBy === '50+' ? 50 : 0;
+      let url = `https://api.crossref.org/works?rows=12&select=title,author,published,container-title,is-referenced-by-count,DOI,type&query.bibliographic=${encodeURIComponent(q)}`;
+      if (fromYear) url += `&filter=from-pub-date:${fromYear}-01-01`;
+      const res = await fetch(url);
       const json = await res.json();
-      const items = (json?.message?.items || []).map((it: any) => ({
-        doi: it.DOI || '',
-        title: Array.isArray(it.title) ? it.title[0] : (it.title || 'Untitled'),
-        authors: (it.author || []).map((a: any) => ({ family: a.family || a.name || '', given: a.given || '' })),
-        year: String(it.published?.['date-parts']?.[0]?.[0] || ''),
-        container: Array.isArray(it['container-title']) ? it['container-title'][0] : (it['container-title'] || ''),
-        citedBy: typeof it['is-referenced-by-count'] === 'number' ? it['is-referenced-by-count'] : null,
-        type: (it.type || 'article').replace(/-/g, ' '),
-      }));
+      const items = (json?.message?.items || [])
+        .map((it: any) => ({
+          doi: it.DOI || '',
+          title: Array.isArray(it.title) ? it.title[0] : (it.title || 'Untitled'),
+          authors: (it.author || []).map((a: any) => ({ family: a.family || a.name || '', given: a.given || '' })),
+          year: String(it.published?.['date-parts']?.[0]?.[0] || ''),
+          container: Array.isArray(it['container-title']) ? it['container-title'][0] : (it['container-title'] || ''),
+          citedBy: typeof it['is-referenced-by-count'] === 'number' ? it['is-referenced-by-count'] : null,
+          type: (it.type || 'article').replace(/-/g, ' '),
+        }))
+        .filter((it: any) => (!fromYear || (parseInt(it.year) || 0) >= fromYear) && (!minCited || (it.citedBy || 0) >= minCited))
+        .slice(0, 6);
       setCiteResults(items);
     } catch {
       setCiteResults([]);
@@ -1079,9 +1086,13 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     setAutoCiting(true);
     try {
       const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const _cy = new Date().getFullYear();
+      const fromYear = publishYear === 'Last 5 years' ? _cy - 5
+        : (publishYear === 'Custom' && parseInt(customPublishYear) ? parseInt(customPublishYear) : null);
+      const minCited = citedBy === '5+' ? 5 : citedBy === '20+' ? 20 : citedBy === '50+' ? 50 : 0;
       const res = await fetch(`${API}/api/cite-claims`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ claims: unique }),
+        body: JSON.stringify({ claims: unique, from_year: fromYear || undefined, min_cited: minCited || undefined }),
       });
       if (!res.ok) return;
       const data = await res.json();

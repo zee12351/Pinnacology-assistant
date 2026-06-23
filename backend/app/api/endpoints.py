@@ -566,16 +566,19 @@ async def generate_paper(request: GeneratePaperRequest):
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
-def _best_source_for_claim(claim: str):
+def _best_source_for_claim(claim: str, from_year=None, min_cited=0):
     """Find one real, verified paper (with DOI) that supports a claim sentence."""
     q = (claim or "").strip()
     if len(q) < 25:
         return None
     try:
+        _filter = "type:journal-article"
+        if from_year:
+            _filter += f",from-pub-date:{from_year}-01-01"
         r = requests.get("https://api.crossref.org/works", params={
-            "query.bibliographic": q[:250], "rows": 3,
+            "query.bibliographic": q[:250], "rows": 8,
             "select": "title,author,published,container-title,DOI,is-referenced-by-count",
-            "filter": "type:journal-article",
+            "filter": _filter,
         }, headers={"User-Agent": "Pinnovix/1.0 (mailto:info@pinnovix.app)"}, timeout=10)
         if r.status_code != 200:
             return None
@@ -591,6 +594,10 @@ def _best_source_for_claim(claim: str):
             if not (authors and year):
                 continue
             cited = it.get("is-referenced-by-count", 0) or 0
+            if from_year and (not year or int(year) < from_year):
+                continue
+            if min_cited and cited < min_cited:
+                continue
             if cited > best_cited:
                 t = it.get("title") or [""]
                 title = t[0] if isinstance(t, list) and t else (t if isinstance(t, str) else "")
@@ -610,14 +617,17 @@ def _best_source_for_claim(claim: str):
 
 class CiteClaimsRequest(BaseModel):
     claims: list
+    from_year: Optional[int] = None
+    min_cited: int = 0
 
 @router.post("/cite-claims")
 async def cite_claims(request: CiteClaimsRequest):
-    """For each claim sentence, return a real supporting paper (author/year/DOI) - jenni-style."""
+    """For each claim sentence, return a real supporting paper (author/year/DOI) - jenni-style.
+    Honours the document's citation filters (publish year, min cited-by)."""
     claims = request.claims or []
     results = []
     for idx, claim in enumerate(claims[:30]):
-        paper = await asyncio.to_thread(_best_source_for_claim, str(claim))
+        paper = await asyncio.to_thread(_best_source_for_claim, str(claim), request.from_year, request.min_cited or 0)
         results.append({"idx": idx, "paper": paper})
     return {"results": results}
 
