@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTheme } from 'next-themes';
-import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Upload, X, Search, Check, Star, Users, ListChecks, Play, SlidersHorizontal, ChevronsRight, ChevronsLeft, Type, Home, Settings2, Download, ThumbsUp, ThumbsDown, Info, ChevronDown, GraduationCap, FlaskConical, Feather, CheckCircle2, ChevronLeft, RotateCcw, Loader2, Sparkles, Trash2, Moon, Sun, Pencil, ArrowLeftRight, ExternalLink, Bookmark, Menu, Link2 } from 'lucide-react';
+import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Upload, X, Search, Check, Star, Users, ListChecks, Play, SlidersHorizontal, ChevronsRight, ChevronsLeft, Type, Home, Settings2, Download, ThumbsUp, ThumbsDown, Info, ChevronDown, GraduationCap, FlaskConical, Feather, CheckCircle2, ChevronLeft, RotateCcw, Loader2, Sparkles, Trash2, Moon, Sun, Pencil, ArrowLeftRight, ExternalLink, Bookmark, Menu, Link2, ArrowUpDown, ArrowUp, Globe, Folder, FileText, Paperclip } from 'lucide-react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
@@ -1838,7 +1838,7 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
       const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       const res = await fetch(`${API}/api/chat`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: q, agent_type: 'research', use_rag: true, persona: 'DOCUMENT ANALYST' }),
+        body: JSON.stringify({ message: q, agent_type: 'research', use_rag: aiChatLibSearch !== 'off' || aiChatContexts.some(c => c !== 'Current document') || !!aiChatDoc, persona: 'DOCUMENT ANALYST' }),
       });
       const reader = res.body?.getReader();
       const dec = new TextDecoder();
@@ -1876,11 +1876,47 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
       const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       await axios.post(`${API}/api/upload`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       setAiChatDoc(file.name);
+      setAiChatContexts(c => c.includes(file.name) ? c : [...c, file.name]);
       setAiChatMessages(prev => [...prev, { role: 'system', text: `Attached \u201c${file.name}\u201d \u2014 ask anything about it.` }]);
     } catch {
       setAiChatMessages(prev => [...prev, { role: 'system', text: 'Upload failed. Please try a PDF, DOCX, or TXT file.' }]);
     } finally { setAiChatBusy(false); if (e.target) e.target.value = ''; }
   };
+
+  const runFindPapers = async (q?: string, sortOverride?: string) => {
+    const query = (q ?? fpQuery).trim();
+    if (!query) return;
+    setFpBusy(true); setFpSearched(true);
+    try {
+      const sortName = sortOverride || fpSort;
+      const sortMap: Record<string,string> = { 'Relevance':'relevance_score:desc', 'Most Recent':'publication_date:desc', 'Oldest':'publication_date:asc', 'Most Cited':'cited_by_count:desc' };
+      const filters: string[] = [];
+      if (fpFromYear) filters.push(`from_publication_date:${fpFromYear}-01-01`);
+      if (fpOA) filters.push('is_oa:true');
+      if (fpMinCited) filters.push(`cited_by_count:>${(parseInt(fpMinCited)||1)-1}`);
+      const params = new URLSearchParams();
+      params.set('search', query);
+      params.set('per_page', '25');
+      params.set('sort', sortMap[sortName] || 'relevance_score:desc');
+      if (filters.length) params.set('filter', filters.join(','));
+      params.set('mailto', 'support@pinnovix.app');
+      const r = await fetch(`https://api.openalex.org/works?${params.toString()}`);
+      const j = await r.json();
+      const items = (j.results || []).map((w: any) => ({
+        title: w.title || w.display_name || 'Untitled',
+        year: w.publication_year,
+        cited: w.cited_by_count || 0,
+        doi: w.doi ? w.doi.replace('https://doi.org/', '') : '',
+        url: w.doi || w.primary_location?.landing_page_url || w.id,
+        authors: (w.authorships || []).slice(0, 4).map((a: any) => a.author?.display_name).filter(Boolean),
+        venue: w.primary_location?.source?.display_name || '',
+        isOA: !!w.open_access?.is_oa,
+      }));
+      setFpResults(items);
+    } catch { setFpResults([]); }
+    finally { setFpBusy(false); }
+  };
+
 
   const handleDocumentImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -2365,6 +2401,35 @@ Text to review: "${editor?.getText() || documentContent}"`, {
   const [aiChatBusy, setAiChatBusy] = useState(false);
   const [aiChatDoc, setAiChatDoc] = useState('');
   const aiChatFileRef = useRef<HTMLInputElement>(null);
+  const [aiChatPlusOpen, setAiChatPlusOpen] = useState(false);
+  const [aiChatWebSearch, setAiChatWebSearch] = useState<'off'|'ask'|'on'>('ask');
+  const [aiChatLibSearch, setAiChatLibSearch] = useState<'off'|'ask'|'on'>('ask');
+  const [aiChatContexts, setAiChatContexts] = useState<string[]>(['Current document']);
+  const [aiChatCollectionOpen, setAiChatCollectionOpen] = useState(false);
+  const [aiChatSourcesOpen, setAiChatSourcesOpen] = useState(false);
+  // Find papers panel
+  const [showFindPapers, setShowFindPapers] = useState(false);
+  const [fpQuery, setFpQuery] = useState('');
+  const [fpResults, setFpResults] = useState<any[]>([]);
+  const [fpBusy, setFpBusy] = useState(false);
+  const [fpSearched, setFpSearched] = useState(false);
+  const [fpSort, setFpSort] = useState('Relevance');
+  const [fpSortOpen, setFpSortOpen] = useState(false);
+  const [fpFilterOpen, setFpFilterOpen] = useState(false);
+  const [fpFromYear, setFpFromYear] = useState('');
+  const [fpOA, setFpOA] = useState(false);
+  const [fpMinCited, setFpMinCited] = useState('');
+  const [fpSuggestion, setFpSuggestion] = useState('');
+  useEffect(() => {
+    if (!showFindPapers) return;
+    const fromTitle = (projectName || '').trim();
+    if (fromTitle) { setFpSuggestion(fromTitle); return; }
+    const text = (documentContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    const m = text.match(/[A-Z][A-Za-z][^.!?\n]{12,70}/);
+    setFpSuggestion(m ? m[0].trim() : '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showFindPapers]);
+
   
   // Headings states
   const [headingsExpanded, setHeadingsExpanded] = useState(false);
@@ -2618,6 +2683,14 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
             >
               <Bookmark className="w-4 h-4" />
               Saved citations{savedCitations.length > 0 ? ` (${savedCitations.length})` : ''}
+            </button>
+
+            <button
+              onClick={() => setShowFindPapers(true)}
+              className="flex items-center gap-2 w-full hover:bg-[#3d3d3d] text-gray-300 hover:text-white px-4 py-2.5 rounded-lg text-[13px] font-semibold transition-colors"
+            >
+              <Search className="w-4 h-4" />
+              Find papers
             </button>
           </div>
 
@@ -4180,7 +4253,7 @@ Required JSON structure:
             <div className="flex-1 overflow-y-auto custom-scrollbar p-4 flex flex-col gap-3">
               {aiChatMessages.length === 0 ? (
                 <div className="text-gray-500 text-[13px] m-auto text-center px-4">
-                  Ask anything, or tap <span className="text-gray-300 font-bold">+</span> to attach a document (PDF, DOCX, TXT) and chat with it.
+                  Ask anything, or tap the <span className="text-gray-300 font-bold">paperclip</span> to attach a document (PDF, DOCX, TXT) and chat with it.
                 </div>
               ) : (
                 aiChatMessages.map((m, i) => (
@@ -4194,22 +4267,179 @@ Required JSON structure:
                 ))
               )}
             </div>
-            <div className="border-t border-[#2a2a2a] p-3 shrink-0">
-              {aiChatDoc && <div className="text-[11px] text-[#34d399] mb-2 truncate">Attached: {aiChatDoc}</div>}
-              <div className="flex items-end gap-2">
-                <button onClick={() => aiChatFileRef.current?.click()} title="Attach a document" className="shrink-0 w-9 h-9 rounded-lg bg-[#222] border border-[#333] text-gray-300 hover:text-white hover:bg-[#2a2a2a] flex items-center justify-center text-xl leading-none">+</button>
-                <input ref={aiChatFileRef} type="file" accept=".pdf,.docx,.txt,.md" className="hidden" onChange={handleAiChatUpload} />
+            <div className="border-t border-[#2a2a2a] p-3 shrink-0 relative">
+              <input ref={aiChatFileRef} type="file" accept=".pdf,.docx,.txt,.md" className="hidden" onChange={handleAiChatUpload} />
+
+              {aiChatPlusOpen && (
+                <>
+                  <div className="fixed inset-0 z-[5]" onClick={() => { setAiChatPlusOpen(false); setAiChatCollectionOpen(false); setAiChatSourcesOpen(false); }} />
+                  <div className="absolute z-10 bottom-[100%] left-3 mb-2 w-[300px] max-w-[calc(100%-24px)] bg-[#1f1f1f] border border-[#333] rounded-xl shadow-2xl p-2">
+                    <button onClick={() => setAiChatSourcesOpen(v => !v)} className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-[#2a2a2a] text-gray-200 text-[13px]">
+                      <span className="flex items-center gap-2"><FileText className="w-4 h-4 text-gray-400" /> Sources</span>
+                      <ChevronRight className={`w-4 h-4 text-gray-500 transition-transform ${aiChatSourcesOpen ? 'rotate-90' : ''}`} />
+                    </button>
+                    {aiChatSourcesOpen && (
+                      <div className="px-3 py-1.5 text-[12px] text-gray-400">
+                        {aiChatDoc ? <div className="truncate">• {aiChatDoc}</div> : <div className="italic">No uploaded sources yet. Use the paperclip to add one.</div>}
+                      </div>
+                    )}
+                    <button onClick={() => setAiChatCollectionOpen(v => !v)} className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-[#2a2a2a] text-gray-200 text-[13px]">
+                      <span className="flex items-center gap-2"><Folder className="w-4 h-4 text-gray-400" /> Collections</span>
+                      <ChevronRight className={`w-4 h-4 text-gray-500 transition-transform ${aiChatCollectionOpen ? 'rotate-90' : ''}`} />
+                    </button>
+                    {aiChatCollectionOpen && (
+                      <div className="px-2 py-1 flex flex-col gap-1">
+                        {(() => {
+                          const pool = ['Current document', ...(aiChatDoc ? [aiChatDoc] : [])];
+                          const available = pool.filter(p => !aiChatContexts.includes(p));
+                          if (available.length === 0) return <div className="px-2 py-1.5 text-[12px] text-gray-500 italic">All items added.</div>;
+                          return available.map(item => (
+                            <button key={item} onClick={() => setAiChatContexts(c => [...c, item])} className="text-left px-2 py-1.5 rounded-md hover:bg-[#2a2a2a] text-[12.5px] text-gray-300 flex items-center gap-2">
+                              <Plus className="w-3.5 h-3.5 text-gray-500" /> <span className="truncate">{item}</span>
+                            </button>
+                          ));
+                        })()}
+                      </div>
+                    )}
+                    <div className="px-3 pt-3 pb-1 text-[11px] font-bold text-gray-500 uppercase tracking-wide">Search permissions</div>
+                    <div className="px-3 py-1.5 flex items-center justify-between">
+                      <span className="text-[13px] text-gray-200 font-semibold">Web search</span>
+                      <div className="flex rounded-md overflow-hidden border border-[#3a3a3a]">
+                        {(['off','ask','on'] as const).map(v => (
+                          <button key={v} onClick={() => setAiChatWebSearch(v)} className={`px-2.5 py-1 text-[11px] font-semibold capitalize ${aiChatWebSearch === v ? (v==='off'?'bg-[#3a3a3a] text-white':'bg-[#c2570c] text-white') : 'bg-[#1a1a1a] text-gray-400 hover:text-white'}`}>{v}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="px-3 py-1.5 flex items-center justify-between">
+                      <span className="text-[13px] text-gray-200 font-semibold">Library search</span>
+                      <div className="flex rounded-md overflow-hidden border border-[#3a3a3a]">
+                        {(['off','ask','on'] as const).map(v => (
+                          <button key={v} onClick={() => setAiChatLibSearch(v)} className={`px-2.5 py-1 text-[11px] font-semibold capitalize ${aiChatLibSearch === v ? (v==='off'?'bg-[#3a3a3a] text-white':'bg-[#c2570c] text-white') : 'bg-[#1a1a1a] text-gray-400 hover:text-white'}`}>{v}</button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div className="flex items-center gap-2 flex-wrap mb-2">
+                <button onClick={() => setAiChatPlusOpen(v => !v)} title="Sources, collections & permissions" className="shrink-0 w-7 h-7 rounded-full bg-[#222] border border-[#333] text-gray-300 hover:text-white hover:bg-[#2a2a2a] flex items-center justify-center"><Plus className="w-4 h-4" /></button>
+                <button onClick={() => setAiChatWebSearch(w => w==='on'?'ask':w==='ask'?'off':'on')} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#222] border border-[#333] text-[12px] text-gray-200">
+                  <Globe className="w-3.5 h-3.5" /> Web <span className={`text-[10px] font-bold capitalize ${aiChatWebSearch==='off'?'text-gray-500':'text-[#e08a3c]'}`}>{aiChatWebSearch}</span>
+                </button>
+                <button onClick={() => setAiChatLibSearch(l => l==='on'?'ask':l==='ask'?'off':'on')} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#222] border border-[#333] text-[12px] text-gray-200">
+                  <Bookmark className="w-3.5 h-3.5" /> Library <span className={`text-[10px] font-bold capitalize ${aiChatLibSearch==='off'?'text-gray-500':'text-[#e08a3c]'}`}>{aiChatLibSearch}</span>
+                </button>
+                {aiChatContexts.map(ctx => (
+                  <span key={ctx} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#222] border border-[#333] text-[12px] text-gray-200">
+                    <FileText className="w-3.5 h-3.5 text-gray-400" /> <span className="truncate max-w-[140px]">{ctx}</span>
+                    <button onClick={() => setAiChatContexts(c => c.filter(x => x !== ctx))} className="text-gray-500 hover:text-white"><X className="w-3 h-3" /></button>
+                  </span>
+                ))}
+              </div>
+
+              <div className="bg-[#1a1a1a] border border-[#333] rounded-xl px-3 pt-2.5 pb-2 focus-within:border-[#5b5fff]">
                 <textarea
                   value={aiChatInput}
                   onChange={(e) => setAiChatInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAiChatSend(); } }}
                   rows={1}
-                  placeholder="Ask AI anything..."
-                  className="flex-1 resize-none bg-[#1a1a1a] border border-[#333] rounded-lg px-3 py-2 text-[14px] text-white outline-none focus:border-[#5b5fff] max-h-28"
+                  placeholder="Ask AI, use @ to mention specific PDFs or / to access saved prompts"
+                  className="w-full resize-none bg-transparent text-[14px] text-white outline-none max-h-28 placeholder:text-gray-500"
                 />
-                <button onClick={handleAiChatSend} disabled={aiChatBusy || !aiChatInput.trim()} className="shrink-0 w-9 h-9 rounded-lg bg-[#5b5fff] hover:bg-[#6b6fff] disabled:opacity-40 text-white flex items-center justify-center">
-                  {aiChatBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChevronRight className="w-4 h-4" />}
-                </button>
+                <div className="flex items-center justify-between mt-1">
+                  <button onClick={() => aiChatFileRef.current?.click()} title="Attach a document" className="w-8 h-8 rounded-lg text-gray-400 hover:text-white hover:bg-[#262626] flex items-center justify-center"><Paperclip className="w-4 h-4" /></button>
+                  <button onClick={handleAiChatSend} disabled={aiChatBusy || !aiChatInput.trim()} className="shrink-0 w-9 h-9 rounded-full bg-[#5b5fff] hover:bg-[#6b6fff] disabled:opacity-40 text-white flex items-center justify-center">
+                    {aiChatBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUp className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showFindPapers && (
+        <div className="fixed inset-0 z-[100] flex bg-black/40" onClick={() => { setShowFindPapers(false); setFpSortOpen(false); setFpFilterOpen(false); }}>
+          <div className="w-[420px] max-w-[92vw] h-full bg-[#161616] border-r border-[#333] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b border-[#2a2a2a] flex items-center gap-2 shrink-0">
+              <button onClick={() => setShowFindPapers(false)} className="text-gray-300 hover:text-white"><ChevronLeft className="w-5 h-5" /></button>
+              <h2 className="text-[15px] font-bold text-white">Find papers</h2>
+            </div>
+            <div className="p-4 shrink-0">
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                <input
+                  value={fpQuery}
+                  onChange={(e) => setFpQuery(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); runFindPapers(); } }}
+                  placeholder="Search 250M+ papers..."
+                  className="w-full bg-[#1f1f1f] border border-[#333] rounded-lg pl-9 pr-3 py-2.5 text-[13.5px] text-white outline-none focus:border-[#5b5fff]"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-4 mt-3 relative">
+                <div className="relative">
+                  <button onClick={() => { setFpSortOpen(v => !v); setFpFilterOpen(false); }} className="flex items-center gap-1.5 text-[13px] text-gray-300 hover:text-white"><ArrowUpDown className="w-4 h-4" /> Sort</button>
+                  {fpSortOpen && (
+                    <div className="absolute right-0 top-[120%] z-20 w-[150px] bg-[#1f1f1f] border border-[#333] rounded-lg shadow-2xl py-1">
+                      {['Relevance','Most Recent','Oldest','Most Cited'].map(s => (
+                        <button key={s} onClick={() => { setFpSort(s); setFpSortOpen(false); if (fpSearched) runFindPapers(undefined, s); }} className={`w-full text-left px-3 py-2 text-[13px] hover:bg-[#2a2a2a] ${fpSort===s?'text-white bg-[#2a2a2a]':'text-gray-300'}`}>{s}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="relative">
+                  <button onClick={() => { setFpFilterOpen(v => !v); setFpSortOpen(false); }} className="flex items-center gap-1.5 text-[13px] text-gray-300 hover:text-white"><SlidersHorizontal className="w-4 h-4" /> Filter</button>
+                  {fpFilterOpen && (
+                    <div className="absolute right-0 top-[120%] z-20 w-[230px] bg-[#1f1f1f] border border-[#333] rounded-lg shadow-2xl p-3 flex flex-col gap-3">
+                      <div>
+                        <label className="text-[11px] font-bold text-gray-400 uppercase">Published from year</label>
+                        <input value={fpFromYear} onChange={(e) => setFpFromYear(e.target.value.replace(/[^0-9]/g,'').slice(0,4))} placeholder="e.g. 2018" className="w-full mt-1 bg-[#161616] border border-[#333] rounded-md px-2 py-1.5 text-[13px] text-white outline-none focus:border-[#5b5fff]" />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-bold text-gray-400 uppercase">Min. citations</label>
+                        <input value={fpMinCited} onChange={(e) => setFpMinCited(e.target.value.replace(/[^0-9]/g,''))} placeholder="e.g. 50" className="w-full mt-1 bg-[#161616] border border-[#333] rounded-md px-2 py-1.5 text-[13px] text-white outline-none focus:border-[#5b5fff]" />
+                      </div>
+                      <label className="flex items-center gap-2 text-[13px] text-gray-200 cursor-pointer">
+                        <input type="checkbox" checked={fpOA} onChange={(e) => setFpOA(e.target.checked)} className="accent-[#5b5fff]" /> Open access only
+                      </label>
+                      <div className="flex gap-2">
+                        <button onClick={() => { setFpFilterOpen(false); if (fpSearched) runFindPapers(); }} className="flex-1 bg-[#5b5fff] hover:bg-[#6b6fff] text-white text-[12.5px] font-semibold rounded-md py-1.5">Apply</button>
+                        <button onClick={() => { setFpFromYear(''); setFpMinCited(''); setFpOA(false); }} className="px-3 text-[12.5px] text-gray-400 hover:text-white">Reset</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto custom-scrollbar px-4 pb-4">
+              {!fpSearched && fpSuggestion && (
+                <div className="mb-3">
+                  <div className="text-[12px] text-gray-500 mb-1.5 flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" /> Suggested from your document</div>
+                  <button onClick={() => { setFpQuery(fpSuggestion); runFindPapers(fpSuggestion); }} className="w-full flex items-center justify-between gap-2 bg-[#1f1f1f] border border-[#333] rounded-lg px-3 py-3 text-left hover:border-[#5b5fff]">
+                    <span className="text-[13.5px] text-white">{fpSuggestion}</span>
+                    <ChevronRight className="w-4 h-4 text-gray-500 shrink-0" />
+                  </button>
+                </div>
+              )}
+              {fpBusy && <div className="text-center text-gray-500 text-[13px] py-6 flex items-center justify-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Searching...</div>}
+              {!fpBusy && fpSearched && fpResults.length === 0 && <div className="text-center text-gray-500 text-[13px] py-6">No papers found. Try different keywords or relax the filters.</div>}
+              <div className="flex flex-col gap-2">
+                {fpResults.map((p, i) => (
+                  <button key={i} onClick={() => window.open(p.url, '_blank', 'noopener,noreferrer')} className="w-full text-left bg-[#1f1f1f] border border-[#333] rounded-lg px-3 py-2.5 hover:border-[#5b5fff] group">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-[13.5px] text-white font-semibold leading-snug">{p.title}</span>
+                      <ExternalLink className="w-3.5 h-3.5 text-gray-500 shrink-0 mt-0.5 group-hover:text-white" />
+                    </div>
+                    {p.authors.length > 0 && <div className="text-[12px] text-gray-400 mt-1 truncate">{p.authors.join(', ')}{p.authors.length >= 4 ? ' et al.' : ''}</div>}
+                    <div className="flex items-center gap-2 mt-1.5 flex-wrap text-[11px]">
+                      {p.venue && <span className="text-gray-400 truncate max-w-[180px]">{p.venue}</span>}
+                      {p.year && <span className="text-gray-500">· {p.year}</span>}
+                      <span className="text-gray-500">· Cited by {p.cited}</span>
+                      {p.isOA && <span className="px-1.5 py-0.5 rounded bg-[#14532d] text-[#4ade80] font-bold">OPEN ACCESS</span>}
+                    </div>
+                  </button>
+                ))}
               </div>
             </div>
           </div>
