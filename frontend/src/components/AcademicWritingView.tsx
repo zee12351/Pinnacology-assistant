@@ -4287,20 +4287,22 @@ Required JSON structure:
                       <span className="flex items-center gap-2"><Folder className="w-4 h-4 text-gray-400" /> Collections</span>
                       <ChevronRight className={`w-4 h-4 text-gray-500 transition-transform ${aiChatCollectionOpen ? 'rotate-90' : ''}`} />
                     </button>
-                    {aiChatCollectionOpen && (
-                      <div className="px-2 py-1 flex flex-col gap-1">
-                        {(() => {
-                          const pool = ['Current document', ...(aiChatDoc ? [aiChatDoc] : [])];
-                          const available = pool.filter(p => !aiChatContexts.includes(p));
-                          if (available.length === 0) return <div className="px-2 py-1.5 text-[12px] text-gray-500 italic">All items added.</div>;
-                          return available.map(item => (
-                            <button key={item} onClick={() => setAiChatContexts(c => [...c, item])} className="text-left px-2 py-1.5 rounded-md hover:bg-[#2a2a2a] text-[12.5px] text-gray-300 flex items-center gap-2">
-                              <Plus className="w-3.5 h-3.5 text-gray-500" /> <span className="truncate">{item}</span>
+                    {(() => {
+                      const pool = ['Current document', ...(aiChatDoc ? [aiChatDoc] : [])];
+                      const available = pool.filter(p => !aiChatContexts.includes(p));
+                      if (available.length === 0) {
+                        return aiChatCollectionOpen ? <div className="px-9 py-1.5 text-[12px] text-gray-500 italic">All items added.</div> : null;
+                      }
+                      return (
+                        <div className="pl-9 pr-2 pb-1 flex flex-col gap-1">
+                          {available.map(item => (
+                            <button key={item} onClick={() => setAiChatContexts(c => [...c, item])} className="text-left px-2 py-1.5 rounded-md hover:bg-[#2a2a2a] text-[12.5px] text-gray-300 flex items-center gap-2 border border-[#333]">
+                              <Plus className="w-3.5 h-3.5 text-gray-500 shrink-0" /> <FileText className="w-3.5 h-3.5 text-gray-400 shrink-0" /> <span className="truncate">{item}</span>
                             </button>
-                          ));
-                        })()}
-                      </div>
-                    )}
+                          ))}
+                        </div>
+                      );
+                    })()}
                     <div className="px-3 pt-3 pb-1 text-[11px] font-bold text-gray-500 uppercase tracking-wide">Search permissions</div>
                     <div className="px-3 py-1.5 flex items-center justify-between">
                       <span className="text-[13px] text-gray-200 font-semibold">Web search</span>
