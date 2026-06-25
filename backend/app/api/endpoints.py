@@ -566,7 +566,7 @@ async def generate_paper(request: GeneratePaperRequest):
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
-def _best_source_for_claim(claim: str, from_year=None, min_cited=0):
+def _best_source_for_claim(claim: str, from_year=None, min_cited=0, exclude=None):
     """Find one real, verified paper (with DOI) that supports a claim sentence."""
     q = (claim or "").strip()
     if len(q) < 25:
@@ -587,6 +587,8 @@ def _best_source_for_claim(claim: str, from_year=None, min_cited=0):
         for it in r.json().get("message", {}).get("items", []):
             doi = (it.get("DOI") or "").lower()
             if not doi:
+                continue
+            if exclude and doi in exclude:
                 continue
             authors = [a.get("family", "") for a in (it.get("author") or []) if a.get("family")]
             dp = (it.get("published", {}) or {}).get("date-parts", [[None]])
@@ -626,8 +628,11 @@ async def cite_claims(request: CiteClaimsRequest):
     Honours the document's citation filters (publish year, min cited-by)."""
     claims = request.claims or []
     results = []
+    used = set()
     for idx, claim in enumerate(claims[:30]):
-        paper = await asyncio.to_thread(_best_source_for_claim, str(claim), request.from_year, request.min_cited or 0)
+        paper = await asyncio.to_thread(_best_source_for_claim, str(claim), request.from_year, request.min_cited or 0, used)
+        if paper and paper.get("doi"):
+            used.add(paper["doi"])
         results.append({"idx": idx, "paper": paper})
     return {"results": results}
 

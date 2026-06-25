@@ -1104,7 +1104,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         if (already) return false; // skip paragraphs that already have a citation
         const txt = node.textContent.trim();
         const sents = txt.match(/[^.!?]+[.!?]+/g) || (txt.length > 70 ? [txt] : []);
-        sents.filter((x: string) => x.trim().length > 70).slice(-2).forEach((x: string) => claims.push(x.trim()));
+        sents.filter((x: string) => x.trim().length > 70).slice(-1).forEach((x: string) => claims.push(x.trim()));
       }
       return true;
     });
@@ -1826,6 +1826,62 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
     finally { setChatPdfBusy(false); }
   };
 
+  // ---- AI Chat panel (chat + analyze uploaded documents via RAG) ----
+  const handleAiChatSend = async () => {
+    const q = aiChatInput.trim();
+    if (!q || aiChatBusy) return;
+    setAiChatMessages(prev => [...prev, { role: 'user', text: q }, { role: 'assistant', text: '' }]);
+    setAiChatInput('');
+    setAiChatBusy(true);
+    let assistant = '';
+    try {
+      const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${API}/api/chat`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: q, agent_type: 'research', use_rag: true, persona: 'DOCUMENT ANALYST' }),
+      });
+      const reader = res.body?.getReader();
+      const dec = new TextDecoder();
+      let buffer = '';
+      while (reader) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += dec.decode(value, { stream: true });
+        const lines = buffer.split('\n'); buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const d = line.slice(6);
+            if (d === '[DONE]') continue;
+            try {
+              const j = JSON.parse(d);
+              if (j.type === 'token') { assistant += j.content; }
+              else if (j.error) { assistant = '\u26a0\ufe0f ' + j.error; }
+              setAiChatMessages(prev => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', text: assistant }; return m; });
+            } catch {}
+          }
+        }
+      }
+      if (!assistant.trim()) setAiChatMessages(prev => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', text: 'No response. If you asked about a document, attach it with + first.' }; return m; });
+    } catch {
+      setAiChatMessages(prev => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', text: '\u26a0\ufe0f Could not reach the AI service.' }; return m; });
+    } finally { setAiChatBusy(false); }
+  };
+
+  const handleAiChatUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setAiChatBusy(true);
+    const fd = new FormData(); fd.append('file', file);
+    try {
+      const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      await axios.post(`${API}/api/upload`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setAiChatDoc(file.name);
+      setAiChatMessages(prev => [...prev, { role: 'system', text: `Attached \u201c${file.name}\u201d \u2014 ask anything about it.` }]);
+    } catch {
+      setAiChatMessages(prev => [...prev, { role: 'system', text: 'Upload failed. Please try a PDF, DOCX, or TXT file.' }]);
+    } finally { setAiChatBusy(false); if (e.target) e.target.value = ''; }
+  };
+
   const handleDocumentImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -2302,6 +2358,13 @@ Text to review: "${editor?.getText() || documentContent}"`, {
   const [citedBy, setCitedBy] = useState('All');
   const [showClaimConfidenceSettings, setShowClaimConfidenceSettings] = useState(false);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
+  const [rightDrawerOpen, setRightDrawerOpen] = useState(false);
+  const [showAiChat, setShowAiChat] = useState(false);
+  const [aiChatMessages, setAiChatMessages] = useState<{ role: string; text: string }[]>([]);
+  const [aiChatInput, setAiChatInput] = useState('');
+  const [aiChatBusy, setAiChatBusy] = useState(false);
+  const [aiChatDoc, setAiChatDoc] = useState('');
+  const aiChatFileRef = useRef<HTMLInputElement>(null);
   
   // Headings states
   const [headingsExpanded, setHeadingsExpanded] = useState(false);
@@ -2722,23 +2785,29 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
           {/* Header Row */}
           <div className="flex items-center justify-between px-4 py-2 border-b border-[#2a2a2a]">
             <div className="flex items-center gap-2 min-w-0"><button onClick={() => setSidebarOpen(true)} className="md:hidden text-gray-300 hover:text-white shrink-0" title="Menu"><Menu className="w-5 h-5" /></button><div className="flex items-baseline gap-2 min-w-0"><span className="text-[15px] font-bold text-white font-serif tracking-wide">Pinnovix</span>{projectName ? <span className="text-[13px] text-gray-500 truncate max-w-[120px] md:max-w-[160px]">/ {projectName}</span> : null}</div></div>
-            <div className="flex items-center gap-3">
-              <button onClick={() => setShowShareModal(true)} className="flex items-center gap-2 text-gray-300 hover:text-white transition-colors text-[13px] font-bold">
-                <Users className="w-4 h-4" /> Share
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+              <button onClick={() => setShowShareModal(true)} className="flex items-center gap-2 text-gray-300 hover:text-white transition-colors text-[13px] font-bold" title="Share">
+                <Users className="w-4 h-4" /> <span className="hidden sm:inline">Share</span>
               </button>
-              <button className="bg-[#5b5fff] hover:bg-[#6b6fff] text-white px-3 py-1.5 rounded flex items-center gap-2 text-[13px] font-bold transition-colors">
+              <button onClick={() => setShowAiChat(true)} className="flex items-center gap-2 text-gray-300 hover:text-white transition-colors text-[13px] font-bold" title="AI Chat">
+                <MessageSquare className="w-4 h-4" /> <span className="hidden sm:inline">AI Chat</span>
+              </button>
+              <button className="hidden md:flex bg-[#5b5fff] hover:bg-[#6b6fff] text-white px-3 py-1.5 rounded items-center gap-2 text-[13px] font-bold transition-colors">
                 <Star className="w-3.5 h-3.5" /> See Pricing
               </button>
-              <button onClick={() => setShowClaimConfidenceSettings(true)} className="text-gray-400 hover:text-white transition-colors">
+              <button onClick={() => setShowClaimConfidenceSettings(true)} className="text-gray-400 hover:text-white transition-colors" title="Settings">
                 <SlidersHorizontal className="w-4 h-4" />
               </button>
               {!isRightPanelOpen && (
-                <div className="border-l border-[#333] pl-3 ml-1 flex items-center">
+                <div className="hidden lg:flex border-l border-[#333] pl-3 ml-1 items-center">
                   <button onClick={() => setIsRightPanelOpen(true)} className="flex items-center gap-1.5 text-white font-bold hover:text-gray-300 transition-colors text-[14px]">
                     <ChevronsLeft className="w-4 h-4" /> Review
                   </button>
                 </div>
               )}
+              <button onClick={() => setRightDrawerOpen(true)} className="lg:hidden text-gray-300 hover:text-white" title="Review panel">
+                <ChevronsLeft className="w-5 h-5" />
+              </button>
             </div>
           </div>
           
@@ -3323,8 +3392,9 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
 
 
       {/* 3. RIGHT SECTION: Review Panel */}
-      {isRightPanelOpen && (
-        <div className="w-full sm:w-[340px] bg-[#1a1a1a] border-l border-[#2a2a2a] hidden lg:flex flex-col shrink-0 h-full transition-all duration-300">
+      {rightDrawerOpen && <div className="lg:hidden fixed inset-0 bg-black/50 z-40" onClick={() => setRightDrawerOpen(false)} />}
+      {(isRightPanelOpen || rightDrawerOpen) && (
+        <div className={`${rightDrawerOpen ? 'flex' : 'hidden lg:flex'} fixed lg:static inset-y-0 right-0 z-50 w-[85vw] max-w-[360px] lg:w-[340px] bg-[#1a1a1a] border-l border-[#2a2a2a] flex-col shrink-0 h-full transition-transform duration-200`}>
         
         {/* Header */}
         <div className="px-5 py-5 flex items-center gap-3 border-b border-[#2a2a2a]">
@@ -3333,7 +3403,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                <ChevronLeft className="w-5 h-5" />
              </button>
           ) : (
-             <button onClick={() => setIsRightPanelOpen(false)} className="text-gray-400 hover:text-white transition-colors">
+             <button onClick={() => { setIsRightPanelOpen(false); setRightDrawerOpen(false); }} className="text-gray-400 hover:text-white transition-colors">
                <ChevronsRight className="w-5 h-5" />
              </button>
           )}
@@ -4095,6 +4165,52 @@ Required JSON structure:
                 onClick={() => { try { navigator.clipboard?.writeText(window.location.href); setShareCopied(true); setTimeout(() => setShareCopied(false), 1500); } catch {} }}
                 className="self-start bg-[#5b5fff] hover:bg-[#6b6fff] text-white px-4 py-2.5 rounded-lg text-[14px] font-bold flex items-center gap-2 transition-colors"
               ><Link2 className="w-4 h-4" /> {shareCopied ? 'Link copied!' : 'Copy Link'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAiChat && (
+        <div className="fixed inset-0 z-[100] flex justify-end bg-black/40" onClick={() => setShowAiChat(false)}>
+          <div className="w-[420px] max-w-[92vw] h-full bg-[#161616] border-l border-[#333] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b border-[#2a2a2a] flex items-center justify-between shrink-0">
+              <h2 className="text-[15px] font-bold text-white flex items-center gap-2"><MessageSquare className="w-4 h-4 text-[#7fa3ff]" /> AI Chat</h2>
+              <button onClick={() => setShowAiChat(false)} className="text-gray-400 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-4 flex flex-col gap-3">
+              {aiChatMessages.length === 0 ? (
+                <div className="text-gray-500 text-[13px] m-auto text-center px-4">
+                  Ask anything, or tap <span className="text-gray-300 font-bold">+</span> to attach a document (PDF, DOCX, TXT) and chat with it.
+                </div>
+              ) : (
+                aiChatMessages.map((m, i) => (
+                  m.role === 'system' ? (
+                    <div key={i} className="text-[12px] text-gray-400 italic text-center">{m.text}</div>
+                  ) : (
+                    <div key={i} className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-[13.5px] leading-relaxed whitespace-pre-wrap ${m.role === 'user' ? 'self-end bg-[#5b5fff] text-white' : 'self-start bg-[#222] text-gray-200 border border-[#2a2a2a]'}`}>
+                      {m.text || (aiChatBusy ? '…' : '')}
+                    </div>
+                  )
+                ))
+              )}
+            </div>
+            <div className="border-t border-[#2a2a2a] p-3 shrink-0">
+              {aiChatDoc && <div className="text-[11px] text-[#34d399] mb-2 truncate">Attached: {aiChatDoc}</div>}
+              <div className="flex items-end gap-2">
+                <button onClick={() => aiChatFileRef.current?.click()} title="Attach a document" className="shrink-0 w-9 h-9 rounded-lg bg-[#222] border border-[#333] text-gray-300 hover:text-white hover:bg-[#2a2a2a] flex items-center justify-center text-xl leading-none">+</button>
+                <input ref={aiChatFileRef} type="file" accept=".pdf,.docx,.txt,.md" className="hidden" onChange={handleAiChatUpload} />
+                <textarea
+                  value={aiChatInput}
+                  onChange={(e) => setAiChatInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAiChatSend(); } }}
+                  rows={1}
+                  placeholder="Ask AI anything..."
+                  className="flex-1 resize-none bg-[#1a1a1a] border border-[#333] rounded-lg px-3 py-2 text-[14px] text-white outline-none focus:border-[#5b5fff] max-h-28"
+                />
+                <button onClick={handleAiChatSend} disabled={aiChatBusy || !aiChatInput.trim()} className="shrink-0 w-9 h-9 rounded-lg bg-[#5b5fff] hover:bg-[#6b6fff] disabled:opacity-40 text-white flex items-center justify-center">
+                  {aiChatBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChevronRight className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
           </div>
         </div>
