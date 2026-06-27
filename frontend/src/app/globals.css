@@ -154,22 +154,24 @@
    also left untouched so documents look identical in both themes.
    ===================================================================== */
 
-/* ---- Neutral background surfaces (dark -> light) ---- */
+/* ---- Neutral background surfaces (dark -> light, Azure-style layering) ----
+   App chrome = soft cool gray; raised cards/panels = white; controls = light gray.
+   Depth comes from layering + hairline borders + subtle shadows (below). */
 html.light .bg-\[\#0a0a0a\],
 html.light .bg-\[\#111\],
-html.light .bg-\[\#111111\] { background-color: #f6f7f9 !important; }
+html.light .bg-\[\#111111\] { background-color: #eef1f5 !important; }
 html.light .bg-\[\#151515\],
-html.light .bg-\[\#161616\] { background-color: #f0f2f5 !important; }
+html.light .bg-\[\#161616\] { background-color: #f4f6f9 !important; }
 html.light .bg-\[\#1a1a1a\],
 html.light .bg-\[\#1e1e1e\],
 html.light .bg-\[\#252525\] { background-color: #ffffff !important; }
-html.light .bg-\[\#222\] { background-color: #eef0f3 !important; }
+html.light .bg-\[\#222\] { background-color: #eef1f5 !important; }
 html.light .bg-\[\#2a2a2a\],
-html.light .bg-\[\#2d2d2d\] { background-color: #e8ebef !important; }
-html.light .bg-\[\#333\] { background-color: #e1e5ea !important; }
-html.light .bg-\[\#3d3d3d\] { background-color: #d6dae0 !important; }
-html.light .bg-\[\#4d4d4d\] { background-color: #cbd0d7 !important; }
-html.light .bg-\[\#555\] { background-color: #c1c7cf !important; }
+html.light .bg-\[\#2d2d2d\] { background-color: #f7f9fb !important; }
+html.light .bg-\[\#333\] { background-color: #e9edf2 !important; }
+html.light .bg-\[\#3d3d3d\] { background-color: #dfe4ea !important; }
+html.light .bg-\[\#4d4d4d\] { background-color: #d3d9e1 !important; }
+html.light .bg-\[\#555\] { background-color: #c7cdd6 !important; }
 
 /* ---- Dark-blue neutral panels -> pale blue tints ---- */
 html.light .bg-\[\#1b1c3a\],
@@ -177,13 +179,21 @@ html.light .bg-\[\#292a4a\] { background-color: #ebedf8 !important; }
 html.light .bg-\[\#293b6e\],
 html.light .bg-\[\#344a8a\] { background-color: #e3eafb !important; }
 
-/* ---- Borders (dark -> light) ---- */
-html.light .border-\[\#222\] { border-color: #e5e7eb !important; }
-html.light .border-\[\#2a2a2a\] { border-color: #e2e5e9 !important; }
-html.light .border-\[\#333\] { border-color: #d9dde2 !important; }
-html.light .border-\[\#3d3d3d\] { border-color: #d0d4da !important; }
-html.light .border-\[\#444\] { border-color: #cbd0d6 !important; }
-html.light .border-\[\#555\] { border-color: #bcc2ca !important; }
+/* ---- Borders (dark -> light): crisp hairlines ---- */
+html.light .border-\[\#222\] { border-color: #eaedf1 !important; }
+html.light .border-\[\#2a2a2a\] { border-color: #e6eaee !important; }
+html.light .border-\[\#333\] { border-color: #dde2e8 !important; }
+html.light .border-\[\#3d3d3d\] { border-color: #d4dae1 !important; }
+html.light .border-\[\#444\] { border-color: #ccd2da !important; }
+html.light .border-\[\#555\] { border-color: #bfc6cf !important; }
+
+/* ---- Premium depth: soft shadows on raised surfaces (Azure-like) ---- */
+html.light .shadow-2xl { box-shadow: 0 12px 40px rgba(15, 23, 42, 0.16), 0 4px 12px rgba(15, 23, 42, 0.08) !important; }
+html.light .shadow-lg { box-shadow: 0 6px 20px rgba(15, 23, 42, 0.10), 0 2px 6px rgba(15, 23, 42, 0.06) !important; }
+html.light .shadow-md { box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08) !important; }
+/* sidebar + right review panel get a clean right/left hairline shadow */
+html.light .border-r.border-\[\#3d3d3d\],
+html.light .border-l.border-\[\#3d3d3d\] { box-shadow: 0 0 0 1px rgba(15,23,42,0.02); }
 html.light .border-\[\#3b3c6a\],
 html.light .border-\[\#2a2b4a\] { border-color: #c9d2ea !important; }
 
@@ -213,7 +223,7 @@ html.light :is(
 }
 
 /* page backdrop */
-html.light body { background-color: #f6f7f9; }
+html.light body { background-color: #eef1f5; }
 
 /* AI autocomplete ghost text */
 .ai-ghost-text {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTheme } from 'next-themes';
-import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Upload, X, Search, Check, Star, Users, ListChecks, Play, SlidersHorizontal, ChevronsRight, ChevronsLeft, Type, Home, Settings2, Download, ThumbsUp, ThumbsDown, Info, ChevronDown, GraduationCap, FlaskConical, Feather, CheckCircle2, ChevronLeft, RotateCcw, Loader2, Sparkles, Trash2, Moon, Sun, Pencil, ArrowLeftRight, ExternalLink, Bookmark, Menu, Link2, ArrowUpDown, ArrowUp, Globe, Folder, FileText, Paperclip } from 'lucide-react';
+import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Upload, X, Search, Check, Star, Users, ListChecks, Play, SlidersHorizontal, ChevronsRight, ChevronsLeft, Type, Home, Settings2, Download, ThumbsUp, ThumbsDown, Info, ChevronDown, GraduationCap, FlaskConical, Feather, CheckCircle2, ChevronLeft, RotateCcw, Loader2, Sparkles, Trash2, Moon, Sun, Pencil, ArrowLeftRight, ExternalLink, Bookmark, Menu, Link2, ArrowUpDown, ArrowUp, Globe, Folder, FileText, Paperclip, Undo2, Redo2, MessageCircle, Archive, CheckCheck } from 'lucide-react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
@@ -1918,6 +1918,48 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
   };
 
 
+  useEffect(() => {
+    try { const raw = localStorage.getItem('pinnovix_comments'); if (raw) setComments(JSON.parse(raw)); } catch {}
+  }, []);
+  const persistComments = (list: any[]) => { setComments(list); try { localStorage.setItem('pinnovix_comments', JSON.stringify(list)); } catch {} };
+  const startComment = () => {
+    if (!editor) return;
+    const { from, to } = editor.state.selection;
+    const text = editor.state.doc.textBetween(from, to, ' ').trim();
+    if (!text) { alert('Select some text in your document first, then click Comment.'); return; }
+    setCommentQuote(text.length > 240 ? text.slice(0, 240) + '\u2026' : text);
+    setComposingComment(true);
+    setShowComments(true);
+    setShowAiChat(false);
+  };
+  const addComment = () => {
+    const body = commentDraft.trim();
+    if (!body) return;
+    const now = Date.now();
+    const c = { id: now, quote: commentQuote, text: body, status: 'open', archived: false, read: true, major: false, createdAt: now, updatedAt: now };
+    persistComments([c, ...comments]);
+    setCommentDraft(''); setCommentQuote(''); setComposingComment(false);
+  };
+  const updateComment = (id: number, patch: any) => persistComments(comments.map(c => c.id === id ? { ...c, ...patch, updatedAt: Date.now() } : c));
+  const deleteComment = (id: number) => persistComments(comments.filter(c => c.id !== id));
+  const visibleComments = () => {
+    let list = comments.filter(c => {
+      if (c.archived) return commentFilters.archived;
+      if (c.status === 'open' && !commentFilters.open) return false;
+      if (c.status === 'resolved' && !commentFilters.resolved) return false;
+      if (!c.read && !commentFilters.unread) return false;
+      return true;
+    });
+    list = [...list].sort((a, b) => {
+      if (commentSort === 'Oldest first') return a.createdAt - b.createdAt;
+      if (commentSort === 'Most recently active') return b.updatedAt - a.updatedAt;
+      if (commentSort === 'Major first') return (b.major ? 1 : 0) - (a.major ? 1 : 0) || b.createdAt - a.createdAt;
+      return b.createdAt - a.createdAt;
+    });
+    return list;
+  };
+  const commentTime = (t: number) => { const d = new Date(t); return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); };
+
   const handleDocumentImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -2228,6 +2270,7 @@ Text to review: "${editor?.getText() || documentContent}"`, {
       setDocumentContent(editor.getHTML());
       collectCitationsRef.current?.(editor);
     },
+    onSelectionUpdate: () => { setEditorTick(t => t + 1); },
     editorProps: {
       attributes: {
         class: 'prose prose-sm dark:prose-invert max-w-none focus:outline-none min-h-[500px] text-[15px] leading-relaxed',
@@ -2401,6 +2444,18 @@ Text to review: "${editor?.getText() || documentContent}"`, {
   const [aiChatBusy, setAiChatBusy] = useState(false);
   const [aiChatDoc, setAiChatDoc] = useState('');
   const aiChatFileRef = useRef<HTMLInputElement>(null);
+  const [, setEditorTick] = useState(0);
+  const [textMenuOpen, setTextMenuOpen] = useState(false);
+  // Comments
+  const [showComments, setShowComments] = useState(false);
+  const [comments, setComments] = useState<any[]>([]);
+  const [commentSort, setCommentSort] = useState('Newest first');
+  const [commentSortOpen, setCommentSortOpen] = useState(false);
+  const [commentFilterOpen, setCommentFilterOpen] = useState(false);
+  const [commentFilters, setCommentFilters] = useState({ open: true, resolved: true, unread: true, archived: true });
+  const [commentDraft, setCommentDraft] = useState('');
+  const [commentQuote, setCommentQuote] = useState('');
+  const [composingComment, setComposingComment] = useState(false);
   const [aiChatPlusOpen, setAiChatPlusOpen] = useState(false);
   const [aiChatWebSearch, setAiChatWebSearch] = useState<'off'|'ask'|'on'>('ask');
   const [aiChatLibSearch, setAiChatLibSearch] = useState<'off'|'ask'|'on'>('ask');
@@ -2862,6 +2917,9 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
               <button onClick={() => setShowShareModal(true)} className="flex items-center gap-2 text-gray-300 hover:text-white transition-colors text-[13px] font-bold" title="Share">
                 <Users className="w-4 h-4" /> <span className="hidden sm:inline">Share</span>
               </button>
+              <button onClick={() => { setShowComments(true); setShowAiChat(false); }} className="flex items-center gap-2 text-gray-300 hover:text-white transition-colors text-[13px] font-bold relative" title="Comments">
+                <MessageCircle className="w-4 h-4" /> <span className="hidden sm:inline">Comments</span>{comments.filter(c => !c.archived && c.status === 'open').length > 0 && <span className="absolute -top-1 -right-1 bg-[#5b5fff] text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center">{comments.filter(c => !c.archived && c.status === 'open').length}</span>}
+              </button>
               <button onClick={() => setShowAiChat(true)} className="flex items-center gap-2 text-gray-300 hover:text-white transition-colors text-[13px] font-bold" title="AI Chat">
                 <MessageSquare className="w-4 h-4" /> <span className="hidden sm:inline">AI Chat</span>
               </button>
@@ -2887,9 +2945,26 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
           {/* Format Toolbar Row */}
           <div className="flex items-center px-4 py-2 gap-4 gap-y-2 text-gray-400 text-[13px] flex-wrap">
              <div className="flex items-center gap-3 border-r border-[#333] pr-4">
-                <button onClick={() => editor?.chain().focus().undo().run()} className="hover:text-white transition-colors" title="Undo">↩</button>
-                <button onClick={() => editor?.chain().focus().redo().run()} className="hover:text-white transition-colors" title="Redo">↪</button>
-                <button onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()} className={`flex items-center gap-1 hover:text-white transition-colors ${editor?.isActive('heading', { level: 2 }) ? 'text-white' : ''}`} title="Heading"><Type className="w-3 h-3" /> Text</button>
+                <button onClick={() => editor?.chain().focus().undo().run()} disabled={!editor?.can().undo()} className="hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed" title="Undo (Ctrl+Z)"><Undo2 className="w-4 h-4" /></button>
+                <button onClick={() => editor?.chain().focus().redo().run()} disabled={!editor?.can().redo()} className="hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed" title="Redo (Ctrl+Y)"><Redo2 className="w-4 h-4" /></button>
+                <div className="relative">
+                  <button onClick={() => setTextMenuOpen(v => !v)} className={`flex items-center gap-1 hover:text-white transition-colors ${editor?.isActive('heading') ? 'text-white' : ''}`} title="Text style"><Type className="w-3.5 h-3.5" /> {editor?.isActive('heading', { level: 1 }) ? 'Heading 1' : editor?.isActive('heading', { level: 2 }) ? 'Heading 2' : editor?.isActive('heading', { level: 3 }) ? 'Heading 3' : 'Text'} <ChevronDown className="w-3 h-3" /></button>
+                  {textMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-[5]" onClick={() => setTextMenuOpen(false)} />
+                      <div className="absolute z-10 top-full left-0 mt-2 w-44 bg-[#1a1a1a] border border-[#333] rounded-lg shadow-2xl py-1">
+                        <button onClick={() => { editor?.chain().focus().setParagraph().run(); setTextMenuOpen(false); }} className={`w-full text-left px-3 py-2 text-[13px] hover:bg-[#222] ${editor?.isActive('paragraph') ? 'text-white' : 'text-gray-300'}`}>Normal text</button>
+                        <button onClick={() => { editor?.chain().focus().toggleHeading({ level: 1 }).run(); setTextMenuOpen(false); }} className={`w-full text-left px-3 py-2 text-[18px] font-bold hover:bg-[#222] ${editor?.isActive('heading', { level: 1 }) ? 'text-white' : 'text-gray-300'}`}>Heading 1</button>
+                        <button onClick={() => { editor?.chain().focus().toggleHeading({ level: 2 }).run(); setTextMenuOpen(false); }} className={`w-full text-left px-3 py-2 text-[16px] font-bold hover:bg-[#222] ${editor?.isActive('heading', { level: 2 }) ? 'text-white' : 'text-gray-300'}`}>Heading 2</button>
+                        <button onClick={() => { editor?.chain().focus().toggleHeading({ level: 3 }).run(); setTextMenuOpen(false); }} className={`w-full text-left px-3 py-2 text-[14px] font-bold hover:bg-[#222] ${editor?.isActive('heading', { level: 3 }) ? 'text-white' : 'text-gray-300'}`}>Heading 3</button>
+                        <div className="my-1 border-t border-[#333]" />
+                        <button onClick={() => { editor?.chain().focus().toggleBulletList().run(); setTextMenuOpen(false); }} className={`w-full text-left px-3 py-2 text-[13px] hover:bg-[#222] ${editor?.isActive('bulletList') ? 'text-white' : 'text-gray-300'}`}>Bullet list</button>
+                        <button onClick={() => { editor?.chain().focus().toggleOrderedList().run(); setTextMenuOpen(false); }} className={`w-full text-left px-3 py-2 text-[13px] hover:bg-[#222] ${editor?.isActive('orderedList') ? 'text-white' : 'text-gray-300'}`}>Numbered list</button>
+                        <button onClick={() => { editor?.chain().focus().toggleBlockquote().run(); setTextMenuOpen(false); }} className={`w-full text-left px-3 py-2 text-[13px] hover:bg-[#222] ${editor?.isActive('blockquote') ? 'text-white' : 'text-gray-300'}`}>Quote</button>
+                      </div>
+                    </>
+                  )}
+                </div>
              </div>
              <div className="flex items-center gap-3 border-r border-[#333] pr-4">
                 <button onClick={() => editor?.chain().focus().toggleBold().run()} className={`font-serif hover:text-white transition-colors ${editor?.isActive('bold') ? 'text-white' : ''}`} title="Bold"><b>B</b></button>
@@ -2903,6 +2978,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
              <div className="flex items-center gap-3 border-r border-[#333] pr-4">
                 <button onClick={() => { const url = window.prompt('Enter URL (leave blank to remove link)'); if (url) { editor?.chain().focus().extendMarkRange('link').setLink({ href: url }).run(); } else { editor?.chain().focus().unsetLink().run(); } }} className={`hover:text-white transition-colors ${editor?.isActive('link') ? 'text-white' : ''}`} title="Add / remove link">🔗</button>
                 <button onClick={() => editor?.chain().focus().unsetAllMarks().run()} className="hover:text-white transition-colors" title="Clear formatting">🖊️</button>
+                <button onClick={startComment} className="hover:text-white transition-colors" title="Comment on selected text"><MessageCircle className="w-4 h-4" /></button>
              </div>
              <div className="flex items-center gap-3 border-r border-[#333] pr-4 relative">
                 <button onClick={() => setDownloadMenuOpen(!downloadMenuOpen)} className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer text-[#6d93e8] font-bold">
@@ -4356,6 +4432,87 @@ Required JSON structure:
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showComments && (
+        <div className="fixed inset-0 z-[100] flex justify-end bg-black/40" onClick={() => { setShowComments(false); setCommentSortOpen(false); setCommentFilterOpen(false); }}>
+          <div className="w-[420px] max-w-[92vw] h-full bg-[#161616] border-l border-[#333] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b border-[#2a2a2a] flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2"><button onClick={() => setShowComments(false)} className="text-gray-300 hover:text-white"><ChevronsRight className="w-5 h-5" /></button><h2 className="text-[15px] font-bold text-white">Comments</h2></div>
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <button onClick={() => { setCommentSortOpen(v => !v); setCommentFilterOpen(false); }} className="flex items-center gap-1.5 text-[13px] text-gray-300 hover:text-white"><ArrowUpDown className="w-4 h-4" /> Sort</button>
+                  {commentSortOpen && (
+                    <div className="absolute right-0 top-[130%] z-20 w-[200px] bg-[#1a1a1a] border border-[#333] rounded-lg shadow-2xl py-1">
+                      <div className="px-3 py-1.5 text-[11px] text-gray-500 uppercase font-bold">Sort</div>
+                      {['Newest first','Oldest first','Most recently active','Major first'].map(so => (
+                        <button key={so} onClick={() => { setCommentSort(so); setCommentSortOpen(false); }} className="w-full text-left px-3 py-2 text-[13px] text-gray-200 hover:bg-[#222] flex items-center justify-between">{so}{commentSort === so && <Check className="w-4 h-4 text-[#7fa3ff]" />}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="relative">
+                  <button onClick={() => { setCommentFilterOpen(v => !v); setCommentSortOpen(false); }} className="flex items-center gap-1.5 text-[13px] text-gray-300 hover:text-white"><SlidersHorizontal className="w-4 h-4" /> Filter{!(commentFilters.open && commentFilters.resolved && commentFilters.unread && commentFilters.archived) && <span className="w-1.5 h-1.5 rounded-full bg-red-500" />}</button>
+                  {commentFilterOpen && (
+                    <div className="absolute right-0 top-[130%] z-20 w-[170px] bg-[#1a1a1a] border border-[#333] rounded-lg shadow-2xl py-1">
+                      <div className="px-3 py-1.5 text-[11px] text-gray-500 uppercase font-bold">Filter</div>
+                      {([['open','Open'],['resolved','Resolved'],['unread','Unread'],['archived','Archived']] as const).map(([k,label]) => (
+                        <label key={k} className="flex items-center gap-2 px-3 py-2 text-[13px] text-gray-200 hover:bg-[#222] cursor-pointer">
+                          <input type="checkbox" checked={(commentFilters as any)[k]} onChange={(e) => setCommentFilters(f => ({ ...f, [k]: e.target.checked }))} className="accent-[#5b5fff]" /> {label}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-4 flex flex-col gap-3">
+              {composingComment && (
+                <div className="bg-[#1a1a1a] border border-[#5b5fff] rounded-xl p-3">
+                  {commentQuote && <div className="text-[12px] text-gray-400 border-l-2 border-[#5b5fff] pl-2 mb-2 italic">“{commentQuote}”</div>}
+                  <textarea value={commentDraft} onChange={(e) => setCommentDraft(e.target.value)} rows={3} placeholder="Add a comment..." autoFocus className="w-full resize-none bg-[#111] border border-[#333] rounded-lg px-3 py-2 text-[13.5px] text-white outline-none focus:border-[#5b5fff]" />
+                  <div className="flex items-center justify-end gap-2 mt-2">
+                    <button onClick={() => { setComposingComment(false); setCommentDraft(''); setCommentQuote(''); }} className="text-[12.5px] text-gray-400 hover:text-white px-3 py-1.5">Cancel</button>
+                    <button onClick={addComment} disabled={!commentDraft.trim()} className="bg-[#5b5fff] hover:bg-[#6b6fff] disabled:opacity-40 text-white text-[12.5px] font-semibold rounded-md px-4 py-1.5">Comment</button>
+                  </div>
+                </div>
+              )}
+              {(() => {
+                const list = visibleComments();
+                if (list.length === 0 && !composingComment) {
+                  return (
+                    <div className="m-auto text-center px-6">
+                      <div className="w-12 h-12 rounded-xl bg-[#222] border border-[#333] flex items-center justify-center mx-auto mb-3"><MessageCircle className="w-5 h-5 text-gray-400" /></div>
+                      <div className="text-white font-bold text-[15px]">No comments yet</div>
+                      <div className="text-gray-500 text-[13px] mt-1">Select text and click the comment button to add one.</div>
+                    </div>
+                  );
+                }
+                return list.map(c => (
+                  <div key={c.id} className={`rounded-xl p-3 border ${c.archived ? 'bg-[#141414] border-[#2a2a2a] opacity-70' : 'bg-[#1a1a1a] border-[#2a2a2a]'}`}>
+                    {c.quote && <div className="text-[12px] text-gray-400 border-l-2 border-[#5b5fff] pl-2 mb-2 italic">“{c.quote}”</div>}
+                    <div className="text-[13.5px] text-gray-100 whitespace-pre-wrap">{c.text}</div>
+                    <div className="flex items-center gap-2 mt-2 flex-wrap text-[11px] text-gray-500">
+                      <span>{commentTime(c.createdAt)}</span>
+                      {c.status === 'resolved' && <span className="px-1.5 py-0.5 rounded bg-[#14532d] text-[#4ade80] font-bold">RESOLVED</span>}
+                      {c.major && <span className="px-1.5 py-0.5 rounded bg-[#4a2a00] text-[#e08a3c] font-bold">MAJOR</span>}
+                      {!c.read && <span className="px-1.5 py-0.5 rounded bg-[#1b3a5c] text-[#7fb3ff] font-bold">UNREAD</span>}
+                    </div>
+                    <div className="flex items-center gap-3 mt-2 text-gray-400 text-[12px]">
+                      <button onClick={() => updateComment(c.id, { status: c.status === 'resolved' ? 'open' : 'resolved' })} className="hover:text-white flex items-center gap-1"><CheckCheck className="w-3.5 h-3.5" /> {c.status === 'resolved' ? 'Reopen' : 'Resolve'}</button>
+                      <button onClick={() => updateComment(c.id, { major: !c.major })} className="hover:text-white flex items-center gap-1"><Star className={`w-3.5 h-3.5 ${c.major ? 'fill-amber-400 text-amber-400' : ''}`} /> Major</button>
+                      <button onClick={() => updateComment(c.id, { archived: !c.archived })} className="hover:text-white flex items-center gap-1"><Archive className="w-3.5 h-3.5" /> {c.archived ? 'Unarchive' : 'Archive'}</button>
+                      <button onClick={() => deleteComment(c.id)} className="hover:text-red-400 flex items-center gap-1 ml-auto"><Trash2 className="w-3.5 h-3.5" /></button>
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
+            <div className="border-t border-[#2a2a2a] p-3 shrink-0">
+              <button onClick={startComment} className="w-full bg-[#222] hover:bg-[#2a2a2a] border border-[#333] text-gray-200 text-[13px] font-semibold rounded-lg py-2 flex items-center justify-center gap-2"><MessageCircle className="w-4 h-4" /> Comment on selected text</button>
             </div>
           </div>
         </div>
