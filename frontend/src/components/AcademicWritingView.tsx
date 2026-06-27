@@ -345,6 +345,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const hideCiteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isReviewing, setIsReviewing] = useState(false);
   const [reviewData, setReviewData] = useState<any>(null);
+  const [tonePreset, setTonePreset] = useState('Formal Academic');
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [importedFileName, setImportedFileName] = useState('');
   const [localUploadingDoc, setLocalUploadingDoc] = useState(false);
@@ -2107,28 +2108,36 @@ Text to review: "${editor?.getText() || documentContent}"`, {
 
   const handlePeerReview = () => {
     setActiveReviewTab('peer');
-    fetchReview(`Review the following text. Return ONLY a valid JSON object. Do not use markdown formatting. Format must be exactly:
+    fetchReview(`You are Reviewer 2 for a top peer-reviewed academic journal. Conduct a rigorous, constructive peer review of the text. Return ONLY a valid JSON object (no markdown, no code fences) in exactly this shape:
 {
   "type": "peer",
-  "overall": "Brief 2-3 sentence overall assessment.",
-  "strengths": ["Strength 1", "Strength 2"],
-  "weaknesses": ["Weakness 1", "Weakness 2"]
+  "soundness": <integer 1-4>,
+  "presentation": <integer 1-4>,
+  "contribution": <integer 1-4>,
+  "overallScore": <integer 1-10>,
+  "recommendation": "<one of: Accept | Minor revisions | Major revisions | Reject>",
+  "summary": "2-4 sentence overall assessment that states the recommendation.",
+  "strengths": ["specific strength 1", "specific strength 2"],
+  "weaknesses": ["specific, actionable weakness 1", "weakness 2"],
+  "questions": ["a probing question for the authors 1", "question 2"]
 }
+Score soundness (methods/claims/evidence), presentation (clarity/structure), and contribution (novelty/significance). Be specific and critical like a real reviewer.
 Text to review: "${editor?.getText() || documentContent}"`, {
       type: 'peer',
-      overall: "Review completed, but couldn't parse the exact strengths and weaknesses.",
-      strengths: [],
-      weaknesses: []
+      soundness: 0, presentation: 0, contribution: 0, overallScore: 0,
+      recommendation: '',
+      summary: "Review completed, but the detailed assessment could not be parsed. Please try again.",
+      strengths: [], weaknesses: [], questions: []
     });
   };
 
   const handleToneOfVoice = () => {
     setActiveReviewTab('tone');
-    fetchReview(`You are an academic writing-style editor. Find sentences whose tone is too informal, wordy, vague, or unscholarly. Return ONLY a valid JSON object (no markdown, no code fences) in exactly this shape:
+    fetchReview(`You are an academic writing-style editor. The author wants the document to match this target style: "${tonePreset}". Find sentences whose tone does not match that target (too informal, wordy, vague, or unscholarly). Return ONLY a valid JSON object (no markdown, no code fences) in exactly this shape:
 {
   "type": "tone",
   "suggestions": [
-    { "original": "<the exact sentence copied verbatim from the text>", "suggestion": "<a more precise, formal academic rewrite>", "reason": "<short reason>" }
+    { "original": "<the exact sentence copied verbatim from the text>", "suggestion": "<a rewrite that matches the ${tonePreset} style>", "reason": "<short reason>" }
   ]
 }
 Copy each "original" EXACTLY so it can be found and replaced. If the tone is already good, return an empty suggestions array.
@@ -2152,6 +2161,11 @@ Text to review: "${editor?.getText() || documentContent}"`, {
     });
     if (found) editor.chain().focus().insertContentAt(found, suggestion).run();
     else alert('Could not locate that exact text (it may have already been edited).');
+  };
+
+  const applyAllFixes = (list: any[]) => {
+    if (!editor || !Array.isArray(list)) return;
+    list.forEach((it) => { if (it && it.original && it.suggestion) applyTextFix(it.original, it.suggestion); });
   };
 
   const handleProofread = () => {
@@ -3560,7 +3574,8 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
             {activeReviewTab === 'claim' ? 'Claim confidence' :
              activeReviewTab === 'analysis' ? 'Document Analysis' : 
              activeReviewTab === 'tone' ? 'Tone of Voice' : 
-             activeReviewTab === 'proofread' ? 'Proofread' : 'Review'}
+             activeReviewTab === 'proofread' ? 'Proofread' :
+             activeReviewTab === 'peer' ? 'Peer Review' : 'Review'}
           </span>
           {activeReviewTab && (
              <div className="ml-auto flex items-center gap-2">
@@ -3594,6 +3609,23 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                      </button>
                      <button onClick={() => setShowClaimConfidenceSettings(true)} className="text-gray-400 hover:text-white transition-colors">
                        <SlidersHorizontal className="w-4 h-4" />
+                     </button>
+                   </div>
+                 </div>
+
+                 {/* Card: Peer Review */}
+                 <div className="bg-[#1e1e1e] border border-[#2a2a2a] rounded-xl p-5 flex flex-col gap-3">
+                   <div className="w-8 h-8 rounded-full bg-[#1b1c3a] flex items-center justify-center mb-1">
+                     <Users className="w-4 h-4 text-[#7d84ff]" />
+                   </div>
+                   <h3 className="text-[15px] font-bold text-white">Peer Review</h3>
+                   <p className="text-[13px] text-gray-400 leading-relaxed">
+                     Simulate an expert academic peer review with scores, strengths, weaknesses and questions for the authors.
+                   </p>
+                   <div className="flex items-center gap-3 mt-2">
+                     <button onClick={handlePeerReview} disabled={loading} className="flex items-center gap-2 border border-[#333] rounded-lg px-3 py-1.5 hover:bg-[#2a2a2a] transition-colors disabled:opacity-50">
+                        <Play className="w-3.5 h-3.5 text-gray-300" />
+                        <span className="text-[13px] font-bold text-white">Run review</span>
                      </button>
                    </div>
                  </div>
@@ -3727,9 +3759,12 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                          </div>
                        )})}
                      </div>
+                     <button onClick={autoCiteDocument} disabled={autoCiting} className="mt-4 w-full py-2.5 bg-[#5b5fff] hover:bg-[#6b6fff] disabled:opacity-50 rounded-lg text-white font-bold flex items-center justify-center gap-2 transition-colors">
+                       {autoCiting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} {autoCiting ? 'Adding real citations\u2026' : 'Add real citations to uncited claims'}
+                     </button>
                      {Array.isArray(reviewData.fixes) && reviewData.fixes.length > 0 && (
                        <div className="mt-4">
-                         <h3 className="text-[14px] font-bold text-white mb-2">Suggested fixes</h3>
+                         <div className="flex items-center justify-between mb-2"><h3 className="text-[14px] font-bold text-white">Suggested fixes</h3><button onClick={() => applyAllFixes(reviewData.fixes)} className="text-[12px] font-bold text-[#7d84ff] hover:text-white px-2 py-1 rounded border border-[#3b3c6a] hover:bg-[#2a2a2a]">Apply all</button></div>
                          <div className="flex flex-col gap-3">
                            {reviewData.fixes.map((it: any, i: number) => (
                              <div key={i} className="bg-[#222] rounded-lg p-3 border border-[#333] flex flex-col gap-1.5">
@@ -3793,7 +3828,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                       ))}
                      {Array.isArray(reviewData.fixes) && reviewData.fixes.length > 0 && (
                        <div className="mt-4">
-                         <h3 className="text-[14px] font-bold text-white mb-2">Suggested fixes</h3>
+                         <div className="flex items-center justify-between mb-2"><h3 className="text-[14px] font-bold text-white">Suggested fixes</h3><button onClick={() => applyAllFixes(reviewData.fixes)} className="text-[12px] font-bold text-[#7d84ff] hover:text-white px-2 py-1 rounded border border-[#3b3c6a] hover:bg-[#2a2a2a]">Apply all</button></div>
                          <div className="flex flex-col gap-3">
                            {reviewData.fixes.map((it: any, i: number) => (
                              <div key={i} className="bg-[#222] rounded-lg p-3 border border-[#333] flex flex-col gap-1.5">
@@ -3830,6 +3865,64 @@ Required JSON structure:
               </div>
            )}
 
+           {activeReviewTab === 'peer' && (
+              <div className="flex flex-col gap-4">
+                {isReviewing ? (
+                   <div className="flex flex-col items-center justify-center py-10 gap-3">
+                      <Loader2 className="w-6 h-6 animate-spin text-[#5b5fff]" />
+                      <span className="text-sm font-bold text-gray-400">Simulating peer review...</span>
+                   </div>
+                ) : reviewData?.type === 'peer' ? (
+                   <>
+                     <h3 className="text-[15px] font-bold text-white">Overall assessment</h3>
+                     <div className="bg-[#151515] border border-[#2a2a2a] rounded-xl p-4 flex flex-col gap-2.5">
+                       {[['Soundness','soundness'],['Presentation','presentation'],['Contribution','contribution']].map(([label,key]) => (
+                         <div key={key} className="flex items-center justify-between">
+                           <span className="text-[13px] text-gray-300">{label}</span>
+                           <div className="flex items-center gap-2">
+                             <div className="flex gap-1">
+                               {[1,2,3,4].map(n => <div key={n} className={`w-2 h-2 rounded-full ${n <= (reviewData[key]||0) ? 'bg-[#7d84ff]' : 'bg-[#333]'}`} />)}
+                             </div>
+                             <span className="text-[13px] font-bold text-white w-9 text-right">{reviewData[key]||0}/4</span>
+                           </div>
+                         </div>
+                       ))}
+                       <div className="border-t border-[#2a2a2a] my-1" />
+                       <div className="flex items-center justify-between">
+                         <span className="text-[14px] font-bold text-white">Overall score</span>
+                         <span className="text-[16px] font-black text-[#7d84ff]">{reviewData.overallScore||0}<span className="text-[12px] text-gray-500">/10</span></span>
+                       </div>
+                       {reviewData.recommendation && <div className="text-center mt-1"><span className="inline-block px-2.5 py-1 rounded-full bg-[#292a4a] text-[#9aa0ff] text-[11px] font-bold uppercase tracking-wide">{reviewData.recommendation}</span></div>}
+                     </div>
+                     <div className="flex items-center justify-between">
+                       <h3 className="text-[15px] font-bold text-white">Results</h3>
+                       <div className="flex gap-2 text-gray-400"><ThumbsUp className="w-4 h-4 cursor-pointer hover:text-white" /><ThumbsDown className="w-4 h-4 cursor-pointer hover:text-white" /></div>
+                     </div>
+                     <p className="text-[14px] text-gray-200 leading-relaxed">{reviewData.summary}</p>
+                     {[['Weaknesses','weaknesses','-'],['Strengths','strengths','+'],['Questions for the authors','questions','?']].map(([label,key,mark]) => (
+                       Array.isArray(reviewData[key]) && reviewData[key].length > 0 ? (
+                         <div key={key}>
+                           <h4 className="text-[13px] font-bold text-gray-300 mb-1.5">{label}</h4>
+                           <div className="flex flex-col gap-1.5">
+                             {reviewData[key].map((str: string, i: number) => (
+                               <div key={i} className="flex items-start gap-2 text-[13px] text-gray-300">
+                                 <span className={`shrink-0 font-bold ${mark==='+'?'text-[#34d399]':mark==='-'?'text-red-400':'text-[#7fb3ff]'}`}>{mark}</span>
+                                 <span>{str}</span>
+                               </div>
+                             ))}
+                           </div>
+                         </div>
+                       ) : null
+                     ))}
+                   </>
+                ) : (
+                   <button onClick={handlePeerReview} className="w-full py-2.5 bg-[#5b5fff] hover:bg-[#6b6fff] rounded-lg text-white font-bold flex items-center justify-center gap-2 mb-6">
+                      <Play className="w-4 h-4" /> Run Peer Review
+                   </button>
+                )}
+              </div>
+           )}
+
            {activeReviewTab === 'tone' && (
               <div className="flex flex-col gap-4">
                  <p className="text-[15px] text-white font-bold leading-relaxed mb-4">
@@ -3838,40 +3931,24 @@ Required JSON structure:
                  
                  <div className="text-[11px] font-bold text-gray-500 tracking-wider mb-2">STYLE PRESETS</div>
                  <div className="flex flex-col gap-2 mb-6">
-                    <div className="bg-[#2a2a2a] border border-[#444] rounded-xl p-4 flex items-center justify-between cursor-pointer">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-lg bg-[#333] flex items-center justify-center">
-                          <GraduationCap className="w-5 h-5 text-gray-300" />
+                    {[
+                      { name: 'Formal Academic', desc: 'Past tense, hedged claims, impersonal voice', Icon: GraduationCap },
+                      { name: 'Concise Scientific', desc: 'Active voice, short sentences, minimal hedging', Icon: FlaskConical },
+                      { name: 'Clear & Natural', desc: 'Plain vocabulary, active voice, conversational', Icon: Feather },
+                    ].map(({ name, desc, Icon }) => (
+                      <button key={name} onClick={() => setTonePreset(name)} className={`text-left rounded-xl p-4 flex items-center justify-between cursor-pointer border transition-colors ${tonePreset === name ? 'bg-[#2a2a2a] border-[#5b5fff]' : 'bg-[#151515] border-[#2a2a2a] hover:border-[#444]'}`}>
+                        <div className="flex items-center gap-4">
+                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${tonePreset === name ? 'bg-[#333]' : 'bg-[#222]'}`}>
+                            <Icon className="w-5 h-5 text-gray-300" />
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[15px] font-bold text-white">{name}</span>
+                            <span className="text-[13px] text-gray-400">{desc}</span>
+                          </div>
                         </div>
-                        <div className="flex flex-col">
-                          <span className="text-[15px] font-bold text-white">Formal Academic</span>
-                          <span className="text-[13px] text-gray-400">Past tense, hedged claims, impersonal voice...</span>
-                        </div>
-                      </div>
-                      <CheckCircle2 className="w-5 h-5 text-white" />
-                    </div>
-                    <div className="bg-[#151515] border border-[#2a2a2a] rounded-xl p-4 flex items-center justify-between cursor-pointer hover:border-[#444]">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-lg bg-[#222] flex items-center justify-center">
-                          <FlaskConical className="w-5 h-5 text-gray-300" />
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-[15px] font-bold text-white">Concise Scientific</span>
-                          <span className="text-[13px] text-gray-400">Active voice, short sentences, minimal hedging, S...</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="bg-[#151515] border border-[#2a2a2a] rounded-xl p-4 flex items-center justify-between cursor-pointer hover:border-[#444]">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-lg bg-[#222] flex items-center justify-center">
-                          <Feather className="w-5 h-5 text-gray-300" />
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-[15px] font-bold text-white">Clear & Natural</span>
-                          <span className="text-[13px] text-gray-400">Plain vocabulary, active voice, conversational, ac...</span>
-                        </div>
-                      </div>
-                    </div>
+                        {tonePreset === name && <CheckCircle2 className="w-5 h-5 text-[#5b5fff]" />}
+                      </button>
+                    ))}
                  </div>
 
                  <div className="text-[11px] font-bold text-gray-500 tracking-wider mb-2">MATCH A PAPER</div>
@@ -3881,11 +3958,8 @@ Required JSON structure:
                     <p className="text-[13px] text-gray-400">Upload a PDF to your library to use as a tone reference.</p>
                  </div>
 
-                 <button onClick={handleToneOfVoice} disabled={isReviewing} className="w-full py-2.5 bg-[#151515] border border-[#333] hover:bg-[#2a2a2a] rounded-lg text-gray-300 font-bold flex items-center justify-center transition-colors disabled:opacity-50 mt-2">
-                   <div className="flex items-center gap-2">
-                     <Play className="w-4 h-4 text-gray-400" /> Run review
-                   </div>
-                   <span className="bg-[#292a4a] text-[#7d84ff] text-[10px] px-1.5 py-0.5 rounded uppercase font-black ml-3 tracking-wider">Upgrade</span>
+                 <button onClick={handleToneOfVoice} disabled={isReviewing} className="w-full py-2.5 bg-[#5b5fff] hover:bg-[#6b6fff] rounded-lg text-white font-bold flex items-center justify-center gap-2 transition-colors disabled:opacity-50 mt-2">
+                   <Play className="w-4 h-4" /> Run review
                  </button>
 
                  {isReviewing && (
@@ -3896,7 +3970,7 @@ Required JSON structure:
                  )}
                  {reviewData?.type === 'tone' && (
                    <div className="mt-4 flex flex-col gap-2">
-                     <h3 className="text-[15px] font-bold text-white">Suggestions:</h3>
+                     <div className="flex items-center justify-between"><h3 className="text-[15px] font-bold text-white">Suggestions:</h3>{reviewData.suggestions && reviewData.suggestions.length > 0 && <button onClick={() => applyAllFixes(reviewData.suggestions)} className="text-[12px] font-bold text-[#7d84ff] hover:text-white px-2 py-1 rounded border border-[#3b3c6a] hover:bg-[#2a2a2a]">Apply all</button>}</div>
                      {(!reviewData.suggestions || reviewData.suggestions.length === 0) ? (
                        <p className="text-[13px] text-[#34d399]">Tone looks appropriately academic - no changes suggested.</p>
                      ) : (
@@ -3941,6 +4015,7 @@ Required JSON structure:
                        <p className="text-[14px] text-[#34d399] mb-4">No issues found - your text looks clean.</p>
                      ) : (
                        <div className="flex flex-col gap-3 mb-4">
+                         <button onClick={() => applyAllFixes(reviewData.issues)} className="self-start text-[12px] font-bold text-[#7d84ff] hover:text-white px-2 py-1 rounded border border-[#3b3c6a] hover:bg-[#2a2a2a]">Apply all fixes</button>
                          {reviewData.issues.map((it: any, idx: number) => (
                            typeof it === 'string' ? (
                              <div key={idx} className="text-[14px] text-gray-200 bg-[#222] rounded-lg p-3 border border-[#333]">{it}</div>
