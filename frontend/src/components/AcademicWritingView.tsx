@@ -346,6 +346,10 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const [isReviewing, setIsReviewing] = useState(false);
   const [reviewData, setReviewData] = useState<any>(null);
   const [tonePreset, setTonePreset] = useState('Formal Academic');
+  const [matchingActive, setMatchingActive] = useState(false);
+  const [matchingTotal, setMatchingTotal] = useState(0);
+  const [matchingDone, setMatchingDone] = useState(0);
+  const [matchingMatched, setMatchingMatched] = useState<any[]>([]);
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [importedFileName, setImportedFileName] = useState('');
   const [localUploadingDoc, setLocalUploadingDoc] = useState(false);
@@ -1229,14 +1233,22 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         return false;
       });
       if (!targets.length) { setAutoCiting(false); return; }
+      // Drive the right-side "Citation Matching" panel (like jenni) as each citation resolves.
+      setMatchingMatched([]); setMatchingDone(0); setMatchingTotal(targets.length); setMatchingActive(true);
+      setActiveReviewTab('matching'); setIsRightPanelOpen(true);
       const cache: Record<string, any> = {};
       const updates: { from: number; to: number; meta: any }[] = [];
       for (const t of targets) {
         const key = t.text.trim();
         let meta = cache[key];
         if (meta === undefined) { meta = await multiSourceLookup(t.text, t.context || ''); cache[key] = meta; }
-        if (meta && !meta.none && (meta.doi || meta.title)) updates.push({ from: t.from, to: t.to, meta });
+        if (meta && !meta.none && (meta.doi || meta.title)) {
+          updates.push({ from: t.from, to: t.to, meta });
+          setMatchingMatched(prev => [...prev, { title: meta.title || '', authors: meta.authors || '', year: meta.year || '', container: meta.container || '', doi: meta.doi || '', url: meta.url || '' }]);
+        }
+        setMatchingDone(prev => prev + 1);
       }
+      setMatchingActive(false);
       if (!updates.length) { setAutoCiting(false); return; }
       updates.sort((a, b) => b.from - a.from);
       let tr = editor.state.tr;
@@ -1255,8 +1267,8 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       tr.setMeta('addToHistory', false);
       editor.view.dispatch(tr);
       setTimeout(() => collectCitations(editor), 80);
-    } catch { /* ignore */ }
-    finally { setAutoCiting(false); }
+    } catch { setMatchingActive(false); }
+    finally { setAutoCiting(false); setMatchingActive(false); }
   };
 
   // Fire the finalize pass when a generation run completes (loading goes true -> false)
@@ -2712,9 +2724,11 @@ Do NOT insert any page markers, page breaks or "_Page N_" text anywhere in the d
 MANDATORY: You MUST include realistic scholarly inline citations at the end of every claim or paragraph using the requested citation style!`;
       if (handleGenerateDocument) handleGenerateDocument(prompt);
     } else if (hasImported) {
-      // An uploaded document is present: open it for editing, then verify & link ALL its
-      // citations against the databases right away (like jenni does on import).
+      // An uploaded document is present: open it, verify & link ALL its citations against the
+      // databases, then auto-run the citation review on the right panel (like jenni does on import).
       if (editor) editor.commands.setContent(marked.parse(stripPageMarkers(documentContent), { breaks: true, gfm: true }) as string, { emitUpdate: false });
+      setIsRightPanelOpen(true);
+      setRightDrawerOpen(true);
       setTimeout(() => { try { resolveAllCitations(); } catch {} }, 700);
     } else {
       // Nothing provided: start a blank document for manual writing.
@@ -3623,7 +3637,8 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
              activeReviewTab === 'analysis' ? 'Document Analysis' : 
              activeReviewTab === 'tone' ? 'Tone of Voice' : 
              activeReviewTab === 'proofread' ? 'Proofread' :
-             activeReviewTab === 'peer' ? 'Peer Review' : 'Review'}
+             activeReviewTab === 'peer' ? 'Peer Review' :
+             activeReviewTab === 'matching' ? 'Citation Matching' : 'Review'}
           </span>
           {activeReviewTab && (
              <div className="ml-auto flex items-center gap-2">
@@ -3732,6 +3747,33 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                    </div>
                  </div>
               </>
+           )}
+
+           {activeReviewTab === 'matching' && (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-2 text-[13px]">
+                  <CheckCircle2 className="w-4 h-4 text-[#34d399]" />
+                  <span className="text-white font-bold">{matchingMatched.length} matched</span>
+                  {matchingActive && (<><Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" /><span className="text-gray-400">{Math.max(0, matchingTotal - matchingDone)} processing</span></>)}
+                </div>
+                <div className="w-full h-1 bg-[#2a2a2a] rounded-full overflow-hidden">
+                  <div className="h-full bg-[#34d399] transition-all" style={{ width: `${matchingTotal ? Math.round((matchingDone / matchingTotal) * 100) : 0}%` }} />
+                </div>
+                {(!matchingActive && matchingMatched.length === 0) && (
+                  <p className="text-[13px] text-gray-400">No citations were matched. Make sure the document has in-text citations (and a References section).</p>
+                )}
+                <div className="flex flex-col gap-2">
+                  {matchingMatched.map((m: any, i: number) => (
+                    <div key={i} className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-3 flex gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-[#34d399] shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <div className="text-[13px] font-semibold text-white leading-snug">{m.title || 'Untitled source'}</div>
+                        <div className="text-[12px] text-gray-400 mt-0.5 truncate">{[m.authors, m.year, m.container].filter(Boolean).join(' \u00b7 ')}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
            )}
 
            {activeReviewTab === 'claim' && (
