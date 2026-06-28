@@ -350,6 +350,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const [matchingTotal, setMatchingTotal] = useState(0);
   const [matchingDone, setMatchingDone] = useState(0);
   const [matchingMatched, setMatchingMatched] = useState<any[]>([]);
+  const [docHasRefsSection, setDocHasRefsSection] = useState(false);
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [importedFileName, setImportedFileName] = useState('');
   const [localUploadingDoc, setLocalUploadingDoc] = useState(false);
@@ -874,7 +875,17 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const collectCitations = (ed: any) => {
     const found: any[] = [];
     const seen = new Set<string>();
+    let inRefs = false;
+    let hasRefsSection = false;
     ed.state.doc.descendants((node: any) => {
+      if (node.type.name === 'heading') {
+        const h = (node.textContent || '').toLowerCase();
+        const isRef = h.includes('reference') || h.includes('bibliograph');
+        if (isRef) hasRefsSection = true;
+        inRefs = isRef;
+        return false;
+      }
+      if (inRefs) return false;
       if (node.isText && node.marks) {
         node.marks.forEach((m: any) => {
           if (m.type.name === 'citation') {
@@ -890,7 +901,9 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
                 }
               });
             } else {
-              const key = a.doi || (node.text || '').trim();
+              // Only list citations that actually resolved to a real source (have a DOI or title);
+              // skip bare unresolved markers so the reference list never shows "(n.d.)." garbage.
+              const key = a.doi || (a.title || '').trim();
               if (key && !seen.has(key)) {
                 seen.add(key);
                 found.push({ ...a, intext: node.text });
@@ -902,6 +915,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       return true;
     });
     setCitations(found);
+    setDocHasRefsSection(hasRefsSection);
   };
   collectCitationsRef.current = collectCitations;
 
@@ -969,7 +983,14 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     const { doc } = editor.state;
     const re = /\([^()]*\b(?:19|20)\d{2}[a-z]?\b[^()]*\)/g;
     const ranges: { from: number; to: number }[] = [];
+    let inRefs = false;
     doc.descendants((node: any, pos: number) => {
+      if (node.type.name === 'heading') {
+        const h = (node.textContent || '').toLowerCase();
+        inRefs = h.includes('reference') || h.includes('bibliograph');
+        return false;
+      }
+      if (inRefs) return false;
       if (!node.isText || !node.text) return;
       if (citationType.isInSet(node.marks)) return; // already a citation
       const text: string = node.text;
@@ -3066,7 +3087,9 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                     <button onClick={() => handleDownload('docx')} className="w-full text-left px-4 py-2 hover:bg-[#222] transition-colors text-white font-medium text-[13px] border-b border-[#333]">Word (.docx)</button>
                     <button onClick={() => handleDownload('pdf')} className="w-full text-left px-4 py-2 hover:bg-[#222] transition-colors text-white font-medium text-[13px] border-b border-[#333]">PDF (.pdf)</button>
                     <button onClick={() => handleDownload('txt')} className="w-full text-left px-4 py-2 hover:bg-[#222] transition-colors text-white font-medium text-[13px] border-b border-[#333]">Plain Text (.txt)</button>
-                    <button onClick={() => handleDownload('html')} className="w-full text-left px-4 py-2 hover:bg-[#222] transition-colors text-white font-medium text-[13px]">HTML (.html)</button>
+                    <button onClick={() => handleDownload('html')} className="w-full text-left px-4 py-2 hover:bg-[#222] transition-colors text-white font-medium text-[13px] border-b border-[#333]">HTML (.html)</button>
+                    <button onClick={() => { setDownloadMenuOpen(false); downloadText(toBibtex(citations), `${projectName || 'references'}.bib`, 'application/x-bibtex'); }} disabled={!citations.length} className="w-full text-left px-4 py-2 hover:bg-[#222] transition-colors text-white font-medium text-[13px] border-b border-[#333] disabled:opacity-40">References (.bib)</button>
+                    <button onClick={() => { setDownloadMenuOpen(false); downloadText(toRis(citations), `${projectName || 'references'}.ris`, 'application/x-research-info-systems'); }} disabled={!citations.length} className="w-full text-left px-4 py-2 hover:bg-[#222] transition-colors text-white font-medium text-[13px] disabled:opacity-40">References (.ris)</button>
                   </div>
                 )}
              </div>
@@ -3466,7 +3489,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                   <p className="not-prose my-6 text-center text-[13px] text-gray-400">Paper complete. Use the toolbar or AI bar to keep editing.</p>
                 )}
 
-                {citations.length > 0 && (
+                {citations.length > 0 && !docHasRefsSection && (
                   <div className="mt-10 pt-6 border-t-2 border-gray-200 not-prose">
                     <div className="flex items-center justify-between mb-3">
                       <h2 className="text-2xl font-bold text-black flex items-center gap-2">References <span className="text-gray-400 text-base font-normal">({citations.length} · {citationStyle})</span>{cslBibLoading && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}</h2>
