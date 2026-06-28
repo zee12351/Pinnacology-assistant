@@ -1105,7 +1105,18 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         if (already) return false; // skip paragraphs that already have a citation
         const txt = node.textContent.trim();
         const sents = txt.match(/[^.!?]+[.!?]+/g) || (txt.length > 70 ? [txt] : []);
-        sents.filter((x: string) => x.trim().length > 70).slice(-1).forEach((x: string) => claims.push(x.trim()));
+        // Aim for one citation roughly every 4-5 lines (~45 words), not just once per paragraph.
+        let wc = 0;
+        sents.forEach((sRaw: string) => {
+          const sentence = sRaw.trim();
+          if (!sentence) return;
+          wc += sentence.split(/\s+/).length;
+          if (wc >= 45 && sentence.length > 40) { claims.push(sentence); wc = 0; }
+        });
+        if (claims.length === 0 && txt.length > 70) {
+          const last = sents[sents.length - 1];
+          if (last && last.trim().length > 40) claims.push(last.trim());
+        }
       }
       return true;
     });
@@ -1250,7 +1261,9 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
 
   // Fire the finalize pass when a generation run completes (loading goes true -> false)
   const prevLoadingRef = useRef(loading);
+  const bibInsertedRef = useRef(false);
   useEffect(() => {
+    if (loading) bibInsertedRef.current = false;
     if (prevLoadingRef.current && !loading && editor) {
       const t = setTimeout(() => {
         autoCiteRef.current?.();
@@ -1451,6 +1464,17 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     else alert('No linked source page was found for this citation.');
   };
 
+  // Open the source paper scrolled/anchored to the exact passage the description came from
+  // (uses a browser text fragment so the publisher page jumps to that text).
+  const viewCitationSection = (it: any) => {
+    let url = it?.url || (it?.doi ? `https://doi.org/${it.doi}` : '');
+    if (!url) { viewCitationSource(); return; }
+    const base = String(it?.abstract || it?.title || '').replace(/\s+/g, ' ').trim();
+    const frag = base.split(' ').slice(0, 12).join(' ').replace(/[.,;:]+$/, '');
+    const finalUrl = frag ? `${url}#:~:text=${encodeURIComponent(frag)}` : url;
+    window.open(finalUrl, '_blank', 'noopener,noreferrer');
+  };
+
   const saveCitationRef = () => {
     const item = citationMeta.items.find((i: any) => i && !i.none);
     if (!item) return;
@@ -1588,12 +1612,34 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
 
   const insertBibliography = () => {
     if (!editor || !citations.length) return;
+    // Remove any existing References/Bibliography section first so re-inserting never duplicates the list.
+    let refStart: number | null = null;
+    editor.state.doc.descendants((node: any, pos: number) => {
+      if (node.type.name === 'heading') {
+        const h = (node.textContent || '').trim().toLowerCase();
+        if (h === 'references' || h === 'bibliography') refStart = pos;
+      }
+      return true;
+    });
+    if (refStart != null) {
+      editor.view.dispatch(editor.state.tr.delete(refStart, editor.state.doc.content.size));
+    }
     const items = (cslBib && cslBib.length)
       ? cslBib.map(stripHtml)
       : citations.map((c, i) => formatReference(c, citationStyle, i + 1));
     const html = '<h2>References</h2>' + items.map(t => `<p>${t.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`).join('');
     editor.chain().focus('end').insertContent(html).run();
   };
+
+  // Full paper mode: place the reference list into the document automatically (no "Insert into document" click).
+  useEffect(() => {
+    if (genMode !== 'full' || loading || genBusy || !editor || !isEditing) return;
+    if (!citations.length || bibInsertedRef.current) return;
+    bibInsertedRef.current = true;
+    const t = setTimeout(() => { try { insertBibliography(); } catch {} }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [citations, loading, genBusy, genMode, isEditing]);
 
   const handleEditRequest = async () => {
     if (!editInput.trim()) return;
@@ -2666,8 +2712,10 @@ Do NOT insert any page markers, page breaks or "_Page N_" text anywhere in the d
 MANDATORY: You MUST include realistic scholarly inline citations at the end of every claim or paragraph using the requested citation style!`;
       if (handleGenerateDocument) handleGenerateDocument(prompt);
     } else if (hasImported) {
-      // An uploaded document is present: open it for editing as-is (no AI generation).
+      // An uploaded document is present: open it for editing, then verify & link ALL its
+      // citations against the databases right away (like jenni does on import).
       if (editor) editor.commands.setContent(marked.parse(stripPageMarkers(documentContent), { breaks: true, gfm: true }) as string, { emitUpdate: false });
+      setTimeout(() => { try { resolveAllCitations(); } catch {} }, 700);
     } else {
       // Nothing provided: start a blank document for manual writing.
       setDocumentContent('');
@@ -3410,7 +3458,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                       <h2 className="text-2xl font-bold text-black flex items-center gap-2">References <span className="text-gray-400 text-base font-normal">({citations.length} · {citationStyle})</span>{cslBibLoading && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}</h2>
                       <div className="flex items-center gap-2">
                         <button onClick={() => { setShowCitationModal(true); loadStyleIndex(); }} title="Choose from 2,600+ styles" className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors">Change style</button>
-                        <button onClick={insertBibliography} title="Insert this list into the document" className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors">Insert into document</button>
+                        {genMode === 'paragraph' && <button onClick={insertBibliography} title="Insert this list into the document" className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors">Insert into document</button>}
                         <button onClick={() => downloadText(toBibtex(citations), `${projectName || 'references'}.bib`, 'application/x-bibtex')} title="Export BibTeX (.bib)" className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors">.bib</button>
                         <button onClick={() => downloadText(toRis(citations), `${projectName || 'references'}.ris`, 'application/x-research-info-systems')} title="Export RIS (.ris)" className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors">.ris</button>
                         <button onClick={() => { const txt = (cslBib && cslBib.length) ? cslBib.map(stripHtml).join('\n') : citations.map((c, i) => formatReference(c, citationStyle, i + 1)).join('\n'); navigator.clipboard?.writeText(txt); }} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors">Copy all</button>
@@ -3485,13 +3533,13 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                               <p className="text-[12px] text-[#10b981]">{it.container}{it.year && <span className="text-gray-500"> • {it.year}</span>}</p>
                             )}
                             {it.abstract ? (
-                              <div className="mt-1 bg-[#333]/50 rounded-lg p-2.5 text-[12px] text-gray-300 leading-relaxed border-l-2 border-[#5b5fff]">
+                              <div onClick={() => viewCitationSection(it)} title="Open this passage in the source paper" className="mt-1 bg-[#333]/50 rounded-lg p-2.5 text-[12px] text-gray-300 leading-relaxed border-l-2 border-[#5b5fff] cursor-pointer hover:bg-[#3a3a3a]/70 transition-colors">
                                 {citeExpanded || !it.truncated
                                   ? it.abstract
-                                  : <>{it.abstract}… <button onClick={() => setCiteExpanded(true)} className="text-white font-bold hover:underline">See more</button></>}
+                                  : <>{it.abstract}… <button onClick={(e) => { e.stopPropagation(); setCiteExpanded(true); }} className="text-white font-bold hover:underline">See more</button></>}
                               </div>
                             ) : (it.title && (
-                              <div className="mt-1 bg-[#333]/50 rounded-lg p-2.5 text-[12px] text-gray-400 italic leading-relaxed border-l-2 border-[#5b5fff]">
+                              <div onClick={() => viewCitationSection(it)} title="Open this passage in the source paper" className="mt-1 bg-[#333]/50 rounded-lg p-2.5 text-[12px] text-gray-400 italic leading-relaxed border-l-2 border-[#5b5fff] cursor-pointer hover:bg-[#3a3a3a]/70 transition-colors">
                                 {`A ${it.type || 'paper'}${it.container ? ` published in ${it.container}` : ''}${it.year ? ` in ${it.year}` : ''}${it.authors ? ` by ${it.authors.split(',')[0]}${it.authors.includes(',') ? ' et al.' : ''}` : ''}${it.citedBy != null ? `, cited ${it.citedBy} times` : ''}. No abstract was available from the indexing databases.`}
                               </div>
                             ))}
