@@ -1315,7 +1315,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     if (!target) { alert('Could not locate that citation in the text (it may have been edited).'); return; }
     const authorsList = (sug.authors || '').replace(/ et al\.?/i, '').split(/,|&| and /).map((x: string) => x.trim()).filter(Boolean).map((x: string) => ({ family: x }));
     const attrs = { doi: sug.doi || null, title: sug.title || null, authors: authorsList.length ? JSON.stringify(authorsList) : null, year: sug.year ? String(sug.year) : null, container: sug.container || null, citedBy: null, refs: null };
-    const tr = editor.state.tr.addMark(target.from, target.to, citationType.create(attrs));
+    const tr = editor.state.tr.addMark((target as any).from, (target as any).to, citationType.create(attrs));
     tr.setMeta('addToHistory', true);
     editor.view.dispatch(tr);
     setMatchingUnmatched(prev => prev.filter((u: any) => u.intext !== intext));
@@ -1490,7 +1490,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       citedBy: first.citedBy != null ? String(first.citedBy) : null,
       refs: JSON.stringify(refs),
     };
-    const tr = editor.state.tr.addMark(target.from, target.to, citationType.create(attrs));
+    const tr = editor.state.tr.addMark((target as any).from, (target as any).to, citationType.create(attrs));
     editor.view.dispatch(tr);
     collectCitations(editor);
     setCitationPopup(prev => ({ ...prev, visible: false }));
