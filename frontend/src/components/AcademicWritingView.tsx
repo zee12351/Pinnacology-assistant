@@ -496,6 +496,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       truncated,
       url: it.URL || (it.DOI ? `https://doi.org/${it.DOI}` : ''),
       type: (it.type || 'article').replace(/-/g, ' '),
+      issn: Array.isArray(it.ISSN) ? it.ISSN[0] : (it.ISSN || ''),
       isOA: null as boolean | null,
     };
   };
@@ -683,6 +684,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         if (!it) return { none: true, raw: segment };
         const meta: any = buildMeta(it);
         meta.isOA = await fetchOA(meta.doi);
+        meta.impactFactor = await fetchImpactFactor(meta.sourceId, meta.issn, meta.container);
         return meta;
       }
       return await multiSourceLookup(segment, context);
@@ -695,7 +697,9 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const fetchCitationCards = async (rawText: string, opts?: { refs?: any[]; singleDoi?: string | null; context?: string }) => {
     setCiteExpanded(false);
     if (opts?.refs && opts.refs.length) {
-      setCitationMeta({ loading: false, items: opts.refs.map((r: any) => ({ ...r, authors: Array.isArray(r.authors) ? r.authors.map((a: any) => [a.given, a.family].filter(Boolean).join(' ')).join(', ') : r.authors, authorsList: Array.isArray(r.authors) ? r.authors : undefined })) });
+      const base = opts.refs.map((r: any) => ({ ...r, authors: Array.isArray(r.authors) ? r.authors.map((a: any) => [a.given, a.family].filter(Boolean).join(' ')).join(', ') : r.authors, authorsList: Array.isArray(r.authors) ? r.authors : undefined }));
+      setCitationMeta({ loading: false, items: base });
+      Promise.all(base.map(async (r: any) => (r.impactFactor != null ? r : { ...r, impactFactor: await fetchImpactFactor(r.sourceId, r.issn, r.container) }))).then(enriched => setCitationMeta({ loading: false, items: enriched })).catch(() => {});
       return;
     }
     const cacheKey = (opts?.singleDoi ? 'doi:' + opts.singleDoi : 'cards:' + rawText + '|' + (opts?.context || '').slice(0, 60)).trim();
@@ -2087,6 +2091,7 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
       await axios.post(`${API}/api/upload`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       setAiChatDoc(file.name);
       setAiChatContexts(c => c.includes(file.name) ? c : [...c, file.name]);
+      setAiLibraryDocs(prev => { const next = prev.includes(file.name) ? prev : [file.name, ...prev]; try { localStorage.setItem('pinnovix_library_docs', JSON.stringify(next)); } catch {} return next; });
       setAiChatMessages(prev => [...prev, { role: 'system', text: `Attached \u201c${file.name}\u201d \u2014 ask anything about it.` }]);
     } catch {
       setAiChatMessages(prev => [...prev, { role: 'system', text: 'Upload failed. Please try a PDF, DOCX, or TXT file.' }]);
@@ -2683,6 +2688,15 @@ Text to review: "${editor?.getText() || documentContent}"`, {
   const [aiChatWebSearch, setAiChatWebSearch] = useState<'off'|'ask'|'on'>('ask');
   const [aiChatLibSearch, setAiChatLibSearch] = useState<'off'|'ask'|'on'>('ask');
   const [aiChatContexts, setAiChatContexts] = useState<string[]>(['Current document']);
+  const [aiLibraryDocs, setAiLibraryDocs] = useState<string[]>([]);
+  const [aiMentionOpen, setAiMentionOpen] = useState(false);
+  const [aiMentionQuery, setAiMentionQuery] = useState('');
+  useEffect(() => { try { const raw = localStorage.getItem('pinnovix_library_docs'); if (raw) setAiLibraryDocs(JSON.parse(raw)); } catch {} }, []);
+  const selectMention = (name: string) => {
+    setAiChatContexts(c => c.includes(name) ? c : [...c, name]);
+    setAiChatInput(prev => prev.replace(/@([^\s@]*)$/, ''));
+    setAiMentionOpen(false); setAiMentionQuery('');
+  };
   const [aiChatCollectionOpen, setAiChatCollectionOpen] = useState(false);
   const [aiChatSourcesOpen, setAiChatSourcesOpen] = useState(false);
   // Find papers panel
@@ -4699,8 +4713,8 @@ Required JSON structure:
                       <ChevronRight className={`w-4 h-4 text-gray-500 transition-transform ${aiChatSourcesOpen ? 'rotate-90' : ''}`} />
                     </button>
                     {aiChatSourcesOpen && (
-                      <div className="px-3 py-1.5 text-[12px] text-gray-400">
-                        {aiChatDoc ? <div className="truncate">• {aiChatDoc}</div> : <div className="italic">No uploaded sources yet. Use the paperclip to add one.</div>}
+                      <div className="px-3 py-1.5 text-[12px] text-gray-400 flex flex-col gap-1">
+                        {aiLibraryDocs.length ? aiLibraryDocs.map(d => <div key={d} className="truncate">• {d}</div>) : <div className="italic">No uploaded sources yet. Use the paperclip or type / to add one.</div>}
                       </div>
                     )}
                     <button onClick={() => setAiChatCollectionOpen(v => !v)} className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-[#2a2a2a] text-gray-200 text-[13px]">
@@ -4708,7 +4722,7 @@ Required JSON structure:
                       <ChevronRight className={`w-4 h-4 text-gray-500 transition-transform ${aiChatCollectionOpen ? 'rotate-90' : ''}`} />
                     </button>
                     {(() => {
-                      const pool = ['Current document', ...(aiChatDoc ? [aiChatDoc] : [])];
+                      const pool = ['Current document', ...aiLibraryDocs];
                       const available = pool.filter(p => !aiChatContexts.includes(p));
                       if (available.length === 0) {
                         return aiChatCollectionOpen ? <div className="px-9 py-1.5 text-[12px] text-gray-500 italic">All items added.</div> : null;
@@ -4760,13 +4774,38 @@ Required JSON structure:
                 ))}
               </div>
 
+              {aiMentionOpen && (
+                <>
+                  <div className="fixed inset-0 z-[5]" onClick={() => setAiMentionOpen(false)} />
+                  <div className="absolute z-10 bottom-[100%] left-3 right-3 mb-2 bg-[#1f1f1f] border border-[#333] rounded-xl shadow-2xl p-1 max-h-56 overflow-y-auto">
+                    <div className="px-3 py-1.5 text-[11px] font-bold text-gray-500 uppercase tracking-wide">Your library</div>
+                    {(() => {
+                      const items = ['Current document', ...aiLibraryDocs].filter(d => d.toLowerCase().includes(aiMentionQuery.toLowerCase()));
+                      if (!items.length) return <div className="px-3 py-2 text-[12px] text-gray-500 italic">No matching documents \u2014 type / to upload one.</div>;
+                      return items.map(d => (
+                        <button key={d} onClick={() => selectMention(d)} className="w-full text-left px-3 py-2 rounded-lg hover:bg-[#2a2a2a] text-[13px] text-gray-200 flex items-center gap-2">
+                          <FileText className="w-4 h-4 text-gray-400 shrink-0" /> <span className="truncate">{d}</span>
+                        </button>
+                      ));
+                    })()}
+                  </div>
+                </>
+              )}
               <div className="bg-[#1a1a1a] border border-[#333] rounded-xl px-3 pt-2.5 pb-2 focus-within:border-[#5b5fff]">
                 <textarea
                   value={aiChatInput}
-                  onChange={(e) => setAiChatInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAiChatSend(); } }}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v.endsWith('/') && (v.length === 1 || v[v.length - 2] === ' ' || v[v.length - 2] === '\n')) {
+                      setAiChatInput(v.slice(0, -1)); setAiMentionOpen(false); aiChatFileRef.current?.click(); return;
+                    }
+                    setAiChatInput(v);
+                    const m = v.match(/@([^\s@]*)$/);
+                    if (m) { setAiMentionOpen(true); setAiMentionQuery(m[1]); } else { setAiMentionOpen(false); }
+                  }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !aiMentionOpen) { e.preventDefault(); handleAiChatSend(); } }}
                   rows={1}
-                  placeholder="Ask AI, use @ to mention specific PDFs or / to access saved prompts"
+                  placeholder="Ask AI — type @ to mention a library document, or / to upload a new one"
                   className="w-full resize-none bg-transparent text-[14px] text-white outline-none max-h-28 placeholder:text-gray-500"
                 />
                 <div className="flex items-center justify-between mt-1">

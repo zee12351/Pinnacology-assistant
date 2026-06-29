@@ -164,11 +164,15 @@ html.light .bg-\[\#151515\],
 html.light .bg-\[\#161616\] { background-color: #f4f6f9 !important; }
 html.light .bg-\[\#1a1a1a\],
 html.light .bg-\[\#1e1e1e\],
+html.light .bg-\[\#1f1f1f\],
 html.light .bg-\[\#252525\] { background-color: #ffffff !important; }
 html.light .bg-\[\#222\] { background-color: #eef1f5 !important; }
+html.light .bg-\[\#262626\] { background-color: #eef1f5 !important; }
 html.light .bg-\[\#2a2a2a\],
 html.light .bg-\[\#2d2d2d\] { background-color: #f7f9fb !important; }
 html.light .bg-\[\#333\] { background-color: #e9edf2 !important; }
+html.light .bg-\[\#3a3a3a\] { background-color: #e6eaef !important; }
+html.light .border-\[\#3a3a3a\] { border-color: #dde2e8 !important; }
 html.light .bg-\[\#3d3d3d\] { background-color: #dfe4ea !important; }
 html.light .bg-\[\#4d4d4d\] { background-color: #d3d9e1 !important; }
 html.light .bg-\[\#555\] { background-color: #c7cdd6 !important; }
