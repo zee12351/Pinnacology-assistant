@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTheme } from 'next-themes';
-import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Upload, X, Search, Check, Star, Users, ListChecks, Play, SlidersHorizontal, ChevronsRight, ChevronsLeft, Type, Home, Settings2, Download, ThumbsUp, ThumbsDown, Info, ChevronDown, GraduationCap, FlaskConical, Feather, CheckCircle2, ChevronLeft, RotateCcw, Loader2, Sparkles, Trash2, Moon, Sun, Pencil, ArrowLeftRight, ExternalLink, Bookmark, Menu, Link2, ArrowUpDown, ArrowUp, Globe, Folder, FileText, Paperclip, Undo2, Redo2, MessageCircle, Archive, CheckCheck } from 'lucide-react';
+import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Upload, X, Search, Check, Star, Users, ListChecks, Play, SlidersHorizontal, ChevronsRight, ChevronsLeft, Type, Home, Settings2, Download, ThumbsUp, ThumbsDown, Info, ChevronDown, GraduationCap, FlaskConical, Feather, CheckCircle2, ChevronLeft, RotateCcw, Loader2, Sparkles, Trash2, Moon, Sun, Pencil, ArrowLeftRight, ExternalLink, Bookmark, Menu, Link2, ArrowUpDown, ArrowUp, Globe, Folder, FileText, Paperclip, Undo2, Redo2, MessageCircle, Archive, CheckCheck, AlertTriangle } from 'lucide-react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
@@ -351,6 +351,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const [matchingDone, setMatchingDone] = useState(0);
   const [matchingMatched, setMatchingMatched] = useState<any[]>([]);
   const [docHasRefsSection, setDocHasRefsSection] = useState(false);
+  const [matchingUnmatched, setMatchingUnmatched] = useState<any[]>([]);
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [importedFileName, setImportedFileName] = useState('');
   const [localUploadingDoc, setLocalUploadingDoc] = useState(false);
@@ -1300,6 +1301,28 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     return { none: false, doi: e.doi || '', title: e.title || '', authors: e.authors || '', authorsList, year: e.year || year, container: e.journal || '', url: e.doi ? 'https://doi.org/' + e.doi : '' };
   };
 
+  const applyCitationSuggestion = (intext: string, sug: any) => {
+    if (!editor || !editor.schema?.marks?.citation || !sug) return;
+    const citationType = editor.schema.marks.citation;
+    let target: { from: number; to: number } | null = null;
+    editor.state.doc.descendants((node: any, pos: number) => {
+      if (target) return false;
+      if (node.isText && node.text && node.text.trim() === intext.trim() && node.marks.some((m: any) => m.type.name === 'citation')) {
+        target = { from: pos, to: pos + node.nodeSize };
+      }
+      return true;
+    });
+    if (!target) { alert('Could not locate that citation in the text (it may have been edited).'); return; }
+    const authorsList = (sug.authors || '').replace(/ et al\.?/i, '').split(/,|&| and /).map((x: string) => x.trim()).filter(Boolean).map((x: string) => ({ family: x }));
+    const attrs = { doi: sug.doi || null, title: sug.title || null, authors: authorsList.length ? JSON.stringify(authorsList) : null, year: sug.year ? String(sug.year) : null, container: sug.container || null, citedBy: null, refs: null };
+    const tr = editor.state.tr.addMark(target.from, target.to, citationType.create(attrs));
+    tr.setMeta('addToHistory', true);
+    editor.view.dispatch(tr);
+    setMatchingUnmatched(prev => prev.filter((u: any) => u.intext !== intext));
+    setMatchingMatched(prev => [...prev, { title: sug.title || '', authors: sug.authors || '', year: sug.year || '', container: sug.container || '', doi: sug.doi || '', url: sug.url || '' }]);
+    setTimeout(() => collectCitationsRef.current?.(editor), 80);
+  };
+
   const resolveAllCitations = async () => {
     if (!editor || !editor.schema?.marks?.citation) return;
     detectCitations();
@@ -1319,7 +1342,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       });
       if (!targets.length) { setAutoCiting(false); return; }
       // Drive the right-side "Citation Matching" panel (like jenni) as each citation resolves.
-      setMatchingMatched([]); setMatchingDone(0); setMatchingTotal(targets.length); setMatchingActive(true);
+      setMatchingMatched([]); setMatchingUnmatched([]); setMatchingDone(0); setMatchingTotal(targets.length); setMatchingActive(true);
       setActiveReviewTab('matching'); setIsRightPanelOpen(true);
       const refIndex = buildReferenceIndex(editor);
       const cache: Record<string, any> = {};
@@ -1335,6 +1358,28 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         if (meta && !meta.none && (meta.doi || meta.title)) {
           updates.push({ from: t.from, to: t.to, meta });
           setMatchingMatched(prev => [...prev, { title: meta.title || '', authors: meta.authors || '', year: meta.year || '', container: meta.container || '', doi: meta.doi || '', url: meta.url || '' }]);
+        } else {
+          let suggestion: any = null;
+          try {
+            const q = (t.context || t.text).replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim().slice(0, 160);
+            if (q.length > 8) {
+              const r = await fetch(`https://api.crossref.org/works?rows=1&select=title,author,published,container-title,DOI&query.bibliographic=${encodeURIComponent(q)}&mailto=support@pinnovix.app`);
+              const j = await r.json();
+              const it2 = j && j.message && j.message.items && j.message.items[0];
+              if (it2) {
+                const fam = (it2.author || []).map((a: any) => a.family).filter(Boolean);
+                suggestion = {
+                  title: Array.isArray(it2.title) ? it2.title[0] : it2.title,
+                  authors: fam.length ? (fam.length > 1 ? fam[0] + ' et al.' : fam[0]) : '',
+                  year: (it2.published && it2.published['date-parts'] && it2.published['date-parts'][0] && it2.published['date-parts'][0][0]) || '',
+                  container: Array.isArray(it2['container-title']) ? it2['container-title'][0] : (it2['container-title'] || ''),
+                  doi: it2.DOI || '',
+                  url: it2.DOI ? 'https://doi.org/' + it2.DOI : '',
+                };
+              }
+            }
+          } catch {}
+          setMatchingUnmatched(prev => [...prev, { intext: t.text, suggestion }]);
         }
         setMatchingDone(prev => prev + 1);
       }
@@ -1376,6 +1421,22 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     prevLoadingRef.current = loading;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading]);
+
+  // A new (or switched) chat must be strictly clean: drop any attached file and the previous
+  // chat's citation-matching / review panel, then recompute citations for the chat actually loaded.
+  const prevChatIdRef = useRef<any>(null);
+  useEffect(() => {
+    if (prevChatIdRef.current === activeChatId) return;
+    prevChatIdRef.current = activeChatId;
+    setImportedFileName('');
+    setActiveReviewTab(null);
+    setReviewData(null);
+    setMatchingActive(false); setMatchingMatched([]); setMatchingUnmatched([]); setMatchingTotal(0); setMatchingDone(0);
+    setDocHasRefsSection(false);
+    setPaperComplete(false);
+    setTimeout(() => { if (editor) collectCitationsRef.current?.(editor); }, 250);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeChatId]);
 
   const scheduleDetect = () => {
     if (detectTimerRef.current) clearTimeout(detectTimerRef.current);
@@ -3843,28 +3904,54 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
 
            {activeReviewTab === 'matching' && (
               <div className="flex flex-col gap-3">
-                <div className="flex items-center gap-2 text-[13px]">
-                  <CheckCircle2 className="w-4 h-4 text-[#34d399]" />
-                  <span className="text-white font-bold">{matchingMatched.length} matched</span>
-                  {matchingActive && (<><Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" /><span className="text-gray-400">{Math.max(0, matchingTotal - matchingDone)} processing</span></>)}
+                <div className="flex items-center gap-3 text-[13px] flex-wrap">
+                  <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-[#34d399]" /><span className="text-white font-bold">{matchingMatched.length} matched</span></span>
+                  {matchingUnmatched.length > 0 && <span className="flex items-center gap-1.5"><AlertTriangle className="w-4 h-4 text-amber-400" /><span className="text-amber-300 font-bold">{matchingUnmatched.length} unmatched</span></span>}
+                  {matchingActive && (<span className="flex items-center gap-1.5 text-gray-400"><Loader2 className="w-3.5 h-3.5 animate-spin" />{Math.max(0, matchingTotal - matchingDone)} processing</span>)}
                 </div>
                 <div className="w-full h-1 bg-[#2a2a2a] rounded-full overflow-hidden">
                   <div className="h-full bg-[#34d399] transition-all" style={{ width: `${matchingTotal ? Math.round((matchingDone / matchingTotal) * 100) : 0}%` }} />
                 </div>
-                {(!matchingActive && matchingMatched.length === 0) && (
-                  <p className="text-[13px] text-gray-400">No citations were matched. Make sure the document has in-text citations (and a References section).</p>
+                {(!matchingActive && matchingMatched.length === 0 && matchingUnmatched.length === 0) && (
+                  <p className="text-[13px] text-gray-400">No citations were found. Make sure the document has in-text citations (and a References section).</p>
                 )}
                 <div className="flex flex-col gap-2">
                   {matchingMatched.map((m: any, i: number) => (
                     <div key={i} className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-3 flex gap-2">
                       <CheckCircle2 className="w-4 h-4 text-[#34d399] shrink-0 mt-0.5" />
                       <div className="min-w-0">
-                        <div className="text-[13px] font-semibold text-white leading-snug">{m.title || 'Untitled source'}</div>
+                        <div className="text-[13px] font-semibold text-white leading-snug">{(m.title || 'Untitled source').slice(0, 120)}{(m.title || '').length > 120 ? '\u2026' : ''}</div>
                         <div className="text-[12px] text-gray-400 mt-0.5 truncate">{[m.authors, m.year, m.container].filter(Boolean).join(' \u00b7 ')}</div>
                       </div>
                     </div>
                   ))}
                 </div>
+                {matchingUnmatched.length > 0 && (
+                  <div className="mt-2 flex flex-col gap-2">
+                    <div className="text-[11px] font-bold text-amber-300 uppercase tracking-wide">Needs review</div>
+                    {matchingUnmatched.map((u: any, i: number) => (
+                      <div key={i} className="bg-[#1a1a1a] border border-amber-500/40 rounded-lg p-3 flex flex-col gap-2">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                          <div className="min-w-0">
+                            <div className="text-[13px] text-white font-semibold">{u.intext}</div>
+                            <div className="text-[11.5px] text-gray-400 mt-0.5">Could not verify this against a real source.</div>
+                          </div>
+                        </div>
+                        {u.suggestion ? (
+                          <div className="bg-[#222] border border-[#333] rounded-md p-2.5">
+                            <div className="text-[11px] text-gray-400 mb-1">Suggested replacement</div>
+                            <div className="text-[12.5px] text-[#34d399] font-semibold leading-snug">{(u.suggestion.title || '').slice(0, 120)}{(u.suggestion.title || '').length > 120 ? '\u2026' : ''}</div>
+                            <div className="text-[11.5px] text-gray-400 mt-0.5 truncate">{[u.suggestion.authors, u.suggestion.year, u.suggestion.container].filter(Boolean).join(' \u00b7 ')}</div>
+                            <button onClick={() => applyCitationSuggestion(u.intext, u.suggestion)} className="mt-2 px-3 py-1 bg-[#5b5fff] hover:bg-[#6b6fff] text-white rounded-md text-[12px] font-bold">Use this source</button>
+                          </div>
+                        ) : (
+                          <div className="text-[11.5px] text-gray-500 italic">No confident replacement found \u2014 please add the correct source manually.</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
            )}
 
