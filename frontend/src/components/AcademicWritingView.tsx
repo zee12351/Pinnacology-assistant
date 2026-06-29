@@ -885,6 +885,9 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         inRefs = isRef;
         return false;
       }
+      if (node.type.name === 'paragraph' && /^(references|bibliography|works cited)\s*:?\s*$/i.test((node.textContent || '').trim())) {
+        inRefs = true; hasRefsSection = true; return false;
+      }
       if (inRefs) return false;
       if (node.isText && node.marks) {
         node.marks.forEach((m: any) => {
@@ -989,6 +992,9 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         const h = (node.textContent || '').toLowerCase();
         inRefs = h.includes('reference') || h.includes('bibliograph');
         return false;
+      }
+      if (node.type.name === 'paragraph' && /^(references|bibliography|works cited)\s*:?\s*$/i.test((node.textContent || '').trim())) {
+        inRefs = true; return false;
       }
       if (inRefs) return false;
       if (!node.isText || !node.text) return;
@@ -1236,6 +1242,64 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
 
   // "Detect citations": wrap any plain-text citations, then resolve EACH one against the
   // databases and bind the real paper (DOI + metadata) so the hover cards fill in and View works.
+  // Parse the document's OWN reference list into a lookup keyed by firstAuthorSurname|year, so an
+  // in-text citation is matched to the author's actual source (exact) instead of a same-surname web guess.
+  const buildReferenceIndex = (ed: any): Record<string, any> => {
+    const idx: Record<string, any> = {};
+    if (!ed) return idx;
+    let inRefs = false;
+    ed.state.doc.descendants((node: any) => {
+      if (node.type.name === 'heading') {
+        const h = (node.textContent || '').toLowerCase();
+        inRefs = h.includes('reference') || h.includes('bibliograph');
+        return false;
+      }
+      if (node.type.name === 'paragraph' && /^(references|bibliography|works cited)\s*:?\s*$/i.test((node.textContent || '').trim())) {
+        inRefs = true; return false;
+      }
+      if (!inRefs) return true;
+      if (node.type.name === 'paragraph') {
+        const raw = (node.textContent || '').replace(/ /g, ' ').trim();
+        if (raw.length >= 10) {
+          const ym = raw.match(/\b(?:19|20)\d{2}\b/);
+          if (ym) {
+            const year = ym[0];
+            const dm = raw.match(/10\.\d{4,9}\/[^\s)]+/);
+            const doi = dm ? dm[0].replace(/[.,;]+$/, '') : '';
+            const head = (raw.split(/\(|\b(?:19|20)\d{2}\b/)[0] || '');
+            const surname = ((head.split(/,|&| and /)[0] || '').trim().split(/\s+/)[0] || '').replace(/[^A-Za-z'\-].*$/, '').toLowerCase();
+            let rest = raw.slice(raw.indexOf(year) + year.length);
+            rest = rest.replace(/https?:\/\/\S+/g, '').replace(/^[).\s]+/, '').trim();
+            const parts = rest.split(/\.\s+/);
+            const title = (parts[0] || '').trim().replace(/\.$/, '');
+            const journal = (parts[1] || '').trim().replace(/\.$/, '');
+            const authors = head.replace(/[.,]\s*$/, '').trim();
+            if (surname && (doi || title)) {
+              const k = surname + '|' + year;
+              if (!idx[k]) idx[k] = { doi, title, journal, authors, year };
+            }
+          }
+        }
+        return false;
+      }
+      return false;
+    });
+    return idx;
+  };
+
+  const matchLocalReference = (intext: string, idx: Record<string, any>): any => {
+    const ym = intext.match(/\b(?:19|20)\d{2}\b/);
+    if (!ym) return null;
+    const year = ym[0];
+    const sm = intext.replace(/^[(\[\s]+/, '').match(/[A-Z][A-Za-z'\-]+/);
+    const surname = sm ? sm[0].toLowerCase() : '';
+    if (!surname) return null;
+    const e = idx[surname + '|' + year];
+    if (!e || (!e.doi && !e.title)) return null;
+    const authorsList = (e.authors || '').split(/,|&| and /).map((x: string) => x.trim()).filter(Boolean).map((x: string) => ({ family: x }));
+    return { none: false, doi: e.doi || '', title: e.title || '', authors: e.authors || '', authorsList, year: e.year || year, container: e.journal || '', url: e.doi ? 'https://doi.org/' + e.doi : '' };
+  };
+
   const resolveAllCitations = async () => {
     if (!editor || !editor.schema?.marks?.citation) return;
     detectCitations();
@@ -1257,12 +1321,17 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       // Drive the right-side "Citation Matching" panel (like jenni) as each citation resolves.
       setMatchingMatched([]); setMatchingDone(0); setMatchingTotal(targets.length); setMatchingActive(true);
       setActiveReviewTab('matching'); setIsRightPanelOpen(true);
+      const refIndex = buildReferenceIndex(editor);
       const cache: Record<string, any> = {};
       const updates: { from: number; to: number; meta: any }[] = [];
       for (const t of targets) {
         const key = t.text.trim();
         let meta = cache[key];
-        if (meta === undefined) { meta = await multiSourceLookup(t.text, t.context || ''); cache[key] = meta; }
+        if (meta === undefined) {
+          const local = matchLocalReference(t.text, refIndex);
+          meta = local || await multiSourceLookup(t.text, t.context || '');
+          cache[key] = meta;
+        }
         if (meta && !meta.none && (meta.doi || meta.title)) {
           updates.push({ from: t.from, to: t.to, meta });
           setMatchingMatched(prev => [...prev, { title: meta.title || '', authors: meta.authors || '', year: meta.year || '', container: meta.container || '', doi: meta.doi || '', url: meta.url || '' }]);
