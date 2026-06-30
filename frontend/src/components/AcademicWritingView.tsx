@@ -2044,15 +2044,44 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
   const handleAiChatSend = async () => {
     const q = aiChatInput.trim();
     if (!q || aiChatBusy) return;
-    setAiChatMessages(prev => [...prev, { role: 'user', text: q }, { role: 'assistant', text: '' }]);
+    setAiChatMessages(prev => [...prev, { role: 'user', text: q }, { role: 'assistant', text: '', sources: [], status: 'Searching academic databases\u2026' }]);
     setAiChatInput('');
     setAiChatBusy(true);
+    const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    const wantSources = aiChatWebSearch !== 'off' || aiChatLibSearch !== 'off';
     let assistant = '';
+    let sources: any[] = [];
     try {
-      const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      // 1) Find real, verifiable sources for the question (academic databases).
+      if (wantSources) {
+        try {
+          const r = await fetch(`https://api.crossref.org/works?rows=6&select=title,author,published,container-title,DOI,is-referenced-by-count&query.bibliographic=${encodeURIComponent(q)}&mailto=support@pinnovix.app`);
+          const j = await r.json();
+          sources = ((j && j.message && j.message.items) || []).map((it: any) => {
+            const fam = (it.author || []).map((a: any) => a.family).filter(Boolean);
+            return {
+              author: fam.length ? (fam.length > 1 ? fam[0] + ' et al.' : fam[0]) : 'Unknown',
+              firstAuthor: fam[0] || 'Unknown',
+              year: (it.published && it.published['date-parts'] && it.published['date-parts'][0] && it.published['date-parts'][0][0]) || '',
+              title: Array.isArray(it.title) ? it.title[0] : (it.title || ''),
+              container: Array.isArray(it['container-title']) ? it['container-title'][0] : (it['container-title'] || ''),
+              doi: it.DOI || '',
+              url: it.DOI ? 'https://doi.org/' + it.DOI : '',
+            };
+          }).filter((x: any) => x.title);
+        } catch {}
+      }
+      setAiChatMessages(prev => { const m = [...prev]; m[m.length - 1] = { ...m[m.length - 1], status: 'Writing answer\u2026', sources }; return m; });
+      // 2) Ask the model to answer using ONLY those sources, citing inline.
+      const srcBlock = sources.length
+        ? sources.map((sr, i) => `[${i + 1}] (${sr.firstAuthor}, ${sr.year}) ${sr.title}. ${sr.container}.`).join('\n')
+        : '';
+      const message = sources.length
+        ? `${q}\n\nWrite a clear, well-structured answer in Markdown (use short headings, **bold** key terms, and bullet points where useful). Support factual claims with inline citations in (Author, Year) form, using ONLY the verified sources below. Do not invent citations or sources.\n\nVerified sources:\n${srcBlock}`
+        : q;
       const res = await fetch(`${API}/api/chat`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: q, agent_type: 'research', use_rag: aiChatLibSearch !== 'off' || aiChatContexts.some(c => c !== 'Current document') || !!aiChatDoc, persona: 'DOCUMENT ANALYST' }),
+        body: JSON.stringify({ message, agent_type: 'research', use_rag: aiChatLibSearch !== 'off' || aiChatContexts.some(c => c !== 'Current document') || !!aiChatDoc, persona: 'DOCUMENT ANALYST' }),
       });
       const reader = res.body?.getReader();
       const dec = new TextDecoder();
@@ -2070,12 +2099,12 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
               const j = JSON.parse(d);
               if (j.type === 'token') { assistant += j.content; }
               else if (j.error) { assistant = '\u26a0\ufe0f ' + j.error; }
-              setAiChatMessages(prev => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', text: assistant }; return m; });
+              setAiChatMessages(prev => { const m = [...prev]; m[m.length - 1] = { ...m[m.length - 1], role: 'assistant', text: assistant, status: undefined }; return m; });
             } catch {}
           }
         }
       }
-      if (!assistant.trim()) setAiChatMessages(prev => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', text: 'No response. If you asked about a document, attach it with + first.' }; return m; });
+      setAiChatMessages(prev => { const m = [...prev]; m[m.length - 1] = { ...m[m.length - 1], role: 'assistant', text: assistant.trim() || 'No response. If you asked about a document, attach it with the paperclip first.', sources, status: undefined }; return m; });
     } catch {
       setAiChatMessages(prev => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', text: '\u26a0\ufe0f Could not reach the AI service.' }; return m; });
     } finally { setAiChatBusy(false); }
@@ -2667,7 +2696,7 @@ Text to review: "${editor?.getText() || documentContent}"`, {
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [rightDrawerOpen, setRightDrawerOpen] = useState(false);
   const [showAiChat, setShowAiChat] = useState(false);
-  const [aiChatMessages, setAiChatMessages] = useState<{ role: string; text: string }[]>([]);
+  const [aiChatMessages, setAiChatMessages] = useState<any[]>([]);
   const [aiChatInput, setAiChatInput] = useState('');
   const [aiChatBusy, setAiChatBusy] = useState(false);
   const [aiChatDoc, setAiChatDoc] = useState('');
@@ -4770,7 +4799,20 @@ Required JSON structure:
                   ) : m.role === 'user' ? (
                     <div key={i} className="max-w-[85%] self-end rounded-2xl px-3.5 py-2 text-[13.5px] leading-relaxed whitespace-pre-wrap bg-[#5b5fff] text-white">{m.text}</div>
                   ) : (
-                    <div key={i} className="ai-md max-w-[92%] self-start rounded-2xl px-3.5 py-2 text-[13.5px] leading-relaxed bg-[#222] text-gray-200 border border-[#2a2a2a]" dangerouslySetInnerHTML={{ __html: m.text ? (marked.parse(m.text) as string) : (aiChatBusy ? '<span style=\"color:#6b7280\">Thinking\u2026</span>' : '') }} />
+                    <div key={i} className="self-start max-w-[92%] flex flex-col gap-2">
+                      <div className="ai-md rounded-2xl px-3.5 py-2 text-[13.5px] leading-relaxed bg-[#222] text-gray-200 border border-[#2a2a2a]" dangerouslySetInnerHTML={{ __html: m.text ? (marked.parse(m.text) as string) : ('<span style=\"color:#6b7280\">' + (m.status || 'Thinking…') + '</span>') }} />
+                      {Array.isArray(m.sources) && m.sources.length > 0 && m.text ? (
+                        <div className="flex flex-col gap-1">
+                          <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wide px-1">Sources</div>
+                          {m.sources.map((sr: any, si: number) => (
+                            <a key={si} href={sr.url || (sr.doi ? 'https://doi.org/' + sr.doi : '#')} target="_blank" rel="noreferrer" className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-3 py-2 hover:border-[#5b5fff] transition-colors">
+                              <div className="text-[12.5px] text-gray-100 font-semibold leading-snug">{sr.title}</div>
+                              <div className="text-[11px] text-gray-400 truncate">{[sr.author, sr.year, sr.container].filter(Boolean).join(' · ')}</div>
+                            </a>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
                   )
                 ))
               )}
