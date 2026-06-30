@@ -4777,14 +4777,23 @@ Required JSON structure:
               {aiMentionOpen && (
                 <>
                   <div className="fixed inset-0 z-[5]" onClick={() => setAiMentionOpen(false)} />
-                  <div className="absolute z-10 bottom-[100%] left-3 right-3 mb-2 bg-[#1f1f1f] border border-[#333] rounded-xl shadow-2xl p-1 max-h-56 overflow-y-auto">
-                    <div className="px-3 py-1.5 text-[11px] font-bold text-gray-500 uppercase tracking-wide">Your library</div>
+                  <div className="absolute z-10 bottom-[100%] left-3 right-3 mb-2 bg-[#1f1f1f] border border-[#333] rounded-xl shadow-2xl p-1 max-h-72 overflow-y-auto">
+                    <div className="px-3 py-1.5 text-[11px] font-bold text-gray-500 uppercase tracking-wide">Search your library</div>
                     {(() => {
-                      const items = ['Current document', ...aiLibraryDocs].filter(d => d.toLowerCase().includes(aiMentionQuery.toLowerCase()));
-                      if (!items.length) return <div className="px-3 py-2 text-[12px] text-gray-500 italic">No matching documents \u2014 type / to upload one.</div>;
-                      return items.map(d => (
-                        <button key={d} onClick={() => selectMention(d)} className="w-full text-left px-3 py-2 rounded-lg hover:bg-[#2a2a2a] text-[13px] text-gray-200 flex items-center gap-2">
-                          <FileText className="w-4 h-4 text-gray-400 shrink-0" /> <span className="truncate">{d}</span>
+                      const q = aiMentionQuery.toLowerCase();
+                      const items: { label: string; sub: string }[] = [
+                        { label: 'Current document', sub: 'This document' },
+                        ...savedCitations.map((c: any) => ({ label: c.title || c.intext || 'Untitled source', sub: [c.authors ? (String(c.authors).split(',')[0] + (String(c.authors).includes(',') ? ' et al.' : '')) : '', c.year].filter(Boolean).join(' \u00b7 ') })),
+                        ...aiLibraryDocs.map((d: string) => ({ label: d, sub: 'Uploaded document' })),
+                      ].filter(it => it.label.toLowerCase().includes(q));
+                      if (!items.length) return <div className="px-3 py-2 text-[12px] text-gray-500 italic">No matching documents. Type / to upload one, or Save citations to add them to your library.</div>;
+                      return items.map((it, i) => (
+                        <button key={i} onClick={() => selectMention(it.label)} className="w-full text-left px-3 py-2 rounded-lg hover:bg-[#2a2a2a] flex items-start gap-2">
+                          <FileText className="w-4 h-4 text-gray-400 shrink-0 mt-0.5" />
+                          <span className="flex flex-col min-w-0">
+                            <span className="text-[13px] text-gray-100 font-semibold truncate">{it.label}</span>
+                            {it.sub && <span className="text-[11.5px] text-gray-400 truncate">{it.sub}</span>}
+                          </span>
                         </button>
                       ));
                     })()}
