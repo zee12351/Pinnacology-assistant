@@ -258,3 +258,7 @@ html.light body { background-color: #eef1f5; }
 .ai-md blockquote { border-left: 2px solid #5b5fff; padding-left: 0.6em; color: #cbd5e1; margin: 0.4em 0; }
 html.light .ai-md strong { color: #111827; }
 html.light .ai-md code { background: #eef1f5; }
+/* Hoverable inline citations inside AI Chat answers */
+.chat-cite { color: #7fa3ff; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.chat-cite:hover { color: #a9c2ff; }
+html.light .chat-cite { color: #2f5bd0; }

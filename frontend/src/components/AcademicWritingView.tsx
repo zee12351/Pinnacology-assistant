@@ -2058,7 +2058,7 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
           const r = await fetch(`https://api.crossref.org/works?rows=6&select=title,author,published,container-title,DOI,is-referenced-by-count&query.bibliographic=${encodeURIComponent(q)}&mailto=support@pinnovix.app`);
           const j = await r.json();
           sources = ((j && j.message && j.message.items) || []).map((it: any) => {
-            const fam = (it.author || []).map((a: any) => a.family).filter(Boolean);
+            const fam = (it.author || []).map((a: any) => a.family || a.name).filter(Boolean);
             return {
               author: fam.length ? (fam.length > 1 ? fam[0] + ' et al.' : fam[0]) : 'Unknown',
               firstAuthor: fam[0] || 'Unknown',
@@ -2108,6 +2108,33 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
     } catch {
       setAiChatMessages(prev => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', text: '\u26a0\ufe0f Could not reach the AI service.' }; return m; });
     } finally { setAiChatBusy(false); }
+  };
+
+  // Turn (Author, Year) citations inside a chat answer into hoverable links bound to the real source.
+  const linkifyChatCitations = (md: string, sources: any[]) => {
+    let html = marked.parse(md) as string;
+    if (!sources || !sources.length) return html;
+    return html.replace(/\(([^)]*\b(?:19|20)\d{2}[a-z]?[^)]*)\)/g, (full: string, inner: string) => {
+      const ym = inner.match(/\b(?:19|20)\d{2}/); const yr = ym ? ym[0] : '';
+      let src: any = null;
+      for (const sr of sources) { const fa = String(sr.firstAuthor || '').toLowerCase(); if (fa && fa !== 'unknown' && inner.toLowerCase().includes(fa) && String(sr.year) === yr) { src = sr; break; } }
+      if (!src && yr) src = sources.find((sr: any) => String(sr.year) === yr);
+      if (!src) return full;
+      const doi = String(src.doi || '').replace(/"/g, '');
+      const t = String(src.title || '').replace(/"/g, '&quot;');
+      return `<span class="chat-cite" data-doi="${doi}" data-title="${t}">${full}</span>`;
+    });
+  };
+  const handleChatCiteHover = (e: React.MouseEvent) => {
+    const el = ((e.target as HTMLElement) && (e.target as HTMLElement).closest) ? (e.target as HTMLElement).closest('.chat-cite') as HTMLElement | null : null;
+    if (!el) return;
+    cancelHideCitation();
+    const doi = el.getAttribute('data-doi') || '';
+    const title = el.getAttribute('data-title') || '';
+    const rect = el.getBoundingClientRect();
+    setCitationPopup({ visible: true, x: rect.left - 372, y: rect.bottom, text: title });
+    const k = 'chatcite:' + (doi || title);
+    if (lastCiteRef.current !== k) { lastCiteRef.current = k; fetchCitationCards(title, doi ? { singleDoi: doi } : { context: title }); }
   };
 
   const handleAiChatUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -4800,7 +4827,7 @@ Required JSON structure:
                     <div key={i} className="max-w-[85%] self-end rounded-2xl px-3.5 py-2 text-[13.5px] leading-relaxed whitespace-pre-wrap bg-[#5b5fff] text-white">{m.text}</div>
                   ) : (
                     <div key={i} className="self-start max-w-[92%] flex flex-col gap-2">
-                      <div className="ai-md rounded-2xl px-3.5 py-2 text-[13.5px] leading-relaxed bg-[#222] text-gray-200 border border-[#2a2a2a]" dangerouslySetInnerHTML={{ __html: m.text ? (marked.parse(m.text) as string) : ('<span style=\"color:#6b7280\">' + (m.status || 'Thinking…') + '</span>') }} />
+                      <div className="ai-md rounded-2xl px-3.5 py-2 text-[13.5px] leading-relaxed bg-[#222] text-gray-200 border border-[#2a2a2a]" onMouseOver={handleChatCiteHover} onMouseOut={handleCitationHoverOut} dangerouslySetInnerHTML={{ __html: m.text ? linkifyChatCitations(m.text, m.sources || []) : ('<span style=\"color:#6b7280\">' + (m.status || 'Thinking…') + '</span>') }} />
                       {Array.isArray(m.sources) && m.sources.length > 0 && m.text ? (
                         <div className="flex flex-col gap-1">
                           <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wide px-1">Sources</div>
