@@ -2699,7 +2699,28 @@ Text to review: "${editor?.getText() || documentContent}"`, {
   const [promptCmd, setPromptCmd] = useState('/');
   const [promptText, setPromptText] = useState('');
   const [showLibraryModal, setShowLibraryModal] = useState(false);
-  useEffect(() => { try { const raw = localStorage.getItem('pinnovix_library_docs'); if (raw) setAiLibraryDocs(JSON.parse(raw)); } catch {} try { const rp = localStorage.getItem('pinnovix_saved_prompts'); if (rp) setSavedPrompts(JSON.parse(rp)); } catch {} }, []);
+  const [aiChatSessions, setAiChatSessions] = useState<any[]>([]);
+  const [aiChatSessionId, setAiChatSessionId] = useState<number | null>(null);
+  const [showAiHistory, setShowAiHistory] = useState(false);
+  const newAiChat = () => { setAiChatMessages([]); setAiChatSessionId(null); setShowAiHistory(false); };
+  const loadAiSession = (sess: any) => { setAiChatMessages(sess.messages || []); setAiChatSessionId(sess.id); setShowAiHistory(false); };
+  const deleteAiSession = (id: number) => { setAiChatSessions(prev => { const arr = prev.filter((x: any) => x.id !== id); try { localStorage.setItem('pinnovix_aichat_sessions', JSON.stringify(arr)); } catch {} return arr; }); if (aiChatSessionId === id) { setAiChatMessages([]); setAiChatSessionId(null); } };
+  useEffect(() => {
+    if (!aiChatMessages.length) return;
+    const sid = aiChatSessionId ?? Date.now();
+    if (aiChatSessionId == null) setAiChatSessionId(sid);
+    const fu = aiChatMessages.find((m: any) => m.role === 'user');
+    const title = (fu ? fu.text : 'New chat').slice(0, 60);
+    setAiChatSessions(prev => {
+      const entry = { id: sid, title, messages: aiChatMessages, ts: Date.now() };
+      const i = prev.findIndex((x: any) => x.id === sid);
+      const arr = i >= 0 ? prev.map((x: any, idx: number) => idx === i ? entry : x) : [entry, ...prev];
+      try { localStorage.setItem('pinnovix_aichat_sessions', JSON.stringify(arr)); } catch {}
+      return arr;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiChatMessages]);
+  useEffect(() => { try { const raw = localStorage.getItem('pinnovix_library_docs'); if (raw) setAiLibraryDocs(JSON.parse(raw)); } catch {} try { const rp = localStorage.getItem('pinnovix_saved_prompts'); if (rp) setSavedPrompts(JSON.parse(rp)); } catch {} try { const rs = localStorage.getItem('pinnovix_aichat_sessions'); if (rs) setAiChatSessions(JSON.parse(rs)); } catch {} }, []);
   const selectMention = (name: string) => {
     setAiChatContexts(c => c.includes(name) ? c : [...c, name]);
     setAiChatInput(prev => prev.replace(/@([^\s@]*)$/, ''));
@@ -4715,9 +4736,27 @@ Required JSON structure:
       {showAiChat && (
         <div className="fixed inset-0 z-[100] flex justify-end bg-black/40" onClick={() => setShowAiChat(false)}>
           <div className="w-[420px] max-w-[92vw] h-full bg-[#161616] border-l border-[#333] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="px-4 py-3 border-b border-[#2a2a2a] flex items-center justify-between shrink-0">
+            <div className="px-4 py-3 border-b border-[#2a2a2a] flex items-center justify-between shrink-0 relative">
               <h2 className="text-[15px] font-bold text-white flex items-center gap-2"><MessageSquare className="w-4 h-4 text-[#7fa3ff]" /> AI Chat</h2>
-              <button onClick={() => setShowAiChat(false)} className="text-gray-400 hover:text-white"><X className="w-5 h-5" /></button>
+              <div className="flex items-center gap-1">
+                <button onClick={() => setShowAiHistory(v => !v)} title="Chat history" className="w-8 h-8 rounded-lg text-gray-400 hover:text-white hover:bg-[#2a2a2a] flex items-center justify-center"><Clock className="w-4 h-4" /></button>
+                <button onClick={newAiChat} title="New chat" className="w-8 h-8 rounded-lg text-gray-400 hover:text-white hover:bg-[#2a2a2a] flex items-center justify-center"><SquarePen className="w-4 h-4" /></button>
+                <button onClick={() => setShowAiChat(false)} className="w-8 h-8 rounded-lg text-gray-400 hover:text-white hover:bg-[#2a2a2a] flex items-center justify-center"><X className="w-5 h-5" /></button>
+              </div>
+              {showAiHistory && (
+                <>
+                  <div className="fixed inset-0 z-[5]" onClick={() => setShowAiHistory(false)} />
+                  <div className="absolute z-10 top-[100%] right-2 mt-1 w-[300px] max-h-[60vh] overflow-y-auto bg-[#1f1f1f] border border-[#333] rounded-xl shadow-2xl p-1">
+                    <div className="px-3 py-1.5 text-[11px] font-bold text-gray-500 uppercase tracking-wide">Chat history</div>
+                    {aiChatSessions.length === 0 ? <div className="px-3 py-2 text-[12px] text-gray-500 italic">No previous chats yet.</div> : aiChatSessions.map((sess: any) => (
+                      <div key={sess.id} className="group flex items-center gap-1">
+                        <button onClick={() => loadAiSession(sess)} className={`flex-1 text-left px-3 py-2 rounded-lg hover:bg-[#2a2a2a] text-[13px] truncate ${sess.id === aiChatSessionId ? 'text-white bg-[#2a2a2a]' : 'text-gray-200'}`}>{sess.title || 'Untitled chat'}</button>
+                        <button onClick={() => deleteAiSession(sess.id)} className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 px-2"><Trash2 className="w-3.5 h-3.5" /></button>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
             <div className="flex-1 overflow-y-auto custom-scrollbar p-4 flex flex-col gap-3">
               {aiChatMessages.length === 0 ? (
@@ -4728,10 +4767,10 @@ Required JSON structure:
                 aiChatMessages.map((m, i) => (
                   m.role === 'system' ? (
                     <div key={i} className="text-[12px] text-gray-400 italic text-center">{m.text}</div>
+                  ) : m.role === 'user' ? (
+                    <div key={i} className="max-w-[85%] self-end rounded-2xl px-3.5 py-2 text-[13.5px] leading-relaxed whitespace-pre-wrap bg-[#5b5fff] text-white">{m.text}</div>
                   ) : (
-                    <div key={i} className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-[13.5px] leading-relaxed whitespace-pre-wrap ${m.role === 'user' ? 'self-end bg-[#5b5fff] text-white' : 'self-start bg-[#222] text-gray-200 border border-[#2a2a2a]'}`}>
-                      {m.text || (aiChatBusy ? '…' : '')}
-                    </div>
+                    <div key={i} className="ai-md max-w-[92%] self-start rounded-2xl px-3.5 py-2 text-[13.5px] leading-relaxed bg-[#222] text-gray-200 border border-[#2a2a2a]" dangerouslySetInnerHTML={{ __html: m.text ? (marked.parse(m.text) as string) : (aiChatBusy ? '<span style=\"color:#6b7280\">Thinking\u2026</span>' : '') }} />
                   )
                 ))
               )}
