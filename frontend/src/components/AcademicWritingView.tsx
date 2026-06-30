@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTheme } from 'next-themes';
-import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Upload, X, Search, Check, Star, Users, ListChecks, Play, SlidersHorizontal, ChevronsRight, ChevronsLeft, Type, Home, Settings2, Download, ThumbsUp, ThumbsDown, Info, ChevronDown, GraduationCap, FlaskConical, Feather, CheckCircle2, ChevronLeft, RotateCcw, Loader2, Sparkles, Trash2, Moon, Sun, Pencil, ArrowLeftRight, ExternalLink, Bookmark, Menu, Link2, ArrowUpDown, ArrowUp, Globe, Folder, FileText, Paperclip, Undo2, Redo2, MessageCircle, Archive, CheckCheck, AlertTriangle } from 'lucide-react';
+import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Upload, X, Search, Check, Star, Users, ListChecks, Play, SlidersHorizontal, ChevronsRight, ChevronsLeft, Type, Home, Settings2, Download, ThumbsUp, ThumbsDown, Info, ChevronDown, GraduationCap, FlaskConical, Feather, CheckCircle2, ChevronLeft, RotateCcw, Loader2, Sparkles, Trash2, Moon, Sun, Pencil, ArrowLeftRight, ExternalLink, Bookmark, Menu, Link2, ArrowUpDown, ArrowUp, Globe, Folder, FileText, Paperclip, Undo2, Redo2, MessageCircle, Archive, CheckCheck, AlertTriangle, SquarePen, Library as LibraryIcon } from 'lucide-react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
@@ -2691,11 +2691,30 @@ Text to review: "${editor?.getText() || documentContent}"`, {
   const [aiLibraryDocs, setAiLibraryDocs] = useState<string[]>([]);
   const [aiMentionOpen, setAiMentionOpen] = useState(false);
   const [aiMentionQuery, setAiMentionQuery] = useState('');
-  useEffect(() => { try { const raw = localStorage.getItem('pinnovix_library_docs'); if (raw) setAiLibraryDocs(JSON.parse(raw)); } catch {} }, []);
+  const [savedPrompts, setSavedPrompts] = useState<any[]>([]);
+  const [showPromptMenu, setShowPromptMenu] = useState(false);
+  const [promptQuery, setPromptQuery] = useState('');
+  const [showPromptManager, setShowPromptManager] = useState(false);
+  const [promptCreating, setPromptCreating] = useState(false);
+  const [promptCmd, setPromptCmd] = useState('/');
+  const [promptText, setPromptText] = useState('');
+  const [showLibraryModal, setShowLibraryModal] = useState(false);
+  useEffect(() => { try { const raw = localStorage.getItem('pinnovix_library_docs'); if (raw) setAiLibraryDocs(JSON.parse(raw)); } catch {} try { const rp = localStorage.getItem('pinnovix_saved_prompts'); if (rp) setSavedPrompts(JSON.parse(rp)); } catch {} }, []);
   const selectMention = (name: string) => {
     setAiChatContexts(c => c.includes(name) ? c : [...c, name]);
     setAiChatInput(prev => prev.replace(/@([^\s@]*)$/, ''));
     setAiMentionOpen(false); setAiMentionQuery('');
+  };
+  const persistPrompts = (list: any[]) => { setSavedPrompts(list); try { localStorage.setItem('pinnovix_saved_prompts', JSON.stringify(list)); } catch {} };
+  const selectPrompt = (p: any) => {
+    setAiChatInput(prev => prev.replace(/(^|\s)\/([^\s/]*)$/, (_m, pre) => pre + (p.prompt || '')));
+    setShowPromptMenu(false); setPromptQuery('');
+  };
+  const savePromptFromForm = () => {
+    const cmd = promptCmd.trim(); const txt = promptText.trim();
+    if (!txt || cmd.length < 2) return;
+    persistPrompts([{ id: Date.now(), command: cmd, prompt: txt }, ...savedPrompts]);
+    setPromptCreating(false); setPromptCmd('/'); setPromptText('');
   };
   const [aiChatCollectionOpen, setAiChatCollectionOpen] = useState(false);
   const [aiChatSourcesOpen, setAiChatSourcesOpen] = useState(false);
@@ -2987,6 +3006,22 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
             >
               <Search className="w-4 h-4" />
               Find papers
+            </button>
+
+            <button
+              onClick={() => setShowLibraryModal(true)}
+              className="flex items-center gap-2 w-full hover:bg-[#3d3d3d] text-gray-300 hover:text-white px-4 py-2.5 rounded-lg text-[13px] font-semibold transition-colors"
+            >
+              <LibraryIcon className="w-4 h-4" />
+              Library{(aiLibraryDocs.length + savedCitations.length) > 0 ? ` (${aiLibraryDocs.length + savedCitations.length})` : ''}
+            </button>
+
+            <button
+              onClick={() => { setPromptCreating(false); setShowPromptManager(true); }}
+              className="flex items-center gap-2 w-full hover:bg-[#3d3d3d] text-gray-300 hover:text-white px-4 py-2.5 rounded-lg text-[13px] font-semibold transition-colors"
+            >
+              <SquarePen className="w-4 h-4" />
+              Saved prompts{savedPrompts.length > 0 ? ` (${savedPrompts.length})` : ''}
             </button>
           </div>
 
@@ -4774,6 +4809,32 @@ Required JSON structure:
                 ))}
               </div>
 
+              {showPromptMenu && (
+                <>
+                  <div className="fixed inset-0 z-[5]" onClick={() => setShowPromptMenu(false)} />
+                  <div className="absolute z-10 bottom-[100%] left-3 right-3 mb-2 bg-[#1f1f1f] border border-[#333] rounded-xl shadow-2xl p-1 max-h-72 overflow-y-auto">
+                    {(() => {
+                      const q = promptQuery.toLowerCase();
+                      const items = savedPrompts.filter((p: any) => (p.command || '').toLowerCase().includes(q) || (p.prompt || '').toLowerCase().includes(q));
+                      return (<>
+                        {items.length === 0 ? (
+                          <div className="px-3 py-2 text-[12px] text-gray-500">No saved prompts</div>
+                        ) : items.map((p: any) => (
+                          <button key={p.id} onClick={() => selectPrompt(p)} className="w-full text-left px-3 py-2 rounded-lg hover:bg-[#2a2a2a] flex flex-col">
+                            <span className="text-[13px] text-gray-100 font-semibold truncate">{p.command}</span>
+                            <span className="text-[11.5px] text-gray-400 truncate">{p.prompt}</span>
+                          </button>
+                        ))}
+                        <button onClick={() => { setShowPromptMenu(false); setPromptCreating(false); setShowPromptManager(true); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-[#2a2a2a] flex items-start gap-2 border-t border-[#333] mt-1">
+                          <SquarePen className="w-4 h-4 text-gray-400 shrink-0 mt-0.5" />
+                          <span className="flex flex-col"><span className="text-[13px] text-gray-100 font-semibold">Create and manage prompts</span><span className="text-[11.5px] text-gray-400">Once created, saved prompts appear here</span></span>
+                        </button>
+                      </>);
+                    })()}
+                  </div>
+                </>
+              )}
+
               {aiMentionOpen && (
                 <>
                   <div className="fixed inset-0 z-[5]" onClick={() => setAiMentionOpen(false)} />
@@ -4805,16 +4866,16 @@ Required JSON structure:
                   value={aiChatInput}
                   onChange={(e) => {
                     const v = e.target.value;
-                    if (v.endsWith('/') && (v.length === 1 || v[v.length - 2] === ' ' || v[v.length - 2] === '\n')) {
-                      setAiChatInput(v.slice(0, -1)); setAiMentionOpen(false); aiChatFileRef.current?.click(); return;
-                    }
                     setAiChatInput(v);
-                    const m = v.match(/@([^\s@]*)$/);
-                    if (m) { setAiMentionOpen(true); setAiMentionQuery(m[1]); } else { setAiMentionOpen(false); }
+                    const at = v.match(/@([^\s@]*)$/);
+                    const sl = v.match(/(?:^|\s)\/([^\s/]*)$/);
+                    if (at) { setAiMentionOpen(true); setAiMentionQuery(at[1]); setShowPromptMenu(false); }
+                    else if (sl) { setShowPromptMenu(true); setPromptQuery(sl[1]); setAiMentionOpen(false); }
+                    else { setAiMentionOpen(false); setShowPromptMenu(false); }
                   }}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !aiMentionOpen) { e.preventDefault(); handleAiChatSend(); } }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !aiMentionOpen && !showPromptMenu) { e.preventDefault(); handleAiChatSend(); } }}
                   rows={1}
-                  placeholder="Ask AI — type @ to mention a library document, or / to upload a new one"
+                  placeholder="Ask AI, use @ to mention specific PDFs or / to access saved prompts"
                   className="w-full resize-none bg-transparent text-[14px] text-white outline-none max-h-28 placeholder:text-gray-500"
                 />
                 <div className="flex items-center justify-between mt-1">
@@ -4992,6 +5053,78 @@ Required JSON structure:
                   </button>
                 ))}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPromptManager && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60" onClick={() => { setShowPromptManager(false); setPromptCreating(false); }}>
+          <div className="w-[520px] max-w-[92vw] bg-[#161616] border border-[#333] rounded-2xl shadow-2xl p-6" onClick={e => e.stopPropagation()}>
+            {promptCreating ? (
+              <>
+                <div className="flex items-center gap-2 mb-4">
+                  <button onClick={() => setPromptCreating(false)} className="text-gray-400 hover:text-white"><ChevronLeft className="w-5 h-5" /></button>
+                  <h2 className="text-[16px] font-bold text-white">Create Prompt</h2>
+                  <button onClick={() => { setShowPromptManager(false); setPromptCreating(false); }} className="ml-auto text-gray-400 hover:text-white"><X className="w-5 h-5" /></button>
+                </div>
+                <label className="text-[12px] font-bold text-gray-300">Command</label>
+                <input value={promptCmd} onChange={e => { const val = e.target.value; setPromptCmd(val.startsWith('/') ? val : '/' + val.replace(/^\/+/, '')); }} className="w-full mt-1 mb-1 bg-[#1a1a1a] border border-[#333] rounded-lg px-3 py-2 text-[14px] text-white outline-none focus:border-[#5b5fff]" />
+                <p className="text-[11.5px] text-gray-500 mb-3">When saved, access the prompt by typing `/` in AI Chat</p>
+                <label className="text-[12px] font-bold text-gray-300">Prompt</label>
+                <textarea value={promptText} onChange={e => setPromptText(e.target.value)} rows={4} placeholder="Read the current file and provide a detailed summary..." className="w-full mt-1 bg-[#1a1a1a] border border-[#333] rounded-lg px-3 py-2 text-[14px] text-white outline-none focus:border-[#5b5fff] resize-none" />
+                <div className="flex items-center justify-end gap-2 mt-4">
+                  <button onClick={() => setPromptCreating(false)} className="px-4 py-2 text-[13px] text-gray-300 hover:text-white">Cancel</button>
+                  <button onClick={savePromptFromForm} disabled={!promptText.trim() || promptCmd.trim().length < 2} className="px-5 py-2 bg-[#5b5fff] hover:bg-[#6b6fff] disabled:opacity-40 text-white rounded-lg text-[13px] font-bold">Submit</button>
+                </div>
+              </>
+            ) : savedPrompts.length === 0 ? (
+              <div className="text-center py-3 relative">
+                <button onClick={() => setShowPromptManager(false)} className="absolute right-0 top-0 text-gray-400 hover:text-white"><X className="w-5 h-5" /></button>
+                <div className="w-11 h-11 rounded-lg bg-[#222] border border-[#333] flex items-center justify-center mx-auto mb-3 mt-2"><SquarePen className="w-5 h-5 text-gray-300" /></div>
+                <h2 className="text-[17px] font-bold text-white">Create your first saved prompt</h2>
+                <p className="text-[13px] text-gray-400 mt-1 mb-5">Saved prompts appear in chat under the save icon and can be inserted quickly.</p>
+                <button onClick={() => { setPromptCmd('/'); setPromptText(''); setPromptCreating(true); }} className="w-full bg-[#5b5fff] hover:bg-[#6b6fff] text-white rounded-lg py-2.5 font-bold text-[14px]">Create Prompt</button>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-4"><h2 className="text-[16px] font-bold text-white">Saved prompts</h2><button onClick={() => setShowPromptManager(false)} className="text-gray-400 hover:text-white"><X className="w-5 h-5" /></button></div>
+                <div className="flex flex-col gap-2 max-h-[50vh] overflow-y-auto">
+                  {savedPrompts.map((p: any) => (
+                    <div key={p.id} className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-3 flex items-start justify-between gap-2">
+                      <div className="min-w-0"><div className="text-[13px] font-bold text-white">{p.command}</div><div className="text-[12px] text-gray-400 break-words">{p.prompt}</div></div>
+                      <button onClick={() => persistPrompts(savedPrompts.filter((x: any) => x.id !== p.id))} className="text-gray-500 hover:text-red-400 shrink-0"><Trash2 className="w-4 h-4" /></button>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={() => { setPromptCmd('/'); setPromptText(''); setPromptCreating(true); }} className="w-full mt-4 bg-[#5b5fff] hover:bg-[#6b6fff] text-white rounded-lg py-2.5 font-bold text-[14px]">Create Prompt</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showLibraryModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60" onClick={() => setShowLibraryModal(false)}>
+          <div className="w-[560px] max-w-[92vw] max-h-[80vh] bg-[#161616] border border-[#333] rounded-2xl shadow-2xl p-6 flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3"><h2 className="text-[16px] font-bold text-white flex items-center gap-2"><LibraryIcon className="w-4 h-4 text-[#7fa3ff]" /> Library</h2><button onClick={() => setShowLibraryModal(false)} className="text-gray-400 hover:text-white"><X className="w-5 h-5" /></button></div>
+            <p className="text-[12.5px] text-gray-400 mb-3">Documents and saved sources here can be used in AI Chat by typing <span className="text-gray-200 font-bold">@</span>.</p>
+            <button onClick={() => aiChatFileRef.current?.click()} className="mb-3 self-start flex items-center gap-2 bg-[#5b5fff] hover:bg-[#6b6fff] text-white rounded-lg px-3 py-1.5 text-[13px] font-bold"><Upload className="w-4 h-4" /> Upload document</button>
+            <input ref={aiChatFileRef} type="file" accept=".pdf,.docx,.txt,.md" className="hidden" onChange={handleAiChatUpload} />
+            <div className="flex-1 overflow-y-auto flex flex-col gap-2">
+              {(aiLibraryDocs.length === 0 && savedCitations.length === 0) && <div className="text-[13px] text-gray-500 italic">Your library is empty. Upload a document, or use Save on any citation.</div>}
+              {aiLibraryDocs.map((d: string) => (
+                <div key={d} className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-3 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0"><FileText className="w-4 h-4 text-gray-400 shrink-0" /><span className="text-[13px] text-gray-100 truncate">{d}</span></div>
+                  <button onClick={() => setAiLibraryDocs(prev => { const n = prev.filter(x => x !== d); try { localStorage.setItem('pinnovix_library_docs', JSON.stringify(n)); } catch {} return n; })} className="text-gray-500 hover:text-red-400 shrink-0"><Trash2 className="w-4 h-4" /></button>
+                </div>
+              ))}
+              {savedCitations.map((c: any, i: number) => (
+                <div key={'c' + i} className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-3">
+                  <div className="text-[13px] text-gray-100 font-semibold truncate">{c.title || 'Untitled source'}</div>
+                  <div className="text-[11.5px] text-gray-400 truncate">{[c.authors ? String(c.authors).split(',')[0] : '', c.year, c.container].filter(Boolean).join(' \u00b7 ')}</div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
