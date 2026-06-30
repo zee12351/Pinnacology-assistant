@@ -3756,7 +3756,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
               {citationPopup.visible && (
                 <div 
                   data-cite-popup="1"
-                  className="fixed z-[60] bg-[#252525] border border-[#333] rounded-xl shadow-2xl w-[440px] max-w-[calc(100vw-16px)] flex flex-col overflow-hidden"
+                  className="fixed z-[120] bg-[#252525] border border-[#333] rounded-xl shadow-2xl w-[440px] max-w-[calc(100vw-16px)] flex flex-col overflow-hidden"
                   style={{
                     top: Math.min(citationPopup.y + 2, (typeof window !== 'undefined' ? window.innerHeight : 800) - 420),
                     left: Math.max(12, Math.min(citationPopup.x, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 460)),
@@ -4805,10 +4805,15 @@ Required JSON structure:
                         <div className="flex flex-col gap-1">
                           <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wide px-1">Sources</div>
                           {m.sources.map((sr: any, si: number) => (
-                            <a key={si} href={sr.url || (sr.doi ? 'https://doi.org/' + sr.doi : '#')} target="_blank" rel="noreferrer" className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-3 py-2 hover:border-[#5b5fff] transition-colors">
+                            <div key={si}
+                              onMouseEnter={(e) => { cancelHideCitation(); const rect = (e.currentTarget as HTMLElement).getBoundingClientRect(); setCitationPopup({ visible: true, x: rect.left - 372, y: rect.top, text: sr.title }); const k = 'chatsrc:' + (sr.doi || sr.title); if (lastCiteRef.current !== k) { lastCiteRef.current = k; fetchCitationCards(sr.title, sr.doi ? { singleDoi: sr.doi } : { context: sr.title }); } }}
+                              onMouseLeave={scheduleHideCitation}
+                              onClick={() => window.open(sr.url || (sr.doi ? 'https://doi.org/' + sr.doi : '#'), '_blank', 'noopener,noreferrer')}
+                              title="Hover for details, click to open"
+                              className="cursor-pointer bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-3 py-2 hover:border-[#5b5fff] transition-colors">
                               <div className="text-[12.5px] text-gray-100 font-semibold leading-snug">{sr.title}</div>
                               <div className="text-[11px] text-gray-400 truncate">{[sr.author, sr.year, sr.container].filter(Boolean).join(' · ')}</div>
-                            </a>
+                            </div>
                           ))}
                         </div>
                       ) : null}
