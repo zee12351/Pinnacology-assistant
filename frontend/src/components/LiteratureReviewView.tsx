@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles, ArrowRight, ArrowLeft, FileText, Table2, BookOpen, Copy, SlidersHorizontal, Bookmark } from 'lucide-react';
+import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles, ArrowRight, ArrowLeft, FileText, Table2, BookOpen, Copy, SlidersHorizontal, Bookmark, Clock, Library as LibraryIcon, Bell, Upload, FolderPlus, Trash2, PanelLeft } from 'lucide-react';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -76,6 +76,20 @@ function extractJSON(text: string): any {
   }
 }
 
+function fmtTime(ts: any): string {
+  if (!ts) return '';
+  try {
+    const d = new Date(ts);
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ', ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+}
+
+function docName(d: any): string {
+  return (d && (d.name || d.title || d.filename || d.fileName)) || 'Untitled document';
+}
+
 function mkPaper(w: any, i: number): any {
   const authors = (w.authorships || []).map((a: any) => a.author && a.author.display_name).filter(Boolean);
   const authorStr = authors.length
@@ -124,6 +138,35 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [minCited, setMinCited] = useState('');
   const [oaOnly, setOaOnly] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  // Left-nav state
+  const [navView, setNavView] = useState('search');
+  const [navOpen, setNavOpen] = useState(true);
+  const [recents, setRecents] = useState([] as any[]);
+  const [collections, setCollections] = useState([] as any[]);
+  const [libDocs, setLibDocs] = useState([] as any[]);
+  const [activeCol, setActiveCol] = useState('all');
+  const [recentSearch, setRecentSearch] = useState('');
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    try { const r = localStorage.getItem('pinnovix_lit_recents'); if (r) setRecents(JSON.parse(r)); } catch {}
+    try { const c = localStorage.getItem('pinnovix_lit_collections'); if (c) setCollections(JSON.parse(c)); } catch {}
+    try { const d = localStorage.getItem('pinnovix_library_docs'); if (d) setLibDocs(JSON.parse(d)); } catch {}
+  }, []);
+
+  function pushRecent(q: string) {
+    try {
+      const raw = localStorage.getItem('pinnovix_lit_recents');
+      const arr = raw ? JSON.parse(raw) : [];
+      const filtered = arr.filter((x: any) => x.question !== q);
+      filtered.unshift({ id: Date.now(), question: q, type: 'Find papers', ts: Date.now() });
+      const next = filtered.slice(0, 30);
+      localStorage.setItem('pinnovix_lit_recents', JSON.stringify(next));
+      setRecents(next);
+    } catch {}
+  }
+
   function submitStart() {
     const q = input.trim();
     if (!q) return;
@@ -133,6 +176,33 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   function resetSearch() {
     setQuestion(''); setPapers([]); setSynthesis(''); setColumns([]); setSearchTerms([]); setInput(''); setFollowups([]); lastQRef.current = '';
   }
+  function startNew() {
+    resetSearch();
+    setNavView('search');
+  }
+  function openRecent(q: string) {
+    setNavView('search');
+    lastQRef.current = q;
+    runReview(q);
+  }
+  function newCollection() {
+    if (typeof window === 'undefined') return;
+    const name = window.prompt('New collection name');
+    if (!name || !name.trim()) return;
+    const next = [{ id: 'col' + Date.now(), name: name.trim() }].concat(collections);
+    setCollections(next);
+    try { localStorage.setItem('pinnovix_lit_collections', JSON.stringify(next)); } catch {}
+  }
+  function onUploadFiles(e: any) {
+    const files = Array.from((e.target && e.target.files) || []) as any[];
+    if (!files.length) return;
+    const add = files.map((f, i) => ({ id: 'd' + Date.now() + '_' + i, name: f.name, size: f.size, ts: Date.now(), collection: activeCol !== 'all' && activeCol !== 'trash' ? activeCol : '' }));
+    const next = add.concat(libDocs);
+    setLibDocs(next);
+    try { localStorage.setItem('pinnovix_library_docs', JSON.stringify(next)); } catch {}
+    if (e.target) e.target.value = '';
+  }
+
   function copyReport() {
     const txt = (question ? question + '\n\n' : '') + (synthesis ? synthesis + '\n\n' : '') + view().map((p, i) => (i + 1) + '. ' + p.title + ' (' + p.authorStr + ', ' + p.year + '). ' + (p.doi ? 'https://doi.org/' + p.doi : '')).join('\n');
     try { navigator.clipboard.writeText(txt); } catch {}
@@ -166,7 +236,9 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   }, [messages]);
 
   async function runReview(q: string) {
+    setNavView('search');
     setQuestion(q);
+    pushRecent(q);
     setBusy(true);
     setPhase('Searching academic databases...');
     setPapers([]);
@@ -275,44 +347,205 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   }
 
   const rows = view();
+  const navItems = [
+    { id: 'new', label: 'New', Icon: Plus },
+    { id: 'recents', label: 'Recents', Icon: Clock },
+    { id: 'library', label: 'Library', Icon: LibraryIcon },
+    { id: 'alerts', label: 'Alerts', Icon: Bell },
+  ];
+  const filteredRecents = recents.filter((r) => !recentSearch || (r.question || '').toLowerCase().indexOf(recentSearch.toLowerCase()) !== -1);
+  const shownDocs = libDocs.filter((d) => activeCol === 'all' || activeCol === 'trash' ? activeCol !== 'trash' : d.collection === activeCol);
 
-  if (!question && !busy && papers.length === 0) {
-    return (
-      <div className="flex w-full h-full bg-background text-foreground items-start justify-center overflow-y-auto custom-scrollbar">
-        <div className="w-full max-w-3xl mt-[9vh] px-4">
-          {onHome ? (
-            <button onClick={onHome} className="text-[12.5px] text-muted-foreground hover:text-foreground flex items-center gap-1 mb-4"><ArrowLeft className="w-3.5 h-3.5" /> Personas</button>
-          ) : null}
-          <div className="text-center mb-6">
-            <h1 className="text-2xl font-bold">Literature Review</h1>
-            <p className="text-muted-foreground text-sm mt-1">Ask a research question and get a table of real papers with AI summaries and a synthesis.</p>
-          </div>
-          <div className="border border-border rounded-2xl bg-card shadow-sm overflow-hidden">
-            <div className="px-4 pt-4">
-              <span className="inline-flex items-center gap-1.5 bg-primary/10 text-primary text-[13px] font-semibold rounded-lg px-3 py-1.5"><Search className="w-4 h-4" /> Find papers</span>
+  const leftNav = (
+    <aside className={(navOpen ? 'w-[224px]' : 'w-[56px]') + ' shrink-0 border-r border-border flex flex-col bg-card/40 h-full'}>
+      <div className="flex items-center justify-between px-3 h-12 border-b border-border shrink-0">
+        {navOpen ? (
+          <div className="flex items-center gap-2 font-bold text-[14px] text-foreground"><FlaskConical className="w-4 h-4 text-primary" /> Literature</div>
+        ) : (
+          <FlaskConical className="w-4 h-4 text-primary mx-auto" />
+        )}
+        <button onClick={() => setNavOpen((v) => !v)} title="Toggle sidebar" className="text-muted-foreground hover:text-foreground"><PanelLeft className="w-4 h-4" /></button>
+      </div>
+      <nav className="p-2 flex flex-col gap-0.5 shrink-0">
+        {navItems.map((it) => {
+          const active = navView === it.id;
+          return (
+            <button key={it.id} onClick={() => { if (it.id === 'new') startNew(); else setNavView(it.id); }} title={it.label}
+              className={(active ? 'bg-muted text-foreground font-semibold ' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground ') + 'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13.5px] transition-colors'}>
+              <it.Icon className="w-4 h-4 shrink-0" /> {navOpen ? <span>{it.label}</span> : null}
+            </button>
+          );
+        })}
+      </nav>
+      {navOpen ? (
+        <div className="flex-1 overflow-y-auto custom-scrollbar px-2 mt-1 min-h-0">
+          <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wide px-2 mb-1">Recents</div>
+          {recents.length === 0 ? (
+            <div className="px-2 text-[12px] text-muted-foreground italic">No recent searches.</div>
+          ) : recents.slice(0, 20).map((r) => (
+            <button key={r.id} onClick={() => openRecent(r.question)} className="w-full text-left flex items-center gap-2 rounded-lg px-2 py-1.5 text-[12.5px] text-foreground/80 hover:bg-muted/60 hover:text-foreground truncate">
+              <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> <span className="truncate">{r.question}</span>
+            </button>
+          ))}
+        </div>
+      ) : <div className="flex-1" />}
+      {onHome ? (
+        <div className="p-2 border-t border-border shrink-0">
+          <button onClick={onHome} className="w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] text-muted-foreground hover:bg-muted/60 hover:text-foreground">
+            <ArrowLeft className="w-4 h-4 shrink-0" /> {navOpen ? <span>Personas</span> : null}
+          </button>
+        </div>
+      ) : null}
+    </aside>
+  );
+
+  // ---- RECENTS PAGE (snip 1) ----
+  const recentsPage = (
+    <div className="h-full overflow-y-auto custom-scrollbar p-8">
+      <h1 className="text-2xl font-bold mb-5">Recents</h1>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-7">
+        {[
+          { t: 'New search', d: 'Find papers, extract findings, and chat', Icon: Search },
+          { t: 'New research report', d: 'Ask a question to generate a report', Icon: FileText },
+          { t: 'New systematic review', d: 'Ask, search, screen, and extract', Icon: Table2 },
+        ].map((c) => (
+          <button key={c.t} onClick={startNew} className="text-left border border-border rounded-2xl bg-card hover:border-primary transition-colors p-5 flex items-start justify-between gap-3">
+            <div>
+              <div className="font-semibold text-[14.5px]">{c.t}</div>
+              <div className="text-[12.5px] text-muted-foreground mt-0.5">{c.d}</div>
             </div>
-            <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitStart(); } }} rows={4} autoFocus placeholder="e.g. Does intermittent fasting improve weight loss in adults?" className="w-full bg-transparent px-4 py-3 text-[15px] outline-none resize-none placeholder:text-muted-foreground" />
-            <div className="flex justify-end px-4 py-3 border-t border-border">
-              <button onClick={submitStart} disabled={!input.trim()} className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40" title="Search"><ArrowRight className="w-4 h-4" /></button>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5">
-            {['Does intermittent fasting improve weight loss in adults?', 'Effectiveness of CBT for anxiety disorders', 'Impact of remote work on employee productivity'].map((ex) => (
-              <button key={ex} onClick={() => setInput(ex)} className="text-left border border-border rounded-xl p-3 bg-card hover:border-primary transition-colors text-[13px] text-muted-foreground">{ex}</button>
-            ))}
-          </div>
+            <span className="w-9 h-9 rounded-full border border-border flex items-center justify-center text-muted-foreground shrink-0"><c.Icon className="w-4 h-4" /></span>
+          </button>
+        ))}
+      </div>
+      <div className="flex items-center justify-between border-b border-border mb-1">
+        <div className="flex items-center gap-1 text-[13px]">
+          <span className="px-3 py-2 rounded-lg bg-muted font-semibold">All</span>
+          <span className="px-3 py-2 text-muted-foreground">Created by you</span>
+          <span className="px-3 py-2 text-muted-foreground">Trash</span>
+        </div>
+        <div className="relative mb-1">
+          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input value={recentSearch} onChange={(e) => setRecentSearch(e.target.value)} placeholder="Search" className="bg-muted/40 border border-border rounded-lg pl-8 pr-2 py-1.5 text-[13px] outline-none focus:border-primary w-[220px]" />
         </div>
       </div>
-    );
-  }
+      <table className="w-full text-[13.5px]">
+        <thead>
+          <tr className="text-left text-muted-foreground text-[12px]">
+            <th className="py-2 font-semibold">Name</th>
+            <th className="py-2 font-semibold w-[160px]">Type</th>
+            <th className="py-2 font-semibold w-[160px]">Last modified</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filteredRecents.length === 0 ? (
+            <tr><td colSpan={3} className="py-8 text-center text-muted-foreground text-[13px]">No recent items yet. Start a new search.</td></tr>
+          ) : filteredRecents.map((r) => (
+            <tr key={r.id} onClick={() => openRecent(r.question)} className="border-t border-border cursor-pointer hover:bg-muted/40">
+              <td className="py-3 pr-4"><div className="flex items-center gap-2.5 font-semibold"><Search className="w-4 h-4 text-muted-foreground" /> {r.question}</div></td>
+              <td className="py-3 text-muted-foreground">{r.type || 'Find papers'}</td>
+              <td className="py-3 text-muted-foreground">{fmtTime(r.ts)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 
-  return (
-    <div className="flex w-full h-full bg-background overflow-hidden text-foreground">
+  // ---- LIBRARY PAGE (snip 2) ----
+  const libraryPage = (
+    <div className="h-full flex overflow-hidden">
+      <input ref={fileRef} type="file" multiple className="hidden" onChange={onUploadFiles} />
+      <div className="w-[220px] shrink-0 border-r border-border p-3 overflow-y-auto custom-scrollbar">
+        <div className="text-[12px] font-bold text-muted-foreground mb-1">Library</div>
+        <button onClick={() => setActiveCol('all')} className={(activeCol === 'all' ? 'bg-muted font-semibold ' : 'hover:bg-muted/60 ') + 'w-full text-left rounded-lg px-3 py-2 text-[13.5px]'}>All</button>
+        <button onClick={() => setActiveCol('trash')} className={(activeCol === 'trash' ? 'bg-muted font-semibold ' : 'hover:bg-muted/60 ') + 'w-full text-left rounded-lg px-3 py-2 text-[13.5px]'}>Recently deleted</button>
+        <div className="flex items-center justify-between mt-4 mb-1 px-1">
+          <span className="text-[12px] font-bold text-muted-foreground">Collections</span>
+          <button onClick={newCollection} title="New collection" className="text-muted-foreground hover:text-foreground"><FolderPlus className="w-4 h-4" /></button>
+        </div>
+        {collections.length === 0 ? (
+          <div className="px-1 text-[12px] text-muted-foreground italic">No collections yet.</div>
+        ) : collections.map((c) => (
+          <button key={c.id} onClick={() => setActiveCol(c.id)} className={(activeCol === c.id ? 'bg-muted font-semibold ' : 'hover:bg-muted/60 ') + 'w-full text-left rounded-lg px-3 py-2 text-[13.5px] truncate flex items-center gap-2'}><BookOpen className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> {c.name}</button>
+        ))}
+      </div>
+      <div className="flex-1 flex flex-col min-w-0">
+        <div className="px-6 py-4 border-b border-border text-[14px] text-muted-foreground">Library / <span className="text-foreground font-semibold">{activeCol === 'all' ? 'All' : activeCol === 'trash' ? 'Recently deleted' : (collections.find((c) => c.id === activeCol) || {}).name || 'Collection'}</span></div>
+        <div className="flex-1 overflow-y-auto custom-scrollbar">
+          {shownDocs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-center px-8">
+              <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center mb-4"><FileText className="w-8 h-8 text-muted-foreground" /></div>
+              <div className="font-semibold text-[15px]">Upload papers to start using your library.</div>
+              <div className="text-[13px] text-muted-foreground mt-1 max-w-sm">Your library stores papers and documents for analysis and insights.</div>
+              <button onClick={() => fileRef.current && fileRef.current.click()} className="mt-5 flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-[13.5px] font-semibold"><Upload className="w-4 h-4" /> Upload</button>
+            </div>
+          ) : (
+            <table className="w-full text-[13.5px]">
+              <thead><tr className="text-left text-muted-foreground text-[12px]"><th className="px-6 py-3 font-semibold">Name</th><th className="px-6 py-3 font-semibold w-[180px]">Added</th></tr></thead>
+              <tbody>
+                {shownDocs.map((d) => (
+                  <tr key={d.id || docName(d)} className="border-t border-border hover:bg-muted/40">
+                    <td className="px-6 py-3"><div className="flex items-center gap-2.5 font-medium"><FileText className="w-4 h-4 text-muted-foreground shrink-0" /> {docName(d)}</div></td>
+                    <td className="px-6 py-3 text-muted-foreground">{fmtTime(d.ts || d.uploadedAt || d.date)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+      <div className="w-[260px] shrink-0 border-l border-border p-4 hidden lg:block">
+        <div className="text-[14px] font-semibold mb-3">New from selection</div>
+        <button onClick={startNew} className="w-full flex items-center justify-between border border-border rounded-xl px-3 py-3 text-[13.5px] hover:border-primary transition-colors mb-2"><span>Start systematic review</span><Table2 className="w-4 h-4 text-muted-foreground" /></button>
+        <button onClick={() => fileRef.current && fileRef.current.click()} className="w-full flex items-center justify-between border border-border rounded-xl px-3 py-3 text-[13.5px] hover:border-primary transition-colors mb-4"><span>Extract data</span><Sparkles className="w-4 h-4 text-muted-foreground" /></button>
+        <button onClick={() => fileRef.current && fileRef.current.click()} className="w-full flex items-center gap-2 justify-center bg-primary text-primary-foreground rounded-lg px-3 py-2 text-[13.5px] font-semibold"><Upload className="w-4 h-4" /> Upload</button>
+      </div>
+    </div>
+  );
+
+  // ---- ALERTS PAGE ----
+  const alertsPage = (
+    <div className="h-full flex flex-col items-center justify-center text-center px-8">
+      <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center mb-4"><Bell className="w-8 h-8 text-muted-foreground" /></div>
+      <div className="font-semibold text-[15px]">No alerts yet.</div>
+      <div className="text-[13px] text-muted-foreground mt-1 max-w-sm">Alerts about new papers matching your searches will appear here.</div>
+    </div>
+  );
+
+  // ---- SEARCH START SCREEN ----
+  const startScreen = (
+    <div className="flex w-full h-full items-start justify-center overflow-y-auto custom-scrollbar">
+      <div className="w-full max-w-3xl mt-[9vh] px-4">
+        <div className="text-center mb-6">
+          <h1 className="text-2xl font-bold">Literature Review</h1>
+          <p className="text-muted-foreground text-sm mt-1">Ask a research question and get a table of real papers with AI summaries and a synthesis.</p>
+        </div>
+        <div className="border border-border rounded-2xl bg-card shadow-sm overflow-hidden">
+          <div className="px-4 pt-4">
+            <span className="inline-flex items-center gap-1.5 bg-primary/10 text-primary text-[13px] font-semibold rounded-lg px-3 py-1.5"><Search className="w-4 h-4" /> Find papers</span>
+          </div>
+          <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitStart(); } }} rows={4} autoFocus placeholder="e.g. Does intermittent fasting improve weight loss in adults?" className="w-full bg-transparent px-4 py-3 text-[15px] outline-none resize-none placeholder:text-muted-foreground" />
+          <div className="flex justify-end px-4 py-3 border-t border-border">
+            <button onClick={submitStart} disabled={!input.trim()} className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40" title="Search"><ArrowRight className="w-4 h-4" /></button>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5">
+          {['Does intermittent fasting improve weight loss in adults?', 'Effectiveness of CBT for anxiety disorders', 'Impact of remote work on employee productivity'].map((ex) => (
+            <button key={ex} onClick={() => setInput(ex)} className="text-left border border-border rounded-xl p-3 bg-card hover:border-primary transition-colors text-[13px] text-muted-foreground">{ex}</button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  // ---- SEARCH RESULTS SPLIT VIEW ----
+  const resultsView = (
+    <div className="flex w-full h-full overflow-hidden">
       <div className="w-[38%] min-w-[320px] flex flex-col border-r border-border h-full">
         <div className="flex-1 overflow-y-auto p-6 custom-scrollbar flex flex-col gap-4">
-          <div className="flex items-center justify-between">
-            {onHome ? <button onClick={onHome} className="text-[12.5px] text-muted-foreground hover:text-foreground flex items-center gap-1"><ArrowLeft className="w-3.5 h-3.5" /> Personas</button> : <span />}
-            <button onClick={resetSearch} className="text-[12.5px] text-primary font-semibold flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> New search</button>
+          <div className="flex items-center justify-end">
+            <button onClick={startNew} className="text-[12.5px] text-primary font-semibold flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> New search</button>
           </div>
           {papers.length > 0 ? (
             <div className="border border-border rounded-xl bg-card p-3 flex items-center gap-2"><Table2 className="w-4 h-4 text-primary shrink-0" /> <span className="font-semibold text-[14px] truncate">{question}</span></div>
@@ -444,6 +677,19 @@ export function LiteratureReviewView({ messages, onHome }: any) {
           )}
         </div>
       </div>
+    </div>
+  );
+
+  const searchArea = (!question && !busy && papers.length === 0) ? startScreen : resultsView;
+  const main = navView === 'recents' ? recentsPage
+    : navView === 'library' ? libraryPage
+    : navView === 'alerts' ? alertsPage
+    : searchArea;
+
+  return (
+    <div className="flex w-full h-full bg-background text-foreground overflow-hidden">
+      {leftNav}
+      <div className="flex-1 min-w-0 h-full overflow-hidden">{main}</div>
     </div>
   );
 }
