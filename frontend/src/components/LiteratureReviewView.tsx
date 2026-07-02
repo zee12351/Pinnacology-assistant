@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles, ArrowRight, ArrowLeft, FileText, Table2, BookOpen, Copy, SlidersHorizontal, Bookmark } from 'lucide-react';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -94,6 +94,7 @@ function mkPaper(w: any, i: number): any {
     doi: w.doi ? String(w.doi).replace('https://doi.org/', '') : '',
     url: w.doi || landing || w.id,
     oa: !!(w.open_access && w.open_access.is_oa),
+    fullText: !!(w.open_access && w.open_access.oa_url) || !!(w.primary_location && w.primary_location.pdf_url),
     abstract: abstractFromIndex(w.abstract_inverted_index),
     summary: '',
     cols: {},
@@ -117,6 +118,12 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [colBusy, setColBusy] = useState(false);
   const lastQRef = useRef('');
   const [input, setInput] = useState('');
+  const [followups, setFollowups] = useState([] as string[]);
+  const [filtOpen, setFiltOpen] = useState(false);
+  const [minYear, setMinYear] = useState('');
+  const [minCited, setMinCited] = useState('');
+  const [oaOnly, setOaOnly] = useState(false);
+  const [saved, setSaved] = useState(false);
   function submitStart() {
     const q = input.trim();
     if (!q) return;
@@ -124,7 +131,27 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     runReview(q);
   }
   function resetSearch() {
-    setQuestion(''); setPapers([]); setSynthesis(''); setColumns([]); setSearchTerms([]); setInput(''); lastQRef.current = '';
+    setQuestion(''); setPapers([]); setSynthesis(''); setColumns([]); setSearchTerms([]); setInput(''); setFollowups([]); lastQRef.current = '';
+  }
+  function copyReport() {
+    const txt = (question ? question + '\n\n' : '') + (synthesis ? synthesis + '\n\n' : '') + view().map((p, i) => (i + 1) + '. ' + p.title + ' (' + p.authorStr + ', ' + p.year + '). ' + (p.doi ? 'https://doi.org/' + p.doi : '')).join('\n');
+    try { navigator.clipboard.writeText(txt); } catch {}
+  }
+  function downloadReport() {
+    const txt = (question ? 'Research question: ' + question + '\n\n' : '') + (synthesis ? 'Synthesis:\n' + synthesis + '\n\n' : '') + 'Papers:\n' + view().map((p, i) => (i + 1) + '. ' + p.title + ' - ' + p.authorStr + ' (' + p.year + '). ' + p.venue + '. ' + (p.doi ? 'https://doi.org/' + p.doi : '') + '\n   Summary: ' + (p.summary || '')).join('\n\n');
+    const blob = new Blob([txt], { type: 'text/plain' });
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = href; a.download = (question || 'literature-review').slice(0, 40) + '.txt';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(href);
+  }
+  function saveLibrary() {
+    try {
+      const raw = localStorage.getItem('pinnovix_lit_library');
+      const lib = raw ? JSON.parse(raw) : [];
+      lib.unshift({ id: Date.now(), question: question, papers: view(), synthesis: synthesis, ts: Date.now() });
+      localStorage.setItem('pinnovix_lit_library', JSON.stringify(lib.slice(0, 50)));
+      setSaved(true); setTimeout(() => setSaved(false), 1500);
+    } catch {}
   }
 
   useEffect(() => {
@@ -146,6 +173,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setSynthesis('');
     setColumns([]);
     setSearchTerms([]);
+    setFollowups([]);
     try {
       const url = 'https://api.openalex.org/works?search=' + encodeURIComponent(q) + '&per_page=12&sort=relevance_score:desc&filter=has_abstract:true&mailto=support@pinnovix.app';
       const r = await fetch(url);
@@ -161,7 +189,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       }
       setPhase('Summarising papers and synthesising findings...');
       const list = items.map((p: any, i: number) => '[' + i + '] ' + p.title + '. ABSTRACT: ' + (p.abstract || 'No abstract').slice(0, 900)).join('\n\n');
-      const jsonShape = '{"summaries": ["one short summary per paper in order"], "synthesis": "3-4 sentence overall synthesis"}';
+      const jsonShape = '{"summaries": ["one short summary per paper in order"], "synthesis": "3-4 sentence overall synthesis", "followups": ["2-3 short follow-up questions to explore next"]}';
       const prompt = 'You are a systematic literature-review assistant. Research question: "' + q + '".\n\n'
         + 'Below are ' + items.length + ' papers. For EACH paper (in order), write a 1-2 sentence summary of what it found that is RELEVANT to the research question, with specific numbers/outcomes if present. Then write a 3-4 sentence overall synthesis across all papers (agreement, disagreement, bottom line).\n\n'
         + 'Return ONLY valid JSON, no markdown fences, in exactly this shape: ' + jsonShape + '\n\nPapers:\n' + list;
@@ -170,6 +198,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       if (parsed && Array.isArray(parsed.summaries)) {
         setPapers((prev) => prev.map((p, i) => ({ ...p, summary: parsed.summaries[i] || (p.abstract || '').slice(0, 220) })));
         setSynthesis(parsed.synthesis || '');
+        setFollowups(Array.isArray(parsed.followups) ? parsed.followups.slice(0, 3) : []);
       } else {
         setPapers((prev) => prev.map((p) => ({ ...p, summary: p.abstract ? p.abstract.slice(0, 240) + '...' : 'No abstract available.' })));
         setSynthesis(rawText && rawText.length < 1200 ? rawText : '');
@@ -234,6 +263,9 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   function view() {
     const f = filter.toLowerCase();
     let list = papers.filter((p) => !f || (p.title + ' ' + p.abstract + ' ' + p.summary).toLowerCase().indexOf(f) !== -1);
+    if (minYear) list = list.filter((p) => (p.year || 0) >= parseInt(minYear, 10));
+    if (minCited) list = list.filter((p) => (p.cited || 0) >= parseInt(minCited, 10));
+    if (oaOnly) list = list.filter((p) => p.oa);
     list = list.slice().sort((a, b) => {
       if (sortKey === 'year') return (b.year || 0) - (a.year || 0);
       if (sortKey === 'cited') return (b.cited || 0) - (a.cited || 0);
@@ -282,6 +314,9 @@ export function LiteratureReviewView({ messages, onHome }: any) {
             {onHome ? <button onClick={onHome} className="text-[12.5px] text-muted-foreground hover:text-foreground flex items-center gap-1"><ArrowLeft className="w-3.5 h-3.5" /> Personas</button> : <span />}
             <button onClick={resetSearch} className="text-[12.5px] text-primary font-semibold flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> New search</button>
           </div>
+          {papers.length > 0 ? (
+            <div className="border border-border rounded-xl bg-card p-3 flex items-center gap-2"><Table2 className="w-4 h-4 text-primary shrink-0" /> <span className="font-semibold text-[14px] truncate">{question}</span></div>
+          ) : null}
           {question ? (
             <div className="self-end max-w-[90%] bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 text-[13.5px]">{question}</div>
           ) : null}
@@ -300,6 +335,21 @@ export function LiteratureReviewView({ messages, onHome }: any) {
             <div className="prose prose-sm dark:prose-invert max-w-none text-[14px] leading-relaxed">
               <div className="text-[12px] font-bold text-muted-foreground uppercase tracking-wide mb-1 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" /> Synthesis</div>
               <ReactMarkdown>{synthesis}</ReactMarkdown>
+            </div>
+          ) : null}
+          {papers.length > 0 ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[12.5px] border border-border rounded-lg px-3 py-1.5 flex items-center gap-1.5"><BookOpen className="w-3.5 h-3.5" /> {papers.length} cited sources</span>
+              <button onClick={copyReport} title="Copy" className="w-8 h-8 rounded-lg border border-border flex items-center justify-center hover:bg-muted"><Copy className="w-3.5 h-3.5" /></button>
+              <button onClick={downloadReport} title="Download report" className="w-8 h-8 rounded-lg border border-border flex items-center justify-center hover:bg-muted"><Download className="w-3.5 h-3.5" /></button>
+            </div>
+          ) : null}
+          {followups.length > 0 ? (
+            <div className="border-t border-border pt-3">
+              <div className="text-[12px] font-bold text-muted-foreground mb-1">Follow-ups</div>
+              {followups.map((f, i) => (
+                <button key={i} onClick={() => { setInput(f); lastQRef.current = f; runReview(f); }} className="w-full text-left py-2 border-b border-border last:border-0 text-[13.5px] hover:text-primary transition-colors">{f}</button>
+              ))}
             </div>
           ) : null}
           {!busy && !papers.length ? (
@@ -322,9 +372,21 @@ export function LiteratureReviewView({ messages, onHome }: any) {
               <option value="cited">Most cited</option>
             </select>
           </div>
+          <button onClick={() => setFiltOpen((v) => !v)} disabled={!papers.length} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40"><SlidersHorizontal className="w-3.5 h-3.5" /> Filters</button>
           <button onClick={() => setAddingCol(true)} disabled={!papers.length} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40"><Plus className="w-3.5 h-3.5" /> Add column</button>
           <button onClick={downloadCSV} disabled={!papers.length} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40"><Download className="w-3.5 h-3.5" /> Download</button>
+          <button onClick={saveLibrary} disabled={!papers.length} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40"><Bookmark className="w-3.5 h-3.5" /> {saved ? 'Saved' : 'Save to library'}</button>
         </div>
+
+        {filtOpen ? (
+          <div className="p-3 border-b border-border flex items-center gap-4 flex-wrap bg-muted/30 text-[13px]">
+            <label className="flex items-center gap-1.5">From year <input value={minYear} onChange={(e) => setMinYear(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))} placeholder="2018" className="w-20 bg-background border border-border rounded-md px-2 py-1 outline-none focus:border-primary" /></label>
+            <label className="flex items-center gap-1.5">Min citations <input value={minCited} onChange={(e) => setMinCited(e.target.value.replace(/[^0-9]/g, ''))} placeholder="50" className="w-20 bg-background border border-border rounded-md px-2 py-1 outline-none focus:border-primary" /></label>
+            <label className="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" checked={oaOnly} onChange={(e) => setOaOnly(e.target.checked)} /> Open access only</label>
+            <button onClick={() => { setMinYear(''); setMinCited(''); setOaOnly(false); }} className="text-muted-foreground hover:text-foreground">Reset</button>
+            <button onClick={() => setFiltOpen(false)} className="ml-auto text-primary font-semibold">Done</button>
+          </div>
+        ) : null}
 
         {addingCol ? (
           <div className="p-3 border-b border-border flex items-center gap-2 bg-muted/30">
@@ -364,6 +426,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                       <div className="flex items-center gap-2 mt-1.5">
                         {p.doi ? <a href={p.url} target="_blank" rel="noreferrer" className="text-[11.5px] font-semibold text-blue-500 hover:text-blue-600 flex items-center gap-1"><ExternalLink className="w-3 h-3" /> DOI</a> : null}
                         {p.oa ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-green-500/15 text-green-500">OPEN ACCESS</span> : null}
+                        {p.fullText ? <span className="text-[11px] text-emerald-600 flex items-center gap-1"><FileText className="w-3 h-3" /> Full text available</span> : <span className="text-[11px] text-muted-foreground flex items-center gap-1"><FileText className="w-3 h-3" /> Abstract only</span>}
                       </div>
                     </td>
                     <td className="p-3 text-foreground/90 leading-relaxed">
