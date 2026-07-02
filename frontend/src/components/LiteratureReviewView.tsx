@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles } from 'lucide-react';
+import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles, ArrowRight, ArrowLeft } from 'lucide-react';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -102,7 +102,7 @@ function mkPaper(w: any, i: number): any {
   };
 }
 
-export function LiteratureReviewView({ messages }: any) {
+export function LiteratureReviewView({ messages, onHome }: any) {
   const [question, setQuestion] = useState('');
   const [papers, setPapers] = useState([] as any[]);
   const [busy, setBusy] = useState(false);
@@ -116,6 +116,16 @@ export function LiteratureReviewView({ messages }: any) {
   const [colInput, setColInput] = useState('');
   const [colBusy, setColBusy] = useState(false);
   const lastQRef = useRef('');
+  const [input, setInput] = useState('');
+  function submitStart() {
+    const q = input.trim();
+    if (!q) return;
+    lastQRef.current = q;
+    runReview(q);
+  }
+  function resetSearch() {
+    setQuestion(''); setPapers([]); setSynthesis(''); setColumns([]); setSearchTerms([]); setInput(''); lastQRef.current = '';
+  }
 
   useEffect(() => {
     const arr = [...(messages || [])].reverse();
@@ -234,10 +244,44 @@ export function LiteratureReviewView({ messages }: any) {
 
   const rows = view();
 
+  if (!question && !busy && papers.length === 0) {
+    return (
+      <div className="flex w-full h-full bg-background text-foreground items-start justify-center overflow-y-auto custom-scrollbar">
+        <div className="w-full max-w-3xl mt-[9vh] px-4">
+          {onHome ? (
+            <button onClick={onHome} className="text-[12.5px] text-muted-foreground hover:text-foreground flex items-center gap-1 mb-4"><ArrowLeft className="w-3.5 h-3.5" /> Personas</button>
+          ) : null}
+          <div className="text-center mb-6">
+            <h1 className="text-2xl font-bold">Literature Review</h1>
+            <p className="text-muted-foreground text-sm mt-1">Ask a research question and get a table of real papers with AI summaries and a synthesis.</p>
+          </div>
+          <div className="border border-border rounded-2xl bg-card shadow-sm overflow-hidden">
+            <div className="px-4 pt-4">
+              <span className="inline-flex items-center gap-1.5 bg-primary/10 text-primary text-[13px] font-semibold rounded-lg px-3 py-1.5"><Search className="w-4 h-4" /> Find papers</span>
+            </div>
+            <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitStart(); } }} rows={4} autoFocus placeholder="e.g. Does intermittent fasting improve weight loss in adults?" className="w-full bg-transparent px-4 py-3 text-[15px] outline-none resize-none placeholder:text-muted-foreground" />
+            <div className="flex justify-end px-4 py-3 border-t border-border">
+              <button onClick={submitStart} disabled={!input.trim()} className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40" title="Search"><ArrowRight className="w-4 h-4" /></button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5">
+            {['Does intermittent fasting improve weight loss in adults?', 'Effectiveness of CBT for anxiety disorders', 'Impact of remote work on employee productivity'].map((ex) => (
+              <button key={ex} onClick={() => setInput(ex)} className="text-left border border-border rounded-xl p-3 bg-card hover:border-primary transition-colors text-[13px] text-muted-foreground">{ex}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex w-full h-full bg-background overflow-hidden text-foreground">
       <div className="w-[38%] min-w-[320px] flex flex-col border-r border-border h-full">
         <div className="flex-1 overflow-y-auto p-6 custom-scrollbar flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            {onHome ? <button onClick={onHome} className="text-[12.5px] text-muted-foreground hover:text-foreground flex items-center gap-1"><ArrowLeft className="w-3.5 h-3.5" /> Personas</button> : <span />}
+            <button onClick={resetSearch} className="text-[12.5px] text-primary font-semibold flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> New search</button>
+          </div>
           {question ? (
             <div className="self-end max-w-[90%] bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 text-[13.5px]">{question}</div>
           ) : null}
