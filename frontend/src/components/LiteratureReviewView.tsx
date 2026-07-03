@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles, ArrowRight, ArrowUp, ArrowLeft, FileText, Table2, BookOpen, Copy, SlidersHorizontal, Bookmark, Clock, Library as LibraryIcon, Bell, Upload, FolderPlus, Trash2, PanelLeft, MessageSquare, ChevronDown, Check, ListChecks, Tag } from 'lucide-react';
+import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles, ArrowRight, ArrowUp, ArrowLeft, FileText, Table2, BookOpen, Copy, SlidersHorizontal, Bookmark, Clock, Library as LibraryIcon, Bell, Upload, FolderPlus, Trash2, PanelLeft, MessageSquare, ChevronDown, Check, ListChecks, Tag, Home } from 'lucide-react';
 
 // Literature Review workspace (Elicit-style)
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -153,6 +153,21 @@ function mkTrial(s: any, i: number): any {
   };
 }
 
+const EXTRACT_PRESETS = ['Population / sample', 'Intervention or exposure', 'Main outcome or effect', 'Sample size', 'Study design'];
+
+async function extractAnswers(papersList: any[], cq: string): Promise<string[]> {
+  try {
+    const list = papersList.map((p: any, i: number) => '[' + i + '] ' + p.title + '. ABSTRACT: ' + (p.abstract || 'No abstract').slice(0, 800)).join('\n\n');
+    const shape = '{"answers": ["one short answer per paper in order"]}';
+    const prompt = 'For EACH of the ' + papersList.length + ' papers below, extract this in a short phrase (max ~15 words), or "Not reported" if the abstract does not say. Instruction: "' + cq + '".\n\nReturn ONLY valid JSON in this shape: ' + shape + '\n\nPapers:\n' + list;
+    const raw = await callChat(prompt);
+    const parsed = extractJSON(raw);
+    return parsed && Array.isArray(parsed.answers) ? parsed.answers : [];
+  } catch {
+    return [];
+  }
+}
+
 export function LiteratureReviewView({ messages, onHome }: any) {
   const [question, setQuestion] = useState('');
   const [papers, setPapers] = useState([] as any[]);
@@ -190,6 +205,17 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     }
     setModeMenu((v) => !v);
   }
+  const [dlMenu, setDlMenu] = useState(false);
+  const dlBtnRef = useRef<HTMLButtonElement | null>(null);
+  const [dlPos, setDlPos] = useState({ top: 0, left: 0 });
+  function toggleDlMenu() {
+    if (!papers.length) return;
+    if (!dlMenu && dlBtnRef.current) {
+      const r = dlBtnRef.current.getBoundingClientRect();
+      setDlPos({ top: r.bottom + 6, left: r.left });
+    }
+    setDlMenu((v) => !v);
+  }
 
   // Chat with papers
   const [srcModal, setSrcModal] = useState(false);
@@ -210,6 +236,18 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [reportChat, setReportChat] = useState([] as any[]);
   const [reportChatInput, setReportChatInput] = useState('');
+
+  // Systematic review
+  const [sysStep, setSysStep] = useState(0);
+  const [sysQ, setSysQ] = useState('');
+  const [sysPapers, setSysPapers] = useState([] as any[]);
+  const [sysCols, setSysCols] = useState([] as any[]);
+  const [sysBusy, setSysBusy] = useState(false);
+
+  // Research agent
+  const [agentChat, setAgentChat] = useState([] as any[]);
+  const [agentInput, setAgentInput] = useState('');
+  const [agentBusy, setAgentBusy] = useState(false);
 
   // Left-nav state
   const [navView, setNavView] = useState('search');
@@ -250,6 +288,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setQuestion(''); setPapers([]); setSynthesis(''); setColumns([]); setSearchTerms([]); setInput(''); setFollowups([]); setChatThread([]); setChatInput(''); lastQRef.current = '';
     setChatStarted(false); setPaperChat([]); setChatSources([]); setSrcSel({});
     setReport(null); setReportInput(''); setDetailsOpen(false); setReportChat([]);
+    setSysStep(0); setSysQ(''); setSysPapers([]); setSysCols([]);
+    setAgentChat([]); setAgentInput('');
   }
   function startNew() {
     resetSearch();
@@ -268,8 +308,11 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setModeMenu(false);
     resetSearch();
     if (id === 'chat') setMode('chat');
-    else if (id === 'report' || id === 'agent') setMode('report');
-    else setMode('find'); // find, extract, systematic
+    else if (id === 'report') setMode('report');
+    else if (id === 'agent') setMode('agent');
+    else if (id === 'extract') setMode('extract');
+    else if (id === 'systematic') setMode('systematic');
+    else setMode('find');
   }
   function newCollection() {
     if (typeof window === 'undefined') return;
@@ -443,6 +486,117 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     }
   }
 
+  async function runExtract(q: string) {
+    setMode('extract');
+    setNavView('search');
+    setQuestion(q);
+    pushRecent(q, 'Extract data');
+    setBusy(true);
+    setPhase('Searching academic databases...');
+    setPapers([]); setSynthesis(''); setColumns([]); setSearchTerms([]); setFollowups([]); setChatThread([]);
+    try {
+      const url = 'https://api.openalex.org/works?search=' + encodeURIComponent(q) + '&per_page=15&sort=relevance_score:desc&filter=has_abstract:true&mailto=support@pinnovix.app';
+      const r = await fetch(url);
+      const j = await r.json();
+      const items = (j.results || []).map(mkPaper).filter((p: any) => p.title);
+      setPapers(items);
+      setSearchTerms([q]);
+      if (!items.length) { setBusy(false); setPhase(''); return; }
+      const cols = EXTRACT_PRESETS.map((name, i) => ({ id: 'c' + Date.now() + '_' + i, name: name }));
+      setColumns(cols);
+      let filled = items.map((p: any) => ({ ...p, summary: p.abstract ? p.abstract.slice(0, 180) + '...' : '', cols: { ...p.cols } }));
+      setPapers(filled);
+      for (let k = 0; k < EXTRACT_PRESETS.length; k++) {
+        setPhase('Extracting: ' + EXTRACT_PRESETS[k] + ' (' + (k + 1) + '/' + EXTRACT_PRESETS.length + ')...');
+        const ans = await extractAnswers(items, EXTRACT_PRESETS[k]);
+        filled = filled.map((p: any, i: number) => ({ ...p, cols: { ...p.cols, [cols[k].id]: ans[i] || 'Not reported' } }));
+        setPapers(filled);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setBusy(false);
+      setPhase('');
+    }
+  }
+
+  async function runSysSearch(q: string) {
+    setMode('systematic');
+    setNavView('search');
+    setSysQ(q);
+    pushRecent(q, 'Systematic review');
+    setSysBusy(true);
+    setSysStep(1);
+    setSysPapers([]); setSysCols([]);
+    try {
+      const url = 'https://api.openalex.org/works?search=' + encodeURIComponent(q) + '&per_page=20&sort=relevance_score:desc&filter=has_abstract:true&mailto=support@pinnovix.app';
+      const r = await fetch(url);
+      const j = await r.json();
+      const items = (j.results || []).map(mkPaper).filter((p: any) => p.title).map((p: any) => ({ ...p, included: true }));
+      setSysPapers(items);
+    } catch {
+      // ignore
+    } finally {
+      setSysBusy(false);
+    }
+  }
+  function sysToggle(id: string) {
+    setSysPapers((prev) => prev.map((p) => p.id === id ? { ...p, included: !p.included } : p));
+  }
+  async function runSysExtract() {
+    const inc = sysPapers.filter((p) => p.included);
+    if (!inc.length) return;
+    setSysBusy(true);
+    setSysStep(2);
+    const cols = EXTRACT_PRESETS.map((name, i) => ({ id: 's' + Date.now() + '_' + i, name: name }));
+    setSysCols(cols);
+    let filled = inc.map((p: any) => ({ ...p, cols: { ...p.cols } }));
+    try {
+      for (let k = 0; k < EXTRACT_PRESETS.length; k++) {
+        const ans = await extractAnswers(inc, EXTRACT_PRESETS[k]);
+        filled = filled.map((p: any, i: number) => ({ ...p, cols: { ...p.cols, [cols[k].id]: ans[i] || 'Not reported' } }));
+        setSysPapers((prev) => prev.map((p) => { const f = filled.find((x: any) => x.id === p.id); return f ? { ...f, included: true } : p; }));
+      }
+    } catch {
+      // ignore
+    } finally {
+      setSysBusy(false);
+    }
+  }
+  function downloadSys() {
+    const inc = sysPapers.filter((p) => p.included);
+    const esc = (v: any) => '"' + String(v === undefined || v === null ? '' : v).split('"').join('""') + '"';
+    const head = ['Title', 'Authors', 'Year', 'DOI'].concat(sysCols.map((c) => c.name));
+    const body = inc.map((p) => [p.title, p.authorStr, p.year, p.doi].concat(sysCols.map((c) => p.cols[c.id] || '')));
+    const csv = [head].concat(body).map((row) => row.map(esc).join(',')).join('\n');
+    doDownload(csv, (sysQ || 'systematic-review').slice(0, 40) + '.csv', 'text/csv');
+  }
+
+  async function agentSend(text: string) {
+    const q = (text || '').trim();
+    if (!q || agentBusy) return;
+    setAgentInput('');
+    if (!agentChat.length) pushRecent(q, 'Research agent');
+    setAgentChat((prev) => [...prev, { role: 'user', text: q }, { role: 'assistant', text: '', busy: true, steps: ['Planning research approach...'], sources: [] }]);
+    setAgentBusy(true);
+    let sources: any[] = [];
+    try {
+      setAgentChat((prev) => { const m = [...prev]; m[m.length - 1] = { ...m[m.length - 1], steps: ['Planned research approach', 'Searching academic databases...'] }; return m; });
+      const url = 'https://api.openalex.org/works?search=' + encodeURIComponent(q) + '&per_page=8&sort=relevance_score:desc&filter=has_abstract:true&mailto=support@pinnovix.app';
+      const r = await fetch(url);
+      const j = await r.json();
+      sources = (j.results || []).map(mkPaper).filter((p: any) => p.title);
+      setAgentChat((prev) => { const m = [...prev]; m[m.length - 1] = { ...m[m.length - 1], steps: ['Planned research approach', 'Found ' + sources.length + ' sources', 'Analysing and synthesising...'], sources: sources }; return m; });
+      const list = sources.map((p, i) => '[' + (i + 1) + '] ' + p.title + ' (' + p.authorStr + ', ' + p.year + '). ' + (p.abstract || '').slice(0, 400)).join('\n\n');
+      const ans = await callChat('Answer this research question using ONLY the sources below. Give a structured Markdown answer with inline (Author, Year) citations and a short bottom-line synthesis. Question: "' + q + '"\n\nSources:\n' + list);
+      setAgentChat((prev) => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', busy: false, text: ans || 'No answer generated.', steps: ['Planned research approach', 'Found ' + sources.length + ' sources', 'Synthesised findings'], sources: sources }; return m; });
+    } catch {
+      setAgentChat((prev) => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', busy: false, text: 'Could not complete the research. Please try again.', steps: [], sources: [] }; return m; });
+    } finally {
+      setAgentBusy(false);
+    }
+  }
+
   async function reportChatSend(text: string) {
     const q = (text || '').trim();
     if (!q || !report) return;
@@ -473,13 +627,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     const name = colLabel(cq);
     setColumns((prev) => [...prev, { id: colId, name: name }]);
     try {
-      const list = papers.map((p, i) => '[' + i + '] ' + p.title + '. ABSTRACT: ' + (p.abstract || 'No abstract').slice(0, 800)).join('\n\n');
-      const shape = '{"answers": ["one short answer per paper in order"]}';
-      const prompt = 'For EACH of the ' + papers.length + ' papers below, extract this for the review table in a short phrase (max ~15 words), or "Not reported" if the abstract does not say. Instruction: "' + cq + '".\n\n'
-        + 'Return ONLY valid JSON in this shape: ' + shape + '\n\nPapers:\n' + list;
-      const rawText = await callChat(prompt);
-      const parsed = extractJSON(rawText);
-      const answers = parsed && Array.isArray(parsed.answers) ? parsed.answers : [];
+      const answers = await extractAnswers(papers, cq);
       setPapers((prev) => prev.map((p, i) => ({ ...p, cols: { ...p.cols, [colId]: answers[i] || 'Not reported' } })));
     } catch {
       setPapers((prev) => prev.map((p) => ({ ...p, cols: { ...p.cols, [colId]: 'Not reported' } })));
@@ -530,6 +678,50 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     doDownload(csv, (question || 'literature-review').slice(0, 40) + '.csv', 'text/csv');
   }
 
+  function downloadExcel() {
+    const esc = (v: any) => String(v === undefined || v === null ? '' : v).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');
+    const head = ['Title', 'Authors', 'Year', 'Journal', 'Cited by', 'DOI', 'Summary'].concat(columns.map((c) => c.name));
+    const bodyRows = view().map((p) => {
+      const cells = [p.title, p.authors.join('; '), p.year, p.venue, p.cited, p.doi, p.summary].concat(columns.map((c) => p.cols[c.id] || ''));
+      return '<tr>' + cells.map((c) => '<td>' + esc(c) + '</td>').join('') + '</tr>';
+    }).join('');
+    const html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head><body><table border="1"><tr>' + head.map((h) => '<th>' + esc(h) + '</th>').join('') + '</tr>' + bodyRows + '</table></body></html>';
+    doDownload(html, (question || 'literature-review').slice(0, 40) + '.xls', 'application/vnd.ms-excel');
+  }
+
+  function downloadBib() {
+    const clean = (v: any) => String(v === undefined || v === null ? '' : v).split('{').join('').split('}').join('');
+    const txt = view().map((p, i) => {
+      const last = (p.authors[0] || 'ref').split(' ').filter(Boolean).pop() || 'ref';
+      const key = clean(last).replace(/[^A-Za-z]/g, '') + (p.year || '') + (i + 1);
+      const auth = (p.authors && p.authors.length ? p.authors : ['Unknown']).map(clean).join(' and ');
+      const type = p.kind === 'trial' ? '@misc' : '@article';
+      let e = type + '{' + key + ',\n  title={' + clean(p.title) + '},\n  author={' + auth + '},\n';
+      if (p.venue) e += '  journal={' + clean(p.venue) + '},\n';
+      if (p.year) e += '  year={' + p.year + '},\n';
+      if (p.doi) e += '  doi={' + p.doi + '},\n';
+      if (p.url) e += '  url={' + p.url + '},\n';
+      e += '}';
+      return e;
+    }).join('\n\n');
+    doDownload(txt, (question || 'literature-review').slice(0, 40) + '.bib', 'application/x-bibtex');
+  }
+
+  function downloadRis() {
+    const txt = view().map((p) => {
+      const L = [p.kind === 'trial' ? 'TY  - DATA' : 'TY  - JOUR', 'TI  - ' + p.title];
+      (p.authors && p.authors.length ? p.authors : ['Unknown']).forEach((a: any) => L.push('AU  - ' + a));
+      if (p.venue) L.push('JO  - ' + p.venue);
+      if (p.year) L.push('PY  - ' + p.year);
+      if (p.doi) L.push('DO  - ' + p.doi);
+      if (p.url) L.push('UR  - ' + p.url);
+      if (p.summary) L.push('AB  - ' + p.summary);
+      L.push('ER  - ');
+      return L.join('\n');
+    }).join('\n\n');
+    doDownload(txt, (question || 'literature-review').slice(0, 40) + '.ris', 'application/x-research-info-systems');
+  }
+
   function view() {
     const f = filter.toLowerCase();
     let list = papers.filter((p) => !f || (p.title + ' ' + p.abstract + ' ' + p.summary).toLowerCase().indexOf(f) !== -1);
@@ -546,6 +738,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
 
   const rows = view();
   const navItems = [
+    ...(onHome ? [{ id: 'home', label: 'Home', Icon: Home }] : []),
     { id: 'new', label: 'New', Icon: Plus },
     { id: 'recents', label: 'Recents', Icon: Clock },
     { id: 'library', label: 'Library', Icon: LibraryIcon },
@@ -559,8 +752,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     { id: 'report', label: 'Report', Icon: FileText, group: 'WORKFLOWS' },
     { id: 'systematic', label: 'Systematic review', Icon: ListChecks, group: 'WORKFLOWS' },
   ];
-  const modeLabel = (mode === 'chat' ? 'Chat with papers' : mode === 'report' ? 'Report' : 'Find papers');
-  const modeIcon = mode === 'chat' ? MessageSquare : mode === 'report' ? FileText : Search;
+  const modeLabel = mode === 'chat' ? 'Chat with papers' : mode === 'report' ? 'Report' : mode === 'extract' ? 'Extract data' : mode === 'systematic' ? 'Systematic review' : mode === 'agent' ? 'Research agent' : 'Find papers';
+  const modeIcon = mode === 'chat' ? MessageSquare : mode === 'report' ? FileText : mode === 'extract' ? Table2 : mode === 'systematic' ? ListChecks : mode === 'agent' ? FlaskConical : Search;
   const filteredRecents = recents.filter((r) => !recentSearch || (r.question || '').toLowerCase().indexOf(recentSearch.toLowerCase()) !== -1);
   const shownDocs = libDocs.filter((d) => (activeCol === 'all' || activeCol === 'trash') ? activeCol !== 'trash' : d.collection === activeCol);
 
@@ -568,7 +761,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     <aside className={(navOpen ? 'w-[224px]' : 'w-[56px]') + ' shrink-0 border-r border-border flex flex-col bg-card/40 h-full'}>
       <div className="flex items-center justify-between px-3 h-12 border-b border-border shrink-0">
         {navOpen ? (
-          <div className="flex items-center gap-2 font-bold text-[14px] text-foreground"><FlaskConical className="w-4 h-4 text-primary" /> Literature</div>
+          <div className="flex items-center gap-2 font-bold text-[14px] text-foreground"><FlaskConical className="w-4 h-4 text-primary" /> Pinnovix</div>
         ) : (
           <FlaskConical className="w-4 h-4 text-primary mx-auto" />
         )}
@@ -578,7 +771,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         {navItems.map((it) => {
           const active = navView === it.id;
           return (
-            <button key={it.id} onClick={() => { if (it.id === 'new') startNew(); else setNavView(it.id); }} title={it.label}
+            <button key={it.id} onClick={() => { if (it.id === 'home') { if (onHome) onHome(); } else if (it.id === 'new') startNew(); else setNavView(it.id); }} title={it.label}
               className={(active ? 'bg-muted text-foreground font-semibold ' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground ') + 'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13.5px] transition-colors'}>
               <it.Icon className="w-4 h-4 shrink-0" /> {navOpen ? <span>{it.label}</span> : null}
             </button>
@@ -846,6 +1039,27 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                 <button onClick={() => reportInput.trim() && runReport(reportInput.trim(), reportSource)} disabled={!reportInput.trim()} className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40" title="Generate report"><ArrowRight className="w-4 h-4" /></button>
               </div>
             </div>
+          ) : mode === 'extract' ? (
+            <div>
+              <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (input.trim()) runExtract(input.trim()); } }} rows={4} autoFocus placeholder="Enter a question to extract a data matrix across papers (population, intervention, outcome, sample size, design)..." className="w-full bg-transparent px-4 py-3 text-[15px] outline-none resize-none placeholder:text-muted-foreground" />
+              <div className="flex justify-end px-4 py-3 border-t border-border">
+                <button onClick={() => input.trim() && runExtract(input.trim())} disabled={!input.trim()} className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40" title="Extract"><ArrowRight className="w-4 h-4" /></button>
+              </div>
+            </div>
+          ) : mode === 'systematic' ? (
+            <div>
+              <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (input.trim()) runSysSearch(input.trim()); } }} rows={4} autoFocus placeholder="Enter a research question. I will search, let you screen papers, then extract a matrix..." className="w-full bg-transparent px-4 py-3 text-[15px] outline-none resize-none placeholder:text-muted-foreground" />
+              <div className="flex justify-end px-4 py-3 border-t border-border">
+                <button onClick={() => input.trim() && runSysSearch(input.trim())} disabled={!input.trim()} className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40" title="Search"><ArrowRight className="w-4 h-4" /></button>
+              </div>
+            </div>
+          ) : mode === 'agent' ? (
+            <div>
+              <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (input.trim()) agentSend(input.trim()); } }} rows={4} autoFocus placeholder="Ask the research agent anything. It will plan, search, and synthesise with citations..." className="w-full bg-transparent px-4 py-3 text-[15px] outline-none resize-none placeholder:text-muted-foreground" />
+              <div className="flex justify-end px-4 py-3 border-t border-border">
+                <button onClick={() => input.trim() && agentSend(input.trim())} disabled={!input.trim()} className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40" title="Run agent"><ArrowRight className="w-4 h-4" /></button>
+              </div>
+            </div>
           ) : (
             <div>
               <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitStart(); } }} rows={4} autoFocus placeholder="e.g. Does intermittent fasting improve weight loss in adults?" className="w-full bg-transparent px-4 py-3 text-[15px] outline-none resize-none placeholder:text-muted-foreground" />
@@ -855,13 +1069,36 @@ export function LiteratureReviewView({ messages, onHome }: any) {
             </div>
           )}
         </div>
-        {mode === 'find' ? (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5">
+        <div className="flex flex-wrap gap-2 justify-center mt-5">
+          {[
+            { l: 'Create table', m: 'find', I: Table2 },
+            { l: 'Extract data', m: 'extract', I: Table2 },
+            { l: 'Draft report', m: 'report', I: FileText },
+            { l: 'Systematic review', m: 'systematic', I: ListChecks },
+            { l: 'Research agent', m: 'agent', I: FlaskConical },
+          ].map((a) => (
+            <button key={a.l} onClick={() => { resetSearch(); setMode(a.m); }} className={(mode === a.m ? 'border-primary text-primary ' : 'border-border ') + 'inline-flex items-center gap-1.5 border rounded-full px-3.5 py-1.5 text-[13px] font-semibold hover:bg-muted'}><a.I className="w-3.5 h-3.5" /> {a.l}</button>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
+          <div>
+            <div className="text-[12px] font-bold text-muted-foreground uppercase tracking-wide mb-2">Suggested</div>
             {['Does intermittent fasting improve weight loss in adults?', 'Effectiveness of CBT for anxiety disorders', 'Impact of remote work on employee productivity'].map((ex) => (
-              <button key={ex} onClick={() => setInput(ex)} className="text-left border border-border rounded-xl p-3 bg-card hover:border-primary transition-colors text-[13px] text-muted-foreground">{ex}</button>
+              <button key={ex} onClick={() => runReview(ex)} className="w-full text-left border border-border rounded-xl p-3 bg-card hover:border-primary transition-colors text-[13px] text-muted-foreground mb-2 flex items-center gap-2"><Sparkles className="w-3.5 h-3.5 text-primary shrink-0" /> {ex}</button>
             ))}
           </div>
-        ) : null}
+          <div>
+            <div className="text-[12px] font-bold text-muted-foreground uppercase tracking-wide mb-2">Resume</div>
+            {recents.length === 0 ? (
+              <div className="text-[12.5px] text-muted-foreground italic">No recent work yet.</div>
+            ) : recents.slice(0, 3).map((r) => (
+              <button key={r.id} onClick={() => openRecent(r)} className="w-full text-left border border-border rounded-xl p-3 bg-card hover:border-primary transition-colors mb-2">
+                <div className="text-[13.5px] font-semibold truncate">{r.question}</div>
+                <div className="text-[11.5px] text-muted-foreground mt-1 flex items-center gap-1.5">{r.type === 'Research report' ? <FileText className="w-3 h-3" /> : r.type === 'Research agent' ? <FlaskConical className="w-3 h-3" /> : <Search className="w-3 h-3" />} {r.type} - {fmtTime(r.ts)}</div>
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1119,7 +1356,24 @@ export function LiteratureReviewView({ messages, onHome }: any) {
           </div>
           <button onClick={() => setFiltOpen((v) => !v)} disabled={!papers.length} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40"><SlidersHorizontal className="w-3.5 h-3.5" /> Filters</button>
           <button onClick={() => setAddingCol(true)} disabled={!papers.length} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40"><Plus className="w-3.5 h-3.5" /> Add column</button>
-          <button onClick={downloadCSV} disabled={!papers.length} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40"><Download className="w-3.5 h-3.5" /> Download</button>
+          <div className="relative inline-block">
+            <button ref={dlBtnRef} onClick={toggleDlMenu} disabled={!papers.length} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40"><Download className="w-3.5 h-3.5" /> Download <ChevronDown className="w-3 h-3" /></button>
+            {dlMenu ? (
+              <>
+                <div className="fixed inset-0 z-[80]" onClick={() => setDlMenu(false)} />
+                <div className="fixed z-[81] w-[240px] bg-card border border-border rounded-xl shadow-2xl p-1.5" style={{ top: dlPos.top, left: dlPos.left }}>
+                  {[
+                    { id: 'csv', label: 'CSV', sub: 'Comma-separated', fn: downloadCSV },
+                    { id: 'xls', label: 'Excel', sub: 'XLSX format', fn: downloadExcel },
+                    { id: 'bib', label: 'BIB', sub: 'BibTeX format', fn: downloadBib },
+                    { id: 'ris', label: 'RIS', sub: 'RIS format', fn: downloadRis },
+                  ].map((o) => (
+                    <button key={o.id} onClick={() => { setDlMenu(false); o.fn(); }} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-muted text-left"><FileText className="w-4 h-4 text-primary shrink-0" /><span className="text-[13.5px] font-semibold w-10">{o.label}</span> <span className="text-[12px] text-muted-foreground">{o.sub}</span></button>
+                  ))}
+                </div>
+              </>
+            ) : null}
+          </div>
           <button onClick={saveLibrary} disabled={!papers.length} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40"><Bookmark className="w-3.5 h-3.5" /> {saved ? 'Saved' : 'Save to library'}</button>
         </div>
 
@@ -1192,9 +1446,125 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     </div>
   );
 
+  const sysIncluded = sysPapers.filter((p) => p.included);
+  const systematicView = (
+    <div className="flex flex-col h-full">
+      <div className="px-6 py-3 border-b border-border flex items-center gap-4 shrink-0 flex-wrap">
+        {modeDropdown}
+        <div className="flex items-center gap-2 text-[12.5px]">
+          {['Search', 'Screen', 'Extract'].map((st, i) => {
+            const active = sysStep === i || (i === 1 && sysStep === 1) || (i === 2 && sysStep === 2);
+            const done = sysStep > i;
+            return (
+              <div key={st} className="flex items-center gap-2">
+                <span className={((done || active) ? 'bg-primary text-primary-foreground ' : 'bg-muted text-muted-foreground ') + 'w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold'}>{done ? <Check className="w-3 h-3" /> : (i + 1)}</span>
+                <span className={(active ? 'text-foreground font-semibold ' : 'text-muted-foreground ') + 'text-[12.5px]'}>{st}</span>
+                {i < 2 ? <span className="text-border">-</span> : null}
+              </div>
+            );
+          })}
+        </div>
+        <button onClick={startNew} className="ml-auto text-[12.5px] text-primary font-semibold flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> New</button>
+      </div>
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-6 max-w-4xl w-full mx-auto">
+        <div className="flex items-center justify-between mb-4 gap-3">
+          <div className="min-w-0">
+            <div className="text-[12px] text-muted-foreground uppercase font-bold tracking-wide">Systematic review</div>
+            <div className="text-[17px] font-bold truncate">{sysQ}</div>
+          </div>
+          {sysStep === 1 ? (
+            <button onClick={runSysExtract} disabled={!sysIncluded.length || sysBusy} className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-[13.5px] font-semibold disabled:opacity-40 shrink-0">Extract from {sysIncluded.length} included</button>
+          ) : (
+            <button onClick={downloadSys} className="border border-border rounded-lg px-4 py-2 text-[13.5px] font-semibold flex items-center gap-1.5 shrink-0"><Download className="w-3.5 h-3.5" /> Download</button>
+          )}
+        </div>
+        {sysBusy ? <div className="flex items-center gap-2 text-muted-foreground text-[13px] mb-3"><Loader2 className="w-4 h-4 animate-spin" /> {sysStep === 2 ? 'Extracting data from included papers...' : 'Searching...'}</div> : null}
+        {sysStep === 1 ? (
+          <div>
+            <div className="text-[12.5px] text-muted-foreground mb-3">Screen the {sysPapers.length} results below. Toggle each paper to include or exclude, then extract.</div>
+            {sysPapers.map((p) => (
+              <div key={p.id} className={'border border-border rounded-xl p-4 mb-3 ' + (p.included ? '' : 'opacity-50')}>
+                <div className="flex items-start gap-3">
+                  <button onClick={() => sysToggle(p.id)} className={(p.included ? 'bg-green-500/15 text-green-600 border-green-500/40 ' : 'bg-muted text-muted-foreground border-border ') + 'shrink-0 mt-0.5 border rounded-md px-2.5 py-1 text-[11.5px] font-semibold'}>{p.included ? 'Included' : 'Excluded'}</button>
+                  <div className="min-w-0">
+                    <div className="font-semibold text-[14px] leading-snug">{p.title}</div>
+                    <div className="text-[12px] text-muted-foreground mt-0.5">{p.authorStr} - {[p.venue, p.year].filter(Boolean).join(', ')}</div>
+                    <div className="text-[12.5px] text-foreground/80 mt-1.5">{p.abstract ? p.abstract.slice(0, 240) + '...' : 'No abstract.'}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[13px] border-collapse">
+              <thead><tr className="border-b border-border text-left text-muted-foreground"><th className="p-2 w-[34%]">Source ({sysIncluded.length})</th>{sysCols.map((c) => <th key={c.id} className="p-2 min-w-[140px]">{c.name}</th>)}</tr></thead>
+              <tbody>
+                {sysIncluded.map((p) => (
+                  <tr key={p.id} className="border-b border-border align-top hover:bg-muted/30">
+                    <td className="p-2"><div className="font-semibold leading-snug">{p.title}</div><div className="text-[11.5px] text-muted-foreground mt-0.5">{p.authorStr} ({p.year})</div></td>
+                    {sysCols.map((c) => <td key={c.id} className="p-2 text-foreground/90">{p.cols[c.id] ? p.cols[c.id] : (sysBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" /> : '-')}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const agentView = (
+    <div className="flex flex-col h-full">
+      <div className="px-4 py-3 border-b border-border flex items-center gap-3 shrink-0">
+        {modeDropdown}
+        <span className="text-[12.5px] text-muted-foreground">Research agent</span>
+        <button onClick={startNew} className="ml-auto text-[12.5px] text-primary font-semibold flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> New</button>
+      </div>
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-6 flex flex-col gap-4 max-w-3xl w-full mx-auto">
+        {agentChat.map((m, i) => (
+          m.role === 'user' ? (
+            <div key={i} className="self-end max-w-[85%] bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 text-[13.5px]">{m.text}</div>
+          ) : (
+            <div key={i} className="self-start w-full flex flex-col gap-2">
+              {m.steps && m.steps.length ? (
+                <div className="bg-muted/40 border border-border rounded-xl p-3 text-[12.5px]">
+                  {m.steps.map((st: any, si: number) => (
+                    <div key={si} className="flex items-center gap-2 py-0.5">{(m.busy && si === m.steps.length - 1) ? <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" /> : <Check className="w-3.5 h-3.5 text-green-500" />} {st}</div>
+                  ))}
+                </div>
+              ) : null}
+              {m.text ? (
+                <div className="bg-muted/50 border border-border rounded-2xl px-4 py-2.5 text-[13.5px] prose prose-sm dark:prose-invert max-w-none"><ReactMarkdown>{m.text}</ReactMarkdown></div>
+              ) : null}
+              {m.sources && m.sources.length ? (
+                <div className="flex flex-col gap-1.5">
+                  <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">Sources</div>
+                  {m.sources.map((sr: any, si: number) => (
+                    <a key={si} href={sr.url} target="_blank" rel="noreferrer" className="border border-border rounded-lg px-3 py-2 hover:border-primary transition-colors"><div className="text-[12.5px] font-semibold leading-snug">{sr.title}</div><div className="text-[11.5px] text-muted-foreground truncate">{[sr.authorStr, sr.venue, sr.year].filter(Boolean).join(' - ')}</div></a>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          )
+        ))}
+      </div>
+      <div className="shrink-0 border-t border-border p-3 max-w-3xl w-full mx-auto">
+        <div className="border border-border rounded-2xl bg-card px-3 py-2.5">
+          <textarea value={agentInput} onChange={(e) => setAgentInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); agentSend(agentInput); } }} rows={2} placeholder="Ask a follow-up research question..." className="w-full bg-transparent text-[13.5px] outline-none resize-none placeholder:text-muted-foreground" />
+          <div className="flex items-center justify-end mt-1">
+            <button onClick={() => agentSend(agentInput)} disabled={!agentInput.trim() || agentBusy} className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40"><ArrowUp className="w-4 h-4" /></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   let searchArea: any;
   if (mode === 'chat') searchArea = chatStarted ? chatView : startScreen;
   else if (mode === 'report') searchArea = report ? (detailsOpen ? detailsView : reportView) : startScreen;
+  else if (mode === 'systematic') searchArea = sysPapers.length ? systematicView : startScreen;
+  else if (mode === 'agent') searchArea = agentChat.length ? agentView : startScreen;
   else searchArea = (!question && !busy && papers.length === 0) ? startScreen : resultsView;
 
   const main = navView === 'recents' ? recentsPage
