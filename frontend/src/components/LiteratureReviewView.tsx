@@ -181,6 +181,15 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   // Mode / tool dropdown
   const [mode, setMode] = useState('find'); // find | chat | report
   const [modeMenu, setModeMenu] = useState(false);
+  const modeBtnRef = useRef<HTMLButtonElement | null>(null);
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
+  function toggleModeMenu() {
+    if (!modeMenu && modeBtnRef.current) {
+      const r = modeBtnRef.current.getBoundingClientRect();
+      setMenuPos({ top: r.bottom + 6, left: r.left });
+    }
+    setModeMenu((v) => !v);
+  }
 
   // Chat with papers
   const [srcModal, setSrcModal] = useState(false);
@@ -601,13 +610,13 @@ export function LiteratureReviewView({ messages, onHome }: any) {
 
   const modeDropdown = (
     <div className="relative inline-block">
-      <button onClick={() => setModeMenu((v) => !v)} className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-3.5 py-2 text-[13.5px] font-semibold">
+      <button ref={modeBtnRef} onClick={toggleModeMenu} className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-3.5 py-2 text-[13.5px] font-semibold">
         {(() => { const I = modeIcon; return <I className="w-4 h-4" />; })()} {modeLabel} <ChevronDown className="w-3.5 h-3.5" />
       </button>
       {modeMenu ? (
         <>
-          <div className="fixed inset-0 z-[40]" onClick={() => setModeMenu(false)} />
-          <div className="absolute z-[41] top-[110%] left-0 w-[280px] bg-card border border-border rounded-xl shadow-2xl p-1.5">
+          <div className="fixed inset-0 z-[80]" onClick={() => setModeMenu(false)} />
+          <div className="fixed z-[81] w-[280px] bg-card border border-border rounded-xl shadow-2xl p-1.5" style={{ top: menuPos.top, left: menuPos.left }}>
             <div className="px-3 py-1.5 text-[11px] font-bold text-muted-foreground uppercase tracking-wide">Tools</div>
             {modeList.filter((m) => m.group === 'TOOLS').map((m) => (
               <button key={m.id} onClick={() => selectMode(m.id)} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13.5px] hover:bg-muted text-left"><m.Icon className="w-4 h-4 text-muted-foreground" /> {m.label}</button>
