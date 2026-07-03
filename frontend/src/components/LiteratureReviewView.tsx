@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles, ArrowRight, ArrowLeft, FileText, Table2, BookOpen, Copy, SlidersHorizontal, Bookmark, Clock, Library as LibraryIcon, Bell, Upload, FolderPlus, Trash2, PanelLeft } from 'lucide-react';
+import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles, ArrowRight, ArrowUp, ArrowLeft, FileText, Table2, BookOpen, Copy, SlidersHorizontal, Bookmark, Clock, Library as LibraryIcon, Bell, Upload, FolderPlus, Trash2, PanelLeft, MessageSquare, ChevronDown, Check, ListChecks, Tag } from 'lucide-react';
 
+// Literature Review workspace (Elicit-style)
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 function abstractFromIndex(inv: any): string {
@@ -17,12 +18,12 @@ function abstractFromIndex(inv: any): string {
   }
 }
 
-async function callChat(message: string): Promise<string> {
+async function callChat(message: string, useRag: boolean = false, persona: string = 'LITERATURE REVIEW'): Promise<string> {
   try {
     const res = await fetch(API + '/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: message, agent_type: 'research', use_rag: false, persona: 'LITERATURE REVIEW' }),
+      body: JSON.stringify({ message: message, agent_type: 'research', use_rag: useRag, persona: persona }),
     });
     const reader = res.body ? res.body.getReader() : null;
     const dec = new TextDecoder();
@@ -97,8 +98,11 @@ function mkPaper(w: any, i: number): any {
     : 'Unknown authors';
   const venue = (w.primary_location && w.primary_location.source && w.primary_location.source.display_name) || '';
   const landing = (w.primary_location && w.primary_location.landing_page_url) || '';
+  const oa = !!(w.open_access && w.open_access.is_oa);
+  const pdf = !!(w.open_access && w.open_access.oa_url) || !!(w.primary_location && w.primary_location.pdf_url);
   return {
     id: w.id || String(i),
+    kind: 'paper',
     title: w.title || w.display_name || 'Untitled',
     authors: authors,
     authorStr: authorStr,
@@ -107,12 +111,44 @@ function mkPaper(w: any, i: number): any {
     cited: w.cited_by_count || 0,
     doi: w.doi ? String(w.doi).replace('https://doi.org/', '') : '',
     url: w.doi || landing || w.id,
-    oa: !!(w.open_access && w.open_access.is_oa),
-    fullText: !!(w.open_access && w.open_access.oa_url) || !!(w.primary_location && w.primary_location.pdf_url),
+    oa: oa,
+    fullText: pdf,
+    ftLabel: pdf ? 'Full text' : (oa ? 'PDF link available' : 'Abstract'),
     abstract: abstractFromIndex(w.abstract_inverted_index),
     summary: '',
     cols: {},
     rel: w.relevance_score || 0,
+    idx: i,
+  };
+}
+
+function mkTrial(s: any, i: number): any {
+  const p = s.protocolSection || {};
+  const idm = p.identificationModule || {};
+  const sm = p.statusModule || {};
+  const sponsor = (p.sponsorCollaboratorsModule && p.sponsorCollaboratorsModule.leadSponsor && p.sponsorCollaboratorsModule.leadSponsor.name) || '';
+  const status = sm.overallStatus || '';
+  const start = (sm.startDateStruct && sm.startDateStruct.date) || '';
+  const nct = idm.nctId || ('trial' + i);
+  const yr = (String(start).match(/\d{4}/) || [''])[0];
+  return {
+    id: nct,
+    kind: 'trial',
+    title: idm.briefTitle || idm.officialTitle || 'Untitled trial',
+    authors: sponsor ? [sponsor] : [],
+    authorStr: sponsor || 'Sponsor n/a',
+    year: yr,
+    venue: 'ClinicalTrials.gov' + (status ? ' - ' + status : ''),
+    cited: 0,
+    doi: '',
+    url: 'https://clinicaltrials.gov/study/' + nct,
+    oa: true,
+    fullText: true,
+    ftLabel: 'Full record',
+    abstract: (p.descriptionModule && p.descriptionModule.briefSummary) || '',
+    summary: '',
+    cols: {},
+    rel: 100000 - i,
     idx: i,
   };
 }
@@ -138,6 +174,33 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [minCited, setMinCited] = useState('');
   const [oaOnly, setOaOnly] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [chatThread, setChatThread] = useState([] as any[]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatBusy, setChatBusy] = useState(false);
+
+  // Mode / tool dropdown
+  const [mode, setMode] = useState('find'); // find | chat | report
+  const [modeMenu, setModeMenu] = useState(false);
+
+  // Chat with papers
+  const [srcModal, setSrcModal] = useState(false);
+  const [srcSel, setSrcSel] = useState({} as any);
+  const [chatSources, setChatSources] = useState([] as any[]);
+  const [chatStarted, setChatStarted] = useState(false);
+  const [paperChat, setPaperChat] = useState([] as any[]);
+  const [paperInput, setPaperInput] = useState('');
+  const [paperBusy, setPaperBusy] = useState(false);
+
+  // Report
+  const [reportInput, setReportInput] = useState('');
+  const [reportSource, setReportSource] = useState('Research papers');
+  const [reportSrcMenu, setReportSrcMenu] = useState(false);
+  const [report, setReport] = useState(null as any);
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportPhase, setReportPhase] = useState('');
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [reportChat, setReportChat] = useState([] as any[]);
+  const [reportChatInput, setReportChatInput] = useState('');
 
   // Left-nav state
   const [navView, setNavView] = useState('search');
@@ -148,6 +211,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [activeCol, setActiveCol] = useState('all');
   const [recentSearch, setRecentSearch] = useState('');
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const modalFileRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     try { const r = localStorage.getItem('pinnovix_lit_recents'); if (r) setRecents(JSON.parse(r)); } catch {}
@@ -155,12 +219,12 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     try { const d = localStorage.getItem('pinnovix_library_docs'); if (d) setLibDocs(JSON.parse(d)); } catch {}
   }, []);
 
-  function pushRecent(q: string) {
+  function pushRecent(q: string, type: string) {
     try {
       const raw = localStorage.getItem('pinnovix_lit_recents');
       const arr = raw ? JSON.parse(raw) : [];
-      const filtered = arr.filter((x: any) => x.question !== q);
-      filtered.unshift({ id: Date.now(), question: q, type: 'Find papers', ts: Date.now() });
+      const filtered = arr.filter((x: any) => !(x.question === q && x.type === type));
+      filtered.unshift({ id: Date.now(), question: q, type: type || 'Find papers', ts: Date.now() });
       const next = filtered.slice(0, 30);
       localStorage.setItem('pinnovix_lit_recents', JSON.stringify(next));
       setRecents(next);
@@ -174,16 +238,29 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     runReview(q);
   }
   function resetSearch() {
-    setQuestion(''); setPapers([]); setSynthesis(''); setColumns([]); setSearchTerms([]); setInput(''); setFollowups([]); lastQRef.current = '';
+    setQuestion(''); setPapers([]); setSynthesis(''); setColumns([]); setSearchTerms([]); setInput(''); setFollowups([]); setChatThread([]); setChatInput(''); lastQRef.current = '';
+    setChatStarted(false); setPaperChat([]); setChatSources([]); setSrcSel({});
+    setReport(null); setReportInput(''); setDetailsOpen(false); setReportChat([]);
   }
   function startNew() {
     resetSearch();
+    setMode('find');
     setNavView('search');
   }
-  function openRecent(q: string) {
+  function openRecent(r: any) {
     setNavView('search');
+    const q = typeof r === 'string' ? r : r.question;
+    const ty = typeof r === 'string' ? '' : r.type;
     lastQRef.current = q;
-    runReview(q);
+    if (ty === 'Research report') { setMode('report'); runReport(q, reportSource); }
+    else { setMode('find'); runReview(q); }
+  }
+  function selectMode(id: string) {
+    setModeMenu(false);
+    resetSearch();
+    if (id === 'chat') setMode('chat');
+    else if (id === 'report' || id === 'agent') setMode('report');
+    else setMode('find'); // find, extract, systematic
   }
   function newCollection() {
     if (typeof window === 'undefined') return;
@@ -203,15 +280,42 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     if (e.target) e.target.value = '';
   }
 
+  function toggleSrc(id: string) {
+    setSrcSel((prev: any) => ({ ...prev, [id]: !prev[id] }));
+  }
+  function confirmSources() {
+    const sel = libDocs.filter((d) => srcSel[d.id || docName(d)]);
+    setChatSources(sel);
+    setSrcModal(false);
+    setChatStarted(true);
+    setPaperChat([]);
+  }
+  async function paperChatSend(text: string) {
+    const q = (text || '').trim();
+    if (!q || paperBusy) return;
+    setPaperInput('');
+    if (!paperChat.length) pushRecent(q, 'Chat');
+    setPaperChat((prev) => [...prev, { role: 'user', text: q }, { role: 'assistant', text: '', busy: true }]);
+    setPaperBusy(true);
+    const srcList = chatSources.map((d) => docName(d)).join(', ');
+    const msg = (chatSources.length ? 'Base your answer on these sources from my library: ' + srcList + '.\n\n' : '') + q + '\n\nAnswer clearly in Markdown, with inline (Author, Year) citations where relevant.';
+    const ans = await callChat(msg, true, 'DOCUMENT ANALYST');
+    setPaperChat((prev) => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', text: ans || 'No response. Try selecting sources or rephrasing.' }; return m; });
+    setPaperBusy(false);
+  }
+
   function copyReport() {
     const txt = (question ? question + '\n\n' : '') + (synthesis ? synthesis + '\n\n' : '') + view().map((p, i) => (i + 1) + '. ' + p.title + ' (' + p.authorStr + ', ' + p.year + '). ' + (p.doi ? 'https://doi.org/' + p.doi : '')).join('\n');
     try { navigator.clipboard.writeText(txt); } catch {}
   }
   function downloadReport() {
     const txt = (question ? 'Research question: ' + question + '\n\n' : '') + (synthesis ? 'Synthesis:\n' + synthesis + '\n\n' : '') + 'Papers:\n' + view().map((p, i) => (i + 1) + '. ' + p.title + ' - ' + p.authorStr + ' (' + p.year + '). ' + p.venue + '. ' + (p.doi ? 'https://doi.org/' + p.doi : '') + '\n   Summary: ' + (p.summary || '')).join('\n\n');
-    const blob = new Blob([txt], { type: 'text/plain' });
+    doDownload(txt, (question || 'literature-review').slice(0, 40) + '.txt', 'text/plain');
+  }
+  function doDownload(text: string, name: string, mime: string) {
+    const blob = new Blob([text], { type: mime });
     const href = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = href; a.download = (question || 'literature-review').slice(0, 40) + '.txt';
+    const a = document.createElement('a'); a.href = href; a.download = name;
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(href);
   }
   function saveLibrary() {
@@ -236,9 +340,10 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   }, [messages]);
 
   async function runReview(q: string) {
+    setMode('find');
     setNavView('search');
     setQuestion(q);
-    pushRecent(q);
+    pushRecent(q, 'Find papers');
     setBusy(true);
     setPhase('Searching academic databases...');
     setPapers([]);
@@ -246,6 +351,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setColumns([]);
     setSearchTerms([]);
     setFollowups([]);
+    setChatThread([]);
     try {
       const url = 'https://api.openalex.org/works?search=' + encodeURIComponent(q) + '&per_page=12&sort=relevance_score:desc&filter=has_abstract:true&mailto=support@pinnovix.app';
       const r = await fetch(url);
@@ -261,9 +367,9 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       }
       setPhase('Summarising papers and synthesising findings...');
       const list = items.map((p: any, i: number) => '[' + i + '] ' + p.title + '. ABSTRACT: ' + (p.abstract || 'No abstract').slice(0, 900)).join('\n\n');
-      const jsonShape = '{"summaries": ["one short summary per paper in order"], "synthesis": "3-4 sentence overall synthesis", "followups": ["2-3 short follow-up questions to explore next"]}';
+      const jsonShape = '{"summaries": ["one short summary per paper in order"], "synthesis": "3-4 sentence overall synthesis", "followups": ["2-3 SHORT table-edit suggestions, max 6 words each, phrased as actions e.g. Add sample size, Separate by study design, Add safety outcomes"]}';
       const prompt = 'You are a systematic literature-review assistant. Research question: "' + q + '".\n\n'
-        + 'Below are ' + items.length + ' papers. For EACH paper (in order), write a 1-2 sentence summary of what it found that is RELEVANT to the research question, with specific numbers/outcomes if present. Then write a 3-4 sentence overall synthesis across all papers (agreement, disagreement, bottom line).\n\n'
+        + 'Below are ' + items.length + ' papers. For EACH paper (in order), write a 1-2 sentence summary of what it found that is RELEVANT to the research question, with specific numbers/outcomes if present. Then write a 3-4 sentence overall synthesis across all papers (agreement, disagreement, bottom line). Finally, propose 2-3 SHORT next-step edits to improve THIS table (each max 6 words, phrased as an action like "Add sample size" or "Separate by study design").\n\n'
         + 'Return ONLY valid JSON, no markdown fences, in exactly this shape: ' + jsonShape + '\n\nPapers:\n' + list;
       const rawText = await callChat(prompt);
       const parsed = extractJSON(rawText);
@@ -283,18 +389,84 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     }
   }
 
-  async function addColumn() {
-    const cq = colInput.trim();
-    if (!cq || !papers.length) return;
+  async function runReport(q: string, source: string) {
+    setMode('report');
+    setNavView('search');
+    setDetailsOpen(false);
+    setReportChat([]);
+    pushRecent(q, 'Research report');
+    setReportBusy(true);
+    setReportPhase('Gathering sources...');
+    setReport({ question: q, source: source, title: '', abstract: '', body: '', sources: [], screened: [], done: {} });
+    try {
+      let sources: any[] = [];
+      if (source === 'Clinical trials') {
+        const url = 'https://clinicaltrials.gov/api/v2/studies?query.term=' + encodeURIComponent(q) + '&pageSize=30&format=json';
+        const r = await fetch(url);
+        const j = await r.json();
+        sources = ((j && j.studies) || []).map(mkTrial).filter((x: any) => x.title);
+      } else {
+        const url = 'https://api.openalex.org/works?search=' + encodeURIComponent(q) + '&per_page=30&sort=relevance_score:desc&filter=has_abstract:true&mailto=support@pinnovix.app';
+        const r = await fetch(url);
+        const j = await r.json();
+        sources = ((j && j.results) || []).map(mkPaper).filter((x: any) => x.title);
+      }
+      const screened = sources.slice(0, 10);
+      setReport((prev: any) => ({ ...prev, sources: sources, screened: screened, done: { gather: true, screen: true } }));
+      setReportPhase('Extracting data and writing report...');
+      const srcTxt = screened.map((p, i) => '[' + (i + 1) + '] ' + p.title + ' (' + p.authorStr + ', ' + p.year + '). ' + (p.abstract || 'No abstract').slice(0, 600)).join('\n\n');
+      const shape = '{"title": "short report title, max 8 words", "abstract": "2-3 paragraph abstract summarising the evidence with specific numbers", "body": "the full report in Markdown with ## section headings and inline (Author, Year) citations"}';
+      const prompt = 'Write a structured research report that answers: "' + q + '". Use ONLY the ' + screened.length + ' sources below. Include specific findings, numbers and caveats. Return ONLY valid JSON, no fences, in this shape: ' + shape + '\n\nSources:\n' + srcTxt;
+      const raw = await callChat(prompt);
+      const parsed = extractJSON(raw);
+      setReport((prev: any) => ({
+        ...prev,
+        title: (parsed && parsed.title) || q,
+        abstract: (parsed && parsed.abstract) || (raw && raw.length < 800 ? raw : ''),
+        body: (parsed && parsed.body) || (raw || ''),
+        done: { gather: true, screen: true, extract: true, generate: true },
+      }));
+    } catch {
+      setReport((prev: any) => ({ ...prev, title: q, abstract: 'Could not generate the report. Please try again.', body: '', done: { gather: true, screen: true, extract: true, generate: true } }));
+    } finally {
+      setReportBusy(false);
+      setReportPhase('');
+    }
+  }
+
+  async function reportChatSend(text: string) {
+    const q = (text || '').trim();
+    if (!q || !report) return;
+    setReportChatInput('');
+    setReportChat((prev) => [...prev, { role: 'user', text: q }, { role: 'assistant', text: '', busy: true }]);
+    const ctx = 'Report topic: ' + report.question + '\n\nReport abstract: ' + (report.abstract || '').slice(0, 800);
+    const ans = await callChat(ctx + '\n\nQuestion about the report: ' + q + '\n\nAnswer in Markdown.', false, 'LITERATURE REVIEW');
+    setReportChat((prev) => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', text: ans || 'No response.' }; return m; });
+  }
+  function saveReportDoc() {
+    if (!report) return;
+    const s = report.screened || [];
+    const txt = (report.title || report.question) + '\n\n' + (report.abstract || '') + '\n\n' + (report.body || '') + '\n\nSources:\n' + s.map((p: any, i: number) => (i + 1) + '. ' + p.title + ' (' + p.authorStr + ', ' + p.year + '). ' + (p.url || '')).join('\n');
+    doDownload(txt, (report.title || 'research-report').slice(0, 40) + '.txt', 'text/plain');
+  }
+
+  function colLabel(s: string): string {
+    let x = s.trim().replace(/^(please\s+)?(can you\s+)?(add a column for|add a column|add|separate the table by|separate by|group the table by|group by|break down by|include|show me|show)\s+/i, '');
+    x = x.replace(/\s+column$/i, '').trim();
+    x = x.charAt(0).toUpperCase() + x.slice(1);
+    return (x || s).slice(0, 40);
+  }
+
+  async function runAddColumn(cq: string): Promise<string> {
+    if (!cq || !papers.length) return '';
     setColBusy(true);
     const colId = 'c' + Date.now();
-    setColumns((prev) => [...prev, { id: colId, name: cq }]);
-    setAddingCol(false);
-    setColInput('');
+    const name = colLabel(cq);
+    setColumns((prev) => [...prev, { id: colId, name: name }]);
     try {
       const list = papers.map((p, i) => '[' + i + '] ' + p.title + '. ABSTRACT: ' + (p.abstract || 'No abstract').slice(0, 800)).join('\n\n');
       const shape = '{"answers": ["one short answer per paper in order"]}';
-      const prompt = 'For EACH of the ' + papers.length + ' papers below, answer this in a short phrase (max ~15 words), or "Not reported" if the abstract does not say. Question: "' + cq + '".\n\n'
+      const prompt = 'For EACH of the ' + papers.length + ' papers below, extract this for the review table in a short phrase (max ~15 words), or "Not reported" if the abstract does not say. Instruction: "' + cq + '".\n\n'
         + 'Return ONLY valid JSON in this shape: ' + shape + '\n\nPapers:\n' + list;
       const rawText = await callChat(prompt);
       const parsed = extractJSON(rawText);
@@ -304,6 +476,31 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       setPapers((prev) => prev.map((p) => ({ ...p, cols: { ...p.cols, [colId]: 'Not reported' } })));
     } finally {
       setColBusy(false);
+    }
+    return name;
+  }
+
+  function addColumn() {
+    const cq = colInput.trim();
+    if (!cq) return;
+    setAddingCol(false);
+    setColInput('');
+    runAddColumn(cq);
+  }
+
+  async function refine(cmd: string) {
+    const c = (cmd || '').trim();
+    if (!c || chatBusy || !papers.length) return;
+    setChatInput('');
+    setChatThread((prev) => [...prev, { role: 'user', text: c }, { role: 'assistant', text: '', busy: true }]);
+    setChatBusy(true);
+    try {
+      const name = await runAddColumn(c);
+      setChatThread((prev) => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', text: name ? ('Added a new column **' + name + '** and filled it across all ' + papers.length + ' papers. You can sort or download the updated table on the right.') : 'Updated your analysis.' }; return m; });
+    } catch {
+      setChatThread((prev) => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', text: 'Sorry, I could not update the table. Please try rephrasing.' }; return m; });
+    } finally {
+      setChatBusy(false);
     }
   }
 
@@ -321,15 +518,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     const head = ['Title', 'Authors', 'Year', 'Journal', 'Cited by', 'DOI', 'Summary'].concat(columns.map((c) => c.name));
     const body = view().map((p) => [p.title, p.authors.join('; '), p.year, p.venue, p.cited, p.doi, p.summary].concat(columns.map((c) => p.cols[c.id] || '')));
     const csv = [head].concat(body).map((row) => row.map(esc).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const href = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = href;
-    a.download = (question || 'literature-review').slice(0, 40) + '.csv';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(href);
+    doDownload(csv, (question || 'literature-review').slice(0, 40) + '.csv', 'text/csv');
   }
 
   function view() {
@@ -353,8 +542,18 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     { id: 'library', label: 'Library', Icon: LibraryIcon },
     { id: 'alerts', label: 'Alerts', Icon: Bell },
   ];
+  const modeList = [
+    { id: 'find', label: 'Find papers', Icon: Search, group: 'TOOLS' },
+    { id: 'chat', label: 'Chat with papers', Icon: MessageSquare, group: 'TOOLS' },
+    { id: 'extract', label: 'Extract data', Icon: Table2, group: 'TOOLS' },
+    { id: 'agent', label: 'Research agent', Icon: FlaskConical, group: 'WORKFLOWS' },
+    { id: 'report', label: 'Report', Icon: FileText, group: 'WORKFLOWS' },
+    { id: 'systematic', label: 'Systematic review', Icon: ListChecks, group: 'WORKFLOWS' },
+  ];
+  const modeLabel = (mode === 'chat' ? 'Chat with papers' : mode === 'report' ? 'Report' : 'Find papers');
+  const modeIcon = mode === 'chat' ? MessageSquare : mode === 'report' ? FileText : Search;
   const filteredRecents = recents.filter((r) => !recentSearch || (r.question || '').toLowerCase().indexOf(recentSearch.toLowerCase()) !== -1);
-  const shownDocs = libDocs.filter((d) => activeCol === 'all' || activeCol === 'trash' ? activeCol !== 'trash' : d.collection === activeCol);
+  const shownDocs = libDocs.filter((d) => (activeCol === 'all' || activeCol === 'trash') ? activeCol !== 'trash' : d.collection === activeCol);
 
   const leftNav = (
     <aside className={(navOpen ? 'w-[224px]' : 'w-[56px]') + ' shrink-0 border-r border-border flex flex-col bg-card/40 h-full'}>
@@ -383,8 +582,9 @@ export function LiteratureReviewView({ messages, onHome }: any) {
           {recents.length === 0 ? (
             <div className="px-2 text-[12px] text-muted-foreground italic">No recent searches.</div>
           ) : recents.slice(0, 20).map((r) => (
-            <button key={r.id} onClick={() => openRecent(r.question)} className="w-full text-left flex items-center gap-2 rounded-lg px-2 py-1.5 text-[12.5px] text-foreground/80 hover:bg-muted/60 hover:text-foreground truncate">
-              <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> <span className="truncate">{r.question}</span>
+            <button key={r.id} onClick={() => openRecent(r)} className="w-full text-left flex items-center gap-2 rounded-lg px-2 py-1.5 text-[12.5px] text-foreground/80 hover:bg-muted/60 hover:text-foreground truncate">
+              {r.type === 'Research report' ? <FileText className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> : r.type === 'Chat' ? <MessageSquare className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> : <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
+              <span className="truncate">{r.question}</span>
             </button>
           ))}
         </div>
@@ -399,17 +599,98 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     </aside>
   );
 
+  const modeDropdown = (
+    <div className="relative inline-block">
+      <button onClick={() => setModeMenu((v) => !v)} className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-3.5 py-2 text-[13.5px] font-semibold">
+        {(() => { const I = modeIcon; return <I className="w-4 h-4" />; })()} {modeLabel} <ChevronDown className="w-3.5 h-3.5" />
+      </button>
+      {modeMenu ? (
+        <>
+          <div className="fixed inset-0 z-[40]" onClick={() => setModeMenu(false)} />
+          <div className="absolute z-[41] top-[110%] left-0 w-[280px] bg-card border border-border rounded-xl shadow-2xl p-1.5">
+            <div className="px-3 py-1.5 text-[11px] font-bold text-muted-foreground uppercase tracking-wide">Tools</div>
+            {modeList.filter((m) => m.group === 'TOOLS').map((m) => (
+              <button key={m.id} onClick={() => selectMode(m.id)} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13.5px] hover:bg-muted text-left"><m.Icon className="w-4 h-4 text-muted-foreground" /> {m.label}</button>
+            ))}
+            <div className="px-3 py-1.5 mt-1 text-[11px] font-bold text-muted-foreground uppercase tracking-wide">Workflows</div>
+            {modeList.filter((m) => m.group === 'WORKFLOWS').map((m) => (
+              <button key={m.id} onClick={() => selectMode(m.id)} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13.5px] hover:bg-muted text-left"><m.Icon className="w-4 h-4 text-muted-foreground" /> {m.label}</button>
+            ))}
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+
+  // ---- SOURCE SELECT MODAL (snip 3) ----
+  const sourceModal = srcModal ? (
+    <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-6" onClick={() => setSrcModal(false)}>
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <input ref={modalFileRef} type="file" multiple className="hidden" onChange={onUploadFiles} />
+        <div className="p-5 border-b border-border">
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="text-[16px] font-bold">Upload sources to begin chat</div>
+              <div className="text-[12.5px] text-muted-foreground mt-0.5">{libDocs.length ? 'Select sources to start a new chat.' : 'No sources in your library.'} Papers you upload are stored in your library and are only visible to you.</div>
+            </div>
+            <button onClick={() => setSrcModal(false)} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+          </div>
+          <div className="flex items-center gap-2 mt-4 flex-wrap">
+            <span className="inline-flex items-center gap-2 border border-border rounded-lg px-3 py-1.5 text-[13px]">All papers <span className="text-muted-foreground">{libDocs.length}</span> <ChevronDown className="w-3.5 h-3.5" /></span>
+            <div className="flex-1" />
+            <button onClick={() => modalFileRef.current && modalFileRef.current.click()} className="inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[13px] font-semibold hover:bg-muted"><Plus className="w-3.5 h-3.5" /> Upload</button>
+            <button className="inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[13px] font-semibold hover:bg-muted"><SlidersHorizontal className="w-3.5 h-3.5" /> Filters</button>
+            <button className="inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[13px] font-semibold text-muted-foreground"><FolderPlus className="w-3.5 h-3.5" /> Collections</button>
+            <button className="w-8 h-8 border border-border rounded-lg flex items-center justify-center text-muted-foreground"><Tag className="w-3.5 h-3.5" /></button>
+            <button className="w-8 h-8 border border-border rounded-lg flex items-center justify-center text-muted-foreground"><Trash2 className="w-3.5 h-3.5" /></button>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-2">
+          {libDocs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center text-center py-14">
+              <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center mb-4"><FileText className="w-8 h-8 text-muted-foreground" /></div>
+              <div className="font-semibold text-[15px]">Upload papers to start using your library.</div>
+              <div className="text-[13px] text-muted-foreground mt-1 max-w-sm">Your library is used to store papers and research for analysis and insights.</div>
+              <div className="flex items-center gap-3 mt-5">
+                <button onClick={() => modalFileRef.current && modalFileRef.current.click()} className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-[13.5px] font-semibold"><Upload className="w-4 h-4" /> Upload</button>
+                <button className="border border-border rounded-lg px-4 py-2 text-[13.5px] font-semibold">Connect Zotero</button>
+              </div>
+            </div>
+          ) : (
+            <div className="p-2">
+              {libDocs.map((d) => {
+                const id = d.id || docName(d);
+                return (
+                  <label key={id} className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted cursor-pointer border-b border-border last:border-0">
+                    <input type="checkbox" checked={!!srcSel[id]} onChange={() => toggleSrc(id)} />
+                    <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <span className="flex-1 text-[13.5px] font-medium truncate">{docName(d)}</span>
+                    <span className="text-[12px] text-muted-foreground">{fmtTime(d.ts)}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        <div className="p-4 border-t border-border flex items-center justify-between">
+          <span className="text-[12.5px] text-muted-foreground">{Object.values(srcSel).filter(Boolean).length} selected</span>
+          <button onClick={confirmSources} className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center" title="Begin chat"><ArrowRight className="w-4 h-4" /></button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   // ---- RECENTS PAGE (snip 1) ----
   const recentsPage = (
     <div className="h-full overflow-y-auto custom-scrollbar p-8">
       <h1 className="text-2xl font-bold mb-5">Recents</h1>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-7">
         {[
-          { t: 'New search', d: 'Find papers, extract findings, and chat', Icon: Search },
-          { t: 'New research report', d: 'Ask a question to generate a report', Icon: FileText },
-          { t: 'New systematic review', d: 'Ask, search, screen, and extract', Icon: Table2 },
+          { t: 'New search', d: 'Find papers, extract findings, and chat', Icon: Search, m: 'find' },
+          { t: 'New research report', d: 'Ask a question to generate a report', Icon: FileText, m: 'report' },
+          { t: 'New systematic review', d: 'Ask, search, screen, and extract', Icon: ListChecks, m: 'find' },
         ].map((c) => (
-          <button key={c.t} onClick={startNew} className="text-left border border-border rounded-2xl bg-card hover:border-primary transition-colors p-5 flex items-start justify-between gap-3">
+          <button key={c.t} onClick={() => { startNew(); setMode(c.m); }} className="text-left border border-border rounded-2xl bg-card hover:border-primary transition-colors p-5 flex items-start justify-between gap-3">
             <div>
               <div className="font-semibold text-[14.5px]">{c.t}</div>
               <div className="text-[12.5px] text-muted-foreground mt-0.5">{c.d}</div>
@@ -441,8 +722,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
           {filteredRecents.length === 0 ? (
             <tr><td colSpan={3} className="py-8 text-center text-muted-foreground text-[13px]">No recent items yet. Start a new search.</td></tr>
           ) : filteredRecents.map((r) => (
-            <tr key={r.id} onClick={() => openRecent(r.question)} className="border-t border-border cursor-pointer hover:bg-muted/40">
-              <td className="py-3 pr-4"><div className="flex items-center gap-2.5 font-semibold"><Search className="w-4 h-4 text-muted-foreground" /> {r.question}</div></td>
+            <tr key={r.id} onClick={() => openRecent(r)} className="border-t border-border cursor-pointer hover:bg-muted/40">
+              <td className="py-3 pr-4"><div className="flex items-center gap-2.5 font-semibold">{r.type === 'Research report' ? <FileText className="w-4 h-4 text-muted-foreground" /> : <Search className="w-4 h-4 text-muted-foreground" />} {r.question}</div></td>
               <td className="py-3 text-muted-foreground">{r.type || 'Find papers'}</td>
               <td className="py-3 text-muted-foreground">{fmtTime(r.ts)}</td>
             </tr>
@@ -513,38 +794,236 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     </div>
   );
 
-  // ---- SEARCH START SCREEN ----
+  // ---- START SCREEN (mode aware) ----
   const startScreen = (
     <div className="flex w-full h-full items-start justify-center overflow-y-auto custom-scrollbar">
       <div className="w-full max-w-3xl mt-[9vh] px-4">
-        <div className="text-center mb-6">
+        <div className="text-center mb-5">
           <h1 className="text-2xl font-bold">Literature Review</h1>
-          <p className="text-muted-foreground text-sm mt-1">Ask a research question and get a table of real papers with AI summaries and a synthesis.</p>
+          <p className="text-muted-foreground text-sm mt-1">Pick a tool, ask a question, and get real papers, chats or reports.</p>
         </div>
         <div className="border border-border rounded-2xl bg-card shadow-sm overflow-hidden">
-          <div className="px-4 pt-4">
-            <span className="inline-flex items-center gap-1.5 bg-primary/10 text-primary text-[13px] font-semibold rounded-lg px-3 py-1.5"><Search className="w-4 h-4" /> Find papers</span>
-          </div>
-          <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitStart(); } }} rows={4} autoFocus placeholder="e.g. Does intermittent fasting improve weight loss in adults?" className="w-full bg-transparent px-4 py-3 text-[15px] outline-none resize-none placeholder:text-muted-foreground" />
-          <div className="flex justify-end px-4 py-3 border-t border-border">
-            <button onClick={submitStart} disabled={!input.trim()} className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40" title="Search"><ArrowRight className="w-4 h-4" /></button>
-          </div>
+          <div className="px-4 pt-4 pb-2 bg-primary/5 border-b border-border">{modeDropdown}</div>
+          {mode === 'chat' ? (
+            <div className="p-8 text-center">
+              <div className="text-[14px] text-muted-foreground leading-relaxed">Select sources from your library<br />or upload your own to begin a conversation</div>
+              <button onClick={() => setSrcModal(true)} className="mt-4 inline-flex items-center gap-2 border border-border rounded-lg px-4 py-2 text-[13.5px] font-semibold hover:bg-muted"><LibraryIcon className="w-4 h-4" /> Select sources</button>
+            </div>
+          ) : mode === 'report' ? (
+            <div>
+              <textarea value={reportInput} onChange={(e) => setReportInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (reportInput.trim()) runReport(reportInput.trim(), reportSource); } }} rows={3} autoFocus placeholder="Ask a research question to generate a report..." className="w-full bg-transparent px-4 py-3 text-[15px] outline-none resize-none placeholder:text-muted-foreground" />
+              <div className="px-4 pb-2">
+                <div className="text-[12px] text-muted-foreground mb-1.5">Try a couple of free examples to see what this is all about</div>
+                <div className="flex gap-2 flex-wrap">
+                  {['GLP-1R mechanisms', 'Magnesium effects on sleep', 'Online vs. in-person CBT'].map((ex) => (
+                    <button key={ex} onClick={() => setReportInput(ex)} className="border border-border rounded-lg px-3 py-1.5 text-[12.5px] bg-muted/40 hover:border-primary">{ex}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center justify-between px-4 py-3 border-t border-border">
+                <div className="relative">
+                  <button onClick={() => setReportSrcMenu((v) => !v)} className="inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[13px] font-semibold hover:bg-muted">Source <span className="text-primary">{reportSource}</span> <ChevronDown className="w-3.5 h-3.5" /></button>
+                  {reportSrcMenu ? (
+                    <>
+                      <div className="fixed inset-0 z-[40]" onClick={() => setReportSrcMenu(false)} />
+                      <div className="absolute z-[41] bottom-[110%] left-0 w-[200px] bg-card border border-border rounded-xl shadow-2xl p-1.5">
+                        {['Research papers', 'Clinical trials'].map((s) => (
+                          <button key={s} onClick={() => { setReportSource(s); setReportSrcMenu(false); }} className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-[13.5px] hover:bg-muted text-left">{s} {reportSource === s ? <Check className="w-3.5 h-3.5 text-primary" /> : null}</button>
+                        ))}
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+                <button onClick={() => reportInput.trim() && runReport(reportInput.trim(), reportSource)} disabled={!reportInput.trim()} className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40" title="Generate report"><ArrowRight className="w-4 h-4" /></button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitStart(); } }} rows={4} autoFocus placeholder="e.g. Does intermittent fasting improve weight loss in adults?" className="w-full bg-transparent px-4 py-3 text-[15px] outline-none resize-none placeholder:text-muted-foreground" />
+              <div className="flex justify-end px-4 py-3 border-t border-border">
+                <button onClick={submitStart} disabled={!input.trim()} className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40" title="Search"><ArrowRight className="w-4 h-4" /></button>
+              </div>
+            </div>
+          )}
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5">
-          {['Does intermittent fasting improve weight loss in adults?', 'Effectiveness of CBT for anxiety disorders', 'Impact of remote work on employee productivity'].map((ex) => (
-            <button key={ex} onClick={() => setInput(ex)} className="text-left border border-border rounded-xl p-3 bg-card hover:border-primary transition-colors text-[13px] text-muted-foreground">{ex}</button>
-          ))}
+        {mode === 'find' ? (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5">
+            {['Does intermittent fasting improve weight loss in adults?', 'Effectiveness of CBT for anxiety disorders', 'Impact of remote work on employee productivity'].map((ex) => (
+              <button key={ex} onClick={() => setInput(ex)} className="text-left border border-border rounded-xl p-3 bg-card hover:border-primary transition-colors text-[13px] text-muted-foreground">{ex}</button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  // ---- CHAT WITH PAPERS VIEW ----
+  const chatView = (
+    <div className="flex flex-col h-full">
+      <div className="px-4 py-3 border-b border-border flex items-center gap-3 shrink-0">
+        {modeDropdown}
+        <span className="text-[12.5px] text-muted-foreground">{chatSources.length ? chatSources.length + ' source' + (chatSources.length > 1 ? 's' : '') : 'No sources'}</span>
+        <button onClick={() => setSrcModal(true)} className="text-[12.5px] text-primary font-semibold ml-auto">Manage sources</button>
+      </div>
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-6 flex flex-col gap-3 max-w-3xl w-full mx-auto">
+        {paperChat.length === 0 ? (
+          <div className="text-center text-muted-foreground text-[13.5px] mt-10">Ask a question about your selected sources to begin.</div>
+        ) : paperChat.map((m, i) => (
+          m.role === 'user' ? (
+            <div key={i} className="self-end max-w-[85%] bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 text-[13.5px]">{m.text}</div>
+          ) : (
+            <div key={i} className="self-start max-w-[90%] bg-muted/50 border border-border rounded-2xl px-4 py-2.5 text-[13.5px] prose prose-sm dark:prose-invert max-w-none">
+              {m.busy ? <span className="flex items-center gap-1.5 text-muted-foreground"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Thinking...</span> : <ReactMarkdown>{m.text}</ReactMarkdown>}
+            </div>
+          )
+        ))}
+      </div>
+      <div className="shrink-0 border-t border-border p-3 max-w-3xl w-full mx-auto">
+        <div className="border border-border rounded-2xl bg-card px-3 py-2.5">
+          <textarea value={paperInput} onChange={(e) => setPaperInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); paperChatSend(paperInput); } }} rows={2} placeholder="Ask anything about your sources..." className="w-full bg-transparent text-[13.5px] outline-none resize-none placeholder:text-muted-foreground" />
+          <div className="flex items-center justify-between mt-1">
+            <button onClick={() => setSrcModal(true)} title="Sources" className="text-muted-foreground hover:text-foreground"><LibraryIcon className="w-4 h-4" /></button>
+            <button onClick={() => paperChatSend(paperInput)} disabled={!paperInput.trim() || paperBusy} className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40"><ArrowUp className="w-4 h-4" /></button>
+          </div>
         </div>
       </div>
     </div>
   );
 
-  // ---- SEARCH RESULTS SPLIT VIEW ----
+  // ---- REPORT DETAILS (snip 6) ----
+  const reportSources = (report && report.sources) || [];
+  const reportScreened = (report && report.screened) || [];
+  const detailsView = (
+    <div className="flex h-full overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0">
+        <div className="border-b border-border">
+          <div className="flex items-center gap-1 px-4 pt-3">
+            <button onClick={() => setDetailsOpen(false)} className="text-[13px] px-3 py-2 rounded-t-lg text-muted-foreground hover:bg-muted flex items-center gap-1.5"><BookOpen className="w-3.5 h-3.5" /> All papers ({reportSources.length})</button>
+            <span className="text-[13px] px-3 py-2 rounded-t-lg bg-muted font-semibold flex items-center gap-1.5"><Search className="w-3.5 h-3.5" /> {(report && report.question ? report.question : '').slice(0, 22)}... ({reportScreened.length})</span>
+          </div>
+        </div>
+        <div className="p-4 border-b border-border">
+          <input value={report ? report.question : ''} readOnly className="w-full bg-muted/40 border border-border rounded-lg px-3 py-2 text-[13.5px] outline-none" />
+          <div className="flex items-center gap-2 mt-2">
+            <span className="inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[12.5px]">Source <span className="text-primary font-semibold">{report ? report.source : ''}</span></span>
+            <button className="inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[12.5px]"><SlidersHorizontal className="w-3.5 h-3.5" /> Filters</button>
+            <div className="flex-1" />
+            <button onClick={() => report && runReport(report.question, report.source)} className="bg-primary/90 text-primary-foreground rounded-lg px-3 py-1.5 text-[12.5px] font-semibold">Update search</button>
+            <button onClick={() => setDetailsOpen(false)} className="border border-border rounded-lg px-3 py-1.5 text-[12.5px] text-muted-foreground">Back to report</button>
+          </div>
+        </div>
+        <div className="px-4 py-2 flex items-center justify-between border-b border-border">
+          <span className="text-[13px] font-semibold">Search results ({reportSources.length})</span>
+          <span className="inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[12.5px]"><ArrowUpDown className="w-3.5 h-3.5" /> Sort: Most relevant</span>
+        </div>
+        <div className="flex-1 overflow-y-auto custom-scrollbar">
+          {reportSources.map((p: any) => (
+            <div key={p.id} className="px-5 py-4 border-b border-border hover:bg-muted/30">
+              <div className="font-semibold text-[14px] leading-snug">{p.title}</div>
+              <div className="text-[12.5px] text-muted-foreground mt-1">{p.authorStr}</div>
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap text-[12px] text-muted-foreground">
+                <BookOpen className="w-3.5 h-3.5" /> {[p.venue, p.year, p.cited ? p.cited + ' citations' : ''].filter(Boolean).join(', ')}
+                {p.doi || p.url ? <a href={p.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-500 font-semibold"><ExternalLink className="w-3 h-3" /> {p.kind === 'trial' ? 'Record' : 'DOI'}</a> : null}
+              </div>
+              <div className="text-[12px] text-muted-foreground mt-1 flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" /> Search: {p.ftLabel}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="w-[300px] shrink-0 border-l border-border p-5 hidden lg:block">
+        <div className="flex items-center justify-between mb-3"><span className="text-[15px] font-bold">Papers</span></div>
+        <div className="text-[12px] font-bold text-muted-foreground uppercase mb-1">Research question</div>
+        <div className="text-[13.5px]">{report ? report.question : ''}</div>
+      </div>
+    </div>
+  );
+
+  // ---- REPORT DOC VIEW (snip 5) ----
+  const reportSteps = report ? [
+    { k: 'gather', label: 'Gather sources', sub: reportSources.length + ' sources found', action: 'details' },
+    { k: 'screen', label: 'Screen sources', sub: reportScreened.length + ' sources included', action: 'details' },
+    { k: 'extract', label: 'Extract data', sub: (reportScreened.length * 6) + ' data points extracted', action: 'details' },
+    { k: 'generate', label: 'Generate report', sub: '', action: 'save' },
+  ] : [];
+  const reportView = (
+    <div className="flex h-full overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0">
+        <div className="px-6 py-3 border-b border-border shrink-0">{modeDropdown}</div>
+        <div className="flex-1 overflow-y-auto custom-scrollbar px-10 py-8 max-w-3xl mx-auto w-full">
+          <div className="text-[12.5px] text-muted-foreground">{new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}</div>
+          <h1 className="text-2xl font-bold mt-2 mb-4 text-primary">{report && report.title ? report.title : (report ? report.question : '')}</h1>
+          {report && report.abstract ? <p className="text-[15px] leading-relaxed mb-6">{report.abstract}</p> : null}
+          {reportBusy ? (
+            <div className="flex items-center gap-2 text-muted-foreground text-[13.5px] mt-4"><Loader2 className="w-4 h-4 animate-spin" /> {reportPhase}</div>
+          ) : null}
+          {report && report.body ? (
+            <div className="prose prose-sm dark:prose-invert max-w-none text-[14.5px] leading-relaxed">
+              <ReactMarkdown>{report.body}</ReactMarkdown>
+            </div>
+          ) : null}
+          {reportScreened.length ? (
+            <div className="mt-8 border-t border-border pt-4">
+              <div className="text-[12px] font-bold text-muted-foreground uppercase mb-2">Sources</div>
+              {reportScreened.map((p: any, i: number) => (
+                <div key={p.id} className="text-[12.5px] text-muted-foreground py-1"><span className="text-foreground">[{i + 1}]</span> {p.title} - {p.authorStr} ({p.year}). {p.url ? <a href={p.url} target="_blank" rel="noreferrer" className="text-blue-500">link</a> : null}</div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+      <div className="w-[340px] shrink-0 border-l border-border flex flex-col h-full">
+        <div className="p-5 border-b border-border shrink-0">
+          <div className="text-[15px] font-bold mb-3">Report</div>
+          <div className="text-[12px] font-bold text-muted-foreground uppercase mb-2">Status</div>
+          {reportSteps.map((st) => {
+            const done = report && report.done && report.done[st.k];
+            return (
+              <div key={st.k} className="flex items-center justify-between py-2 border-b border-border last:border-0">
+                <div className="flex items-center gap-2.5">
+                  {done ? <span className="w-5 h-5 rounded-full bg-green-500/15 text-green-500 flex items-center justify-center"><Check className="w-3 h-3" /></span> : (reportBusy ? <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" /> : <span className="w-5 h-5 rounded-full border border-border" />)}
+                  <div>
+                    <div className="text-[13px] font-semibold">{st.label}</div>
+                    {st.sub ? <div className="text-[11.5px] text-muted-foreground">{st.sub}</div> : null}
+                  </div>
+                </div>
+                {done && st.action === 'details' ? (
+                  <button onClick={() => setDetailsOpen(true)} className="text-[12px] text-primary font-semibold inline-flex items-center gap-1">Details <ArrowUpRightIcon /></button>
+                ) : done && st.action === 'save' ? (
+                  <button onClick={saveReportDoc} className="bg-primary text-primary-foreground rounded-lg px-3 py-1.5 text-[12px] font-semibold inline-flex items-center gap-1.5"><Download className="w-3.5 h-3.5" /> Save</button>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-4 flex flex-col gap-2">
+          <div className="text-[12px] font-bold text-muted-foreground uppercase">Chat</div>
+          {reportChat.map((m, i) => (
+            m.role === 'user' ? (
+              <div key={i} className="self-end max-w-[90%] bg-primary text-primary-foreground rounded-2xl px-3.5 py-2 text-[13px]">{m.text}</div>
+            ) : (
+              <div key={i} className="self-start max-w-[92%] bg-muted/50 border border-border rounded-2xl px-3.5 py-2 text-[13px] prose prose-sm dark:prose-invert max-w-none">
+                {m.busy ? <span className="flex items-center gap-1.5 text-muted-foreground"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Thinking...</span> : <ReactMarkdown>{m.text}</ReactMarkdown>}
+              </div>
+            )
+          ))}
+        </div>
+        <div className="shrink-0 border-t border-border p-3">
+          <div className="border border-border rounded-2xl bg-card px-3 py-2 flex items-center gap-2">
+            <input value={reportChatInput} onChange={(e) => setReportChatInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') reportChatSend(reportChatInput); }} placeholder="Ask anything about the results" className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground" />
+            <button onClick={() => reportChatSend(reportChatInput)} disabled={!reportChatInput.trim()} className="w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40"><ArrowUp className="w-3.5 h-3.5" /></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ---- FIND RESULTS SPLIT VIEW ----
   const resultsView = (
     <div className="flex w-full h-full overflow-hidden">
       <div className="w-[38%] min-w-[320px] flex flex-col border-r border-border h-full">
         <div className="flex-1 overflow-y-auto p-6 custom-scrollbar flex flex-col gap-4">
-          <div className="flex items-center justify-end">
+          <div className="flex items-center justify-between">
+            {modeDropdown}
             <button onClick={startNew} className="text-[12.5px] text-primary font-semibold flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> New search</button>
           </div>
           {papers.length > 0 ? (
@@ -578,10 +1057,23 @@ export function LiteratureReviewView({ messages, onHome }: any) {
             </div>
           ) : null}
           {followups.length > 0 ? (
-            <div className="border-t border-border pt-3">
-              <div className="text-[12px] font-bold text-muted-foreground mb-1">Follow-ups</div>
+            <div className="border border-border rounded-xl overflow-hidden">
+              <div className="px-4 py-2.5 bg-muted/40 text-[12px] font-bold text-muted-foreground border-b border-border">Follow-ups</div>
               {followups.map((f, i) => (
-                <button key={i} onClick={() => { setInput(f); lastQRef.current = f; runReview(f); }} className="w-full text-left py-2 border-b border-border last:border-0 text-[13.5px] hover:text-primary transition-colors">{f}</button>
+                <button key={i} onClick={() => refine(f)} disabled={chatBusy} className="w-full text-left px-4 py-3 border-b border-border last:border-0 text-[13.5px] font-semibold hover:bg-muted/40 transition-colors disabled:opacity-50">{f}</button>
+              ))}
+            </div>
+          ) : null}
+          {chatThread.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              {chatThread.map((m, i) => (
+                m.role === 'user' ? (
+                  <div key={i} className="self-end max-w-[90%] bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 text-[13.5px]">{m.text}</div>
+                ) : (
+                  <div key={i} className="self-start max-w-[92%] bg-muted/50 border border-border rounded-2xl px-4 py-2.5 text-[13.5px] prose prose-sm dark:prose-invert max-w-none">
+                    {m.busy ? <span className="flex items-center gap-1.5 text-muted-foreground"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Updating table...</span> : <ReactMarkdown>{m.text}</ReactMarkdown>}
+                  </div>
+                )
               ))}
             </div>
           ) : null}
@@ -589,6 +1081,17 @@ export function LiteratureReviewView({ messages, onHome }: any) {
             <div className="text-muted-foreground text-[13px] mt-6">Ask a research question below and I will build a paper table with summaries.</div>
           ) : null}
         </div>
+        {papers.length > 0 ? (
+          <div className="shrink-0 border-t border-border p-3">
+            <div className="border border-border rounded-2xl bg-card px-3 py-2.5">
+              <textarea value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); refine(chatInput); } }} rows={2} placeholder="Ask about anything you see, update your analysis, or explore a new direction" className="w-full bg-transparent text-[13.5px] outline-none resize-none placeholder:text-muted-foreground" />
+              <div className="flex items-center justify-between mt-1">
+                <button onClick={() => setAddingCol(true)} title="Add column" className="text-muted-foreground hover:text-foreground"><Plus className="w-4 h-4" /></button>
+                <button onClick={() => refine(chatInput)} disabled={!chatInput.trim() || chatBusy} className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40" title="Send"><ArrowUp className="w-4 h-4" /></button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div className="flex-1 bg-card flex flex-col h-full overflow-hidden">
@@ -680,7 +1183,11 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     </div>
   );
 
-  const searchArea = (!question && !busy && papers.length === 0) ? startScreen : resultsView;
+  let searchArea: any;
+  if (mode === 'chat') searchArea = chatStarted ? chatView : startScreen;
+  else if (mode === 'report') searchArea = report ? (detailsOpen ? detailsView : reportView) : startScreen;
+  else searchArea = (!question && !busy && papers.length === 0) ? startScreen : resultsView;
+
   const main = navView === 'recents' ? recentsPage
     : navView === 'library' ? libraryPage
     : navView === 'alerts' ? alertsPage
@@ -690,6 +1197,11 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     <div className="flex w-full h-full bg-background text-foreground overflow-hidden">
       {leftNav}
       <div className="flex-1 min-w-0 h-full overflow-hidden">{main}</div>
+      {sourceModal}
     </div>
   );
+}
+
+function ArrowUpRightIcon() {
+  return <ExternalLink className="w-3 h-3" />;
 }
