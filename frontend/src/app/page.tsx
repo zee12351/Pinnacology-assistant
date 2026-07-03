@@ -473,7 +473,7 @@ export default function HomePage() {
     <div className="flex h-screen w-full bg-background text-foreground font-sans overflow-hidden">
       
       {/* LEFT SIDEBAR */}
-      {isLeftSidebarOpen && (!isChatActive || selectedPersona !== 'ACADEMIC WRITING') && (
+      {isLeftSidebarOpen && (!isChatActive || selectedPersona !== 'ACADEMIC WRITING') && selectedPersona !== 'LITERATURE REVIEW' && (
         <div className="w-[240px] bg-card border-r border-border flex flex-col justify-between shrink-0 hidden md:flex z-10 relative">
           <div className="flex flex-col h-full overflow-hidden w-full">
             <div className="p-4 flex flex-col gap-6">
