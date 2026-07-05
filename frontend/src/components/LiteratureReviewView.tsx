@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles, ArrowRight, ArrowUp, ArrowLeft, FileText, Table2, BookOpen, Copy, SlidersHorizontal, Bookmark, Clock, Library as LibraryIcon, Bell, Upload, FolderPlus, Trash2, PanelLeft, MessageSquare, ChevronDown, Check, ListChecks, Tag, Home } from 'lucide-react';
+import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles, ArrowRight, ArrowUp, ArrowLeft, FileText, Table2, BookOpen, Copy, SlidersHorizontal, Bookmark, Clock, Library as LibraryIcon, Bell, Upload, FolderPlus, Trash2, PanelLeft, MessageSquare, ChevronDown, Check, ListChecks, Tag, Home, Share2 } from 'lucide-react';
 
 // Literature Review workspace (Elicit-style)
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -259,12 +259,41 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [recentSearch, setRecentSearch] = useState('');
   const fileRef = useRef<HTMLInputElement | null>(null);
   const modalFileRef = useRef<HTMLInputElement | null>(null);
+  const [uploadModal, setUploadModal] = useState(false);
+  const [lastUploadIds, setLastUploadIds] = useState([] as string[]);
+  const [uploadCollection, setUploadCollection] = useState('none');
+  const [libSearch, setLibSearch] = useState('');
+  const [libView, setLibView] = useState('list');
+  const [selRows, setSelRows] = useState({} as any);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareEmail, setShareEmail] = useState('');
+  const [shareList, setShareList] = useState([] as any[]);
+  const [shareLink, setShareLink] = useState(false);
+  const [userEmail, setUserEmail] = useState('');
 
   useEffect(() => {
     try { const r = localStorage.getItem('pinnovix_lit_recents'); if (r) setRecents(JSON.parse(r)); } catch {}
     try { const c = localStorage.getItem('pinnovix_lit_collections'); if (c) setCollections(JSON.parse(c)); } catch {}
     try { const d = localStorage.getItem('pinnovix_library_docs'); if (d) setLibDocs(JSON.parse(d)); } catch {}
   }, []);
+
+  useEffect(() => {
+    let em = '';
+    try { em = localStorage.getItem('pinnovix_email') || ''; } catch {}
+    if (em) { setUserEmail(em); fetchShared(em); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function fetchShared(email: string) {
+    try {
+      const r = await fetch(API + '/api/lit/shared?email=' + encodeURIComponent(email));
+      const j = await r.json();
+      const items = (j.shared || []).map((x: any) => ({ id: 'shr_' + x.id, question: (x.session && x.session.question) || 'Shared item', type: 'Shared by ' + (x.from_email || 'someone'), ts: x.ts, shared: true, payload: x.session }));
+      if (items.length) setRecents((prev) => { const ids: any = {}; prev.forEach((p) => { ids[p.id] = 1; }); const add = items.filter((i: any) => !ids[i.id]); return add.concat(prev); });
+    } catch {
+      // ignore
+    }
+  }
 
   function pushRecent(q: string, type: string) {
     try {
@@ -290,6 +319,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setReport(null); setReportInput(''); setDetailsOpen(false); setReportChat([]);
     setSysStep(0); setSysQ(''); setSysPapers([]); setSysCols([]);
     setAgentChat([]); setAgentInput('');
+    setSelRows({}); setShareOpen(false); setShareList([]);
   }
   function startNew() {
     resetSearch();
@@ -298,6 +328,12 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   }
   function openRecent(r: any) {
     setNavView('search');
+    if (r && typeof r === 'object' && r.shared && r.payload) {
+      const pl = r.payload;
+      setMode('find'); lastQRef.current = pl.question || '';
+      setQuestion(pl.question || ''); setPapers(pl.papers || []); setSynthesis(pl.synthesis || ''); setColumns(pl.columns || []); setSearchTerms([pl.question || '']); setFollowups([]); setBusy(false);
+      return;
+    }
     const q = typeof r === 'string' ? r : r.question;
     const ty = typeof r === 'string' ? '' : r.type;
     lastQRef.current = q;
@@ -325,11 +361,23 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   function onUploadFiles(e: any) {
     const files = Array.from((e.target && e.target.files) || []) as any[];
     if (!files.length) return;
-    const add = files.map((f, i) => ({ id: 'd' + Date.now() + '_' + i, name: f.name, size: f.size, ts: Date.now(), collection: activeCol !== 'all' && activeCol !== 'trash' ? activeCol : '' }));
+    const preCol = activeCol !== 'all' && activeCol !== 'trash' ? activeCol : '';
+    const add = files.map((f, i) => ({ id: 'd' + Date.now() + '_' + i, name: f.name, size: f.size, ts: Date.now(), collection: preCol }));
     const next = add.concat(libDocs);
     setLibDocs(next);
     try { localStorage.setItem('pinnovix_library_docs', JSON.stringify(next)); } catch {}
+    setLastUploadIds(add.map((a) => a.id));
+    setUploadCollection(preCol || 'none');
+    setUploadModal(true);
     if (e.target) e.target.value = '';
+  }
+  function moveUploadedToCollection(colId: string) {
+    setUploadCollection(colId);
+    setLibDocs((prev) => {
+      const next = prev.map((d) => lastUploadIds.indexOf(d.id) !== -1 ? { ...d, collection: colId === 'none' ? '' : colId } : d);
+      try { localStorage.setItem('pinnovix_library_docs', JSON.stringify(next)); } catch {}
+      return next;
+    });
   }
 
   function toggleSrc(id: string) {
@@ -371,13 +419,35 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(href);
   }
   function saveLibrary() {
+    const chosen = view().filter((p) => selRows[p.id]);
+    const picks = chosen.length ? chosen : view();
+    if (!picks.length) return;
+    const docs = picks.map((p, i) => ({ id: 'lib_' + Date.now() + '_' + i, name: p.title, kind: 'paper', authorStr: p.authorStr, year: p.year, url: p.url, doi: p.doi, ts: Date.now(), collection: '' }));
+    const next = docs.concat(libDocs);
+    setLibDocs(next);
+    try { localStorage.setItem('pinnovix_library_docs', JSON.stringify(next)); } catch {}
+    setSaved(true); setTimeout(() => setSaved(false), 1500);
+    setSelRows({});
+  }
+  function buildSharePayload() {
+    if (report) return { question: report.question, title: report.title, kind: 'report', synthesis: report.abstract || '', papers: report.screened || [], columns: [] };
+    return { question: question, kind: 'find', papers: view(), synthesis: synthesis, columns: columns };
+  }
+  async function shareAdd() {
+    const to = shareEmail.trim();
+    if (!to) return;
+    let from = userEmail;
+    if (!from) {
+      from = (typeof window !== 'undefined' && window.prompt('Enter your email (to share as):')) || '';
+      if (from) { setUserEmail(from); try { localStorage.setItem('pinnovix_email', from); } catch {} }
+    }
     try {
-      const raw = localStorage.getItem('pinnovix_lit_library');
-      const lib = raw ? JSON.parse(raw) : [];
-      lib.unshift({ id: Date.now(), question: question, papers: view(), synthesis: synthesis, ts: Date.now() });
-      localStorage.setItem('pinnovix_lit_library', JSON.stringify(lib.slice(0, 50)));
-      setSaved(true); setTimeout(() => setSaved(false), 1500);
-    } catch {}
+      await fetch(API + '/api/lit/share', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to_email: to, from_email: from || 'someone', session: buildSharePayload() }) });
+    } catch {
+      // ignore
+    }
+    setShareList((prev) => [...prev, { email: to }]);
+    setShareEmail('');
   }
 
   useEffect(() => {
@@ -755,7 +825,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const modeLabel = mode === 'chat' ? 'Chat with papers' : mode === 'report' ? 'Report' : mode === 'extract' ? 'Extract data' : mode === 'systematic' ? 'Systematic review' : mode === 'agent' ? 'Research agent' : 'Find papers';
   const modeIcon = mode === 'chat' ? MessageSquare : mode === 'report' ? FileText : mode === 'extract' ? Table2 : mode === 'systematic' ? ListChecks : mode === 'agent' ? FlaskConical : Search;
   const filteredRecents = recents.filter((r) => !recentSearch || (r.question || '').toLowerCase().indexOf(recentSearch.toLowerCase()) !== -1);
-  const shownDocs = libDocs.filter((d) => (activeCol === 'all' || activeCol === 'trash') ? activeCol !== 'trash' : d.collection === activeCol);
+  const shownDocs = libDocs.filter((d) => (activeCol === 'all' || activeCol === 'trash') ? activeCol !== 'trash' : d.collection === activeCol).filter((d) => !libSearch || docName(d).toLowerCase().indexOf(libSearch.toLowerCase()) !== -1);
 
   const leftNav = (
     <aside className={(navOpen ? 'w-[224px]' : 'w-[56px]') + ' shrink-0 border-r border-border flex flex-col bg-card/40 h-full'}>
@@ -955,6 +1025,20 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       </div>
       <div className="flex-1 flex flex-col min-w-0">
         <div className="px-6 py-4 border-b border-border text-[14px] text-muted-foreground">Library / <span className="text-foreground font-semibold">{activeCol === 'all' ? 'All' : activeCol === 'trash' ? 'Recently deleted' : (collections.find((c) => c.id === activeCol) || {}).name || 'Collection'}</span></div>
+        <div className="px-6 py-2.5 border-b border-border flex items-center gap-2 flex-wrap">
+          <button className="inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[12.5px] font-semibold hover:bg-muted"><SlidersHorizontal className="w-3.5 h-3.5" /> Filters</button>
+          <div className="flex items-center border border-border rounded-lg overflow-hidden">
+            <button onClick={() => setLibView('list')} className={(libView === 'list' ? 'bg-muted ' : '') + 'px-2 py-1.5'}><ListChecks className="w-3.5 h-3.5" /></button>
+            <button onClick={() => setLibView('grid')} className={(libView === 'grid' ? 'bg-muted ' : '') + 'px-2 py-1.5 border-l border-border'}><Table2 className="w-3.5 h-3.5" /></button>
+          </div>
+          <button onClick={newCollection} className="inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[12.5px] font-semibold hover:bg-muted"><FolderPlus className="w-3.5 h-3.5" /> Collections</button>
+          <button className="w-8 h-8 border border-border rounded-lg flex items-center justify-center text-muted-foreground"><Tag className="w-3.5 h-3.5" /></button>
+          <button className="w-8 h-8 border border-border rounded-lg flex items-center justify-center text-muted-foreground"><Trash2 className="w-3.5 h-3.5" /></button>
+          <div className="relative ml-auto">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input value={libSearch} onChange={(e) => setLibSearch(e.target.value)} placeholder="Search" className="bg-muted/40 border border-border rounded-lg pl-8 pr-2 py-1.5 text-[13px] outline-none focus:border-primary w-[200px]" />
+          </div>
+        </div>
         <div className="flex-1 overflow-y-auto custom-scrollbar">
           {shownDocs.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center px-8">
@@ -1194,7 +1278,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const reportView = (
     <div className="flex h-full overflow-hidden">
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="px-6 py-3 border-b border-border shrink-0">{modeDropdown}</div>
+        <div className="px-6 py-3 border-b border-border shrink-0 flex items-center justify-between">{modeDropdown}<button onClick={() => setShareOpen(true)} className="text-[12.5px] font-semibold flex items-center gap-1 border border-border rounded-lg px-2.5 py-1 hover:bg-muted"><Share2 className="w-3.5 h-3.5" /> Share</button></div>
         <div className="flex-1 overflow-y-auto custom-scrollbar px-10 py-8 max-w-3xl mx-auto w-full">
           <div className="text-[12.5px] text-muted-foreground">{new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}</div>
           <h1 className="text-2xl font-bold mt-2 mb-4 text-primary">{report && report.title ? report.title : (report ? report.question : '')}</h1>
@@ -1270,7 +1354,10 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         <div className="flex-1 overflow-y-auto p-6 custom-scrollbar flex flex-col gap-4">
           <div className="flex items-center justify-between">
             {modeDropdown}
-            <button onClick={startNew} className="text-[12.5px] text-primary font-semibold flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> New search</button>
+            <div className="flex items-center gap-2">
+              {papers.length > 0 ? <button onClick={() => setShareOpen(true)} className="text-[12.5px] font-semibold flex items-center gap-1 border border-border rounded-lg px-2.5 py-1 hover:bg-muted"><Share2 className="w-3.5 h-3.5" /> Share</button> : null}
+              <button onClick={startNew} className="text-[12.5px] text-primary font-semibold flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> New search</button>
+            </div>
           </div>
           {papers.length > 0 ? (
             <div className="border border-border rounded-xl bg-card p-3 flex items-center gap-2"><Table2 className="w-4 h-4 text-primary shrink-0" /> <span className="font-semibold text-[14px] truncate">{question}</span></div>
@@ -1374,7 +1461,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
               </>
             ) : null}
           </div>
-          <button onClick={saveLibrary} disabled={!papers.length} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40"><Bookmark className="w-3.5 h-3.5" /> {saved ? 'Saved' : 'Save to library'}</button>
+          <button onClick={saveLibrary} disabled={!papers.length} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40"><Bookmark className="w-3.5 h-3.5" /> {saved ? 'Saved' : (Object.values(selRows).filter(Boolean).length ? 'Save ' + Object.values(selRows).filter(Boolean).length + ' to library' : 'Save to library')}</button>
         </div>
 
         {filtOpen ? (
@@ -1406,7 +1493,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
             <table className="w-full border-collapse text-[13px]">
               <thead className="sticky top-0 bg-card z-10">
                 <tr className="border-b border-border text-left text-muted-foreground">
-                  <th className="p-3 font-semibold w-[42%]">Source ({rows.length})</th>
+                  <th className="p-3 w-8"><input type="checkbox" checked={rows.length > 0 && rows.every((p) => selRows[p.id])} onChange={(e) => { const v = e.target.checked; setSelRows(() => { const o: any = {}; if (v) rows.forEach((p) => { o[p.id] = true; }); return o; }); }} /></th>
+                  <th className="p-3 font-semibold w-[40%]">Source ({rows.length})</th>
                   <th className="p-3 font-semibold w-[38%]">Summary</th>
                   {columns.map((c) => (
                     <th key={c.id} className="p-3 font-semibold min-w-[160px]">
@@ -1418,6 +1506,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
               <tbody>
                 {rows.map((p) => (
                   <tr key={p.id} className="border-b border-border align-top hover:bg-muted/30">
+                    <td className="p-3"><input type="checkbox" checked={!!selRows[p.id]} onChange={() => setSelRows((prev: any) => ({ ...prev, [p.id]: !prev[p.id] }))} /></td>
                     <td className="p-3">
                       <div className="font-semibold text-foreground leading-snug mb-1">{p.title}</div>
                       <div className="text-[12px] text-muted-foreground">{p.authorStr}</div>
@@ -1572,11 +1661,79 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     : navView === 'alerts' ? alertsPage
     : searchArea;
 
+  const shareTitle = report ? (report.title || report.question) : (question || 'this session');
+  const uploadModalEl = uploadModal ? (
+    <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-6" onClick={() => setUploadModal(false)}>
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="text-[17px] font-bold">Upload details</div>
+            <div className="text-[13px] text-muted-foreground mt-0.5">Please review the uploaded and processed papers</div>
+          </div>
+          <button onClick={() => setUploadModal(false)} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="flex items-center gap-3 mt-5">
+          <span className="text-[13px] font-semibold shrink-0">Add to collection <span className="text-muted-foreground font-normal">(optional)</span></span>
+          <select value={uploadCollection} onChange={(e) => moveUploadedToCollection(e.target.value)} className="flex-1 bg-muted/40 border border-border rounded-lg px-3 py-2 text-[13.5px] outline-none focus:border-primary">
+            <option value="none">None</option>
+            {collections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div className="mt-5 bg-muted/40 border border-border rounded-xl p-4">
+          <div className="flex items-center gap-2 text-[14px] font-bold"><span className="w-5 h-5 rounded-full bg-green-500/15 text-green-500 flex items-center justify-center"><Check className="w-3 h-3" /></span> Successfully uploaded</div>
+          <div className="text-[12.5px] text-muted-foreground mt-0.5 ml-7">{lastUploadIds.length} paper{lastUploadIds.length > 1 ? 's' : ''} successfully uploaded.</div>
+          <div className="mt-3 ml-7 flex flex-col gap-1">
+            {libDocs.filter((d) => lastUploadIds.indexOf(d.id) !== -1).map((d) => (<div key={d.id} className="text-[13px]">{docName(d)}</div>))}
+          </div>
+        </div>
+        <div className="flex justify-end mt-5">
+          <button onClick={() => setUploadModal(false)} className="border border-border rounded-lg px-4 py-2 text-[13.5px] font-semibold hover:bg-muted">Close</button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+  const shareModalEl = shareOpen ? (
+    <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-6" onClick={() => setShareOpen(false)}>
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between">
+          <div className="text-[17px] font-bold truncate pr-4">Share &ldquo;{shareTitle}&rdquo;</div>
+          <button onClick={() => setShareOpen(false)} className="text-muted-foreground hover:text-foreground shrink-0"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="text-[13px] text-muted-foreground mt-1">Invite users to view this session</div>
+        <div className="flex items-center gap-2 mt-4">
+          <input value={shareEmail} onChange={(e) => setShareEmail(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') shareAdd(); }} placeholder="Enter an email address" className="flex-1 bg-muted/40 border border-border rounded-lg px-3 py-2 text-[13.5px] outline-none focus:border-primary" />
+          <button onClick={shareAdd} disabled={!shareEmail.trim()} className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-[13.5px] font-semibold disabled:opacity-40">Add</button>
+        </div>
+        <div className="text-[12px] font-bold text-muted-foreground uppercase tracking-wide mt-5 mb-2">Who has access</div>
+        <div className="flex items-center justify-between py-1.5">
+          <div className="text-[13.5px] font-semibold">{userEmail || 'You'} <span className="text-muted-foreground font-normal">(You)</span></div>
+          <span className="text-[12.5px] text-muted-foreground">Owner</span>
+        </div>
+        {shareList.map((sh, i) => (
+          <div key={i} className="flex items-center justify-between py-1.5">
+            <div className="text-[13.5px]">{sh.email}</div>
+            <span className="text-[12.5px] text-green-600">Invited</span>
+          </div>
+        ))}
+        <div className="flex items-center justify-between py-2 border-t border-border mt-2">
+          <div className="flex items-center gap-2 text-[13.5px]"><Copy className="w-4 h-4 text-muted-foreground" /> Anyone with the link can view</div>
+          <button onClick={() => setShareLink((v) => !v)} className={(shareLink ? 'bg-primary ' : 'bg-muted ') + 'w-10 h-5 rounded-full relative transition-colors shrink-0'}><span className={'absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ' + (shareLink ? 'left-[22px]' : 'left-0.5')} /></button>
+        </div>
+        <div className="flex items-center justify-end gap-2 mt-4">
+          <button onClick={() => { try { navigator.clipboard.writeText(typeof window !== 'undefined' ? window.location.href : ''); } catch {} }} className="border border-border rounded-lg px-4 py-2 text-[13.5px] font-semibold flex items-center gap-1.5"><Copy className="w-3.5 h-3.5" /> Copy link</button>
+          <button onClick={() => setShareOpen(false)} className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-[13.5px] font-semibold">Done</button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div className="flex w-full h-full bg-background text-foreground overflow-hidden">
       {leftNav}
       <div className="flex-1 min-w-0 h-full overflow-hidden">{main}</div>
       {sourceModal}
+      {uploadModalEl}
+      {shareModalEl}
     </div>
   );
 }

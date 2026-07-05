@@ -688,3 +688,56 @@ async def continue_paper(request: ContinuePaperRequest):
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+# ---------------- Literature Review sharing ----------------
+import time
+
+_SHARE_DIR = os.getenv("DATA_DIR", "./data")
+_SHARE_FILE = os.path.join(_SHARE_DIR, "lit_shares.json")
+_lit_shares = {}
+
+def _load_lit_shares():
+    global _lit_shares
+    try:
+        with open(_SHARE_FILE, "r") as f:
+            _lit_shares = json.load(f)
+    except Exception:
+        _lit_shares = {}
+
+def _save_lit_shares():
+    try:
+        os.makedirs(_SHARE_DIR, exist_ok=True)
+        with open(_SHARE_FILE, "w") as f:
+            json.dump(_lit_shares, f)
+    except Exception:
+        pass
+
+_load_lit_shares()
+
+class LitShareRequest(BaseModel):
+    to_email: str
+    from_email: str = "someone"
+    session: dict = {}
+
+@router.post("/lit/share")
+async def lit_share(req: LitShareRequest):
+    key = (req.to_email or "").strip().lower()
+    if not key:
+        raise HTTPException(status_code=400, detail="to_email required")
+    entry = {
+        "id": str(int(time.time() * 1000)),
+        "from_email": req.from_email or "someone",
+        "session": req.session or {},
+        "ts": int(time.time() * 1000),
+    }
+    _lit_shares.setdefault(key, [])
+    _lit_shares[key].insert(0, entry)
+    _lit_shares[key] = _lit_shares[key][:50]
+    _save_lit_shares()
+    return {"ok": True}
+
+@router.get("/lit/shared")
+async def lit_shared(email: str = ""):
+    key = (email or "").strip().lower()
+    return {"shared": _lit_shares.get(key, [])}
