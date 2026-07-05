@@ -658,7 +658,7 @@ async def continue_paper(request: ContinuePaperRequest):
                 instruction = (
                     f"Begin a research paper on: \"{topic}\".\n"
                     "Write ONLY: the title as a Markdown '# ' heading, then a '## Introduction' heading, then "
-                    "ONE short opening chunk of about 3-4 lines (roughly 40-55 words). Do not write any other section yet.\n"
+                    "ONE complete opening claim - one or two full sentences (about 35-60 words) that make a single point which one citation would support. Always finish the sentence; never stop mid-sentence. Do not write any other section yet.\n"
                     "Do NOT include any in-text citations, bracketed numbers, or a References section - "
                     "citations are added separately. Output only the content, no commentary."
                 )
@@ -666,10 +666,10 @@ async def continue_paper(request: ContinuePaperRequest):
                 instruction = (
                     f"You are continuing a research paper on: \"{topic}\".\n\n"
                     f"=== PAPER SO FAR ===\n{existing[-3500:]}\n=== END ===\n\n"
-                    "Write ONLY a short chunk of about 3-4 lines (roughly 40-55 words) - never more than that.\n"
-                    "- If the most recent section currently has fewer than 3 paragraphs, continue THAT section "
-                    "with one more paragraph that advances the discussion (no heading, do not repeat anything).\n"
-                    "- If the most recent section already has about 3 paragraphs, start the next section: output "
+                    "Write ONLY ONE complete claim - one or two full sentences (about 35-60 words) that make a single point which ONE citation would support. Always finish the sentence; never stop mid-sentence.\n"
+                    "- If the most recent section currently has fewer than 5 sentences, continue THAT section "
+                    "with one more such claim that advances the discussion (no heading, do not repeat anything).\n"
+                    "- If the most recent section already has about 5-6 sentences, start the next section: output "
                     "its '## ' heading (usual order: Literature Review, Methodology, Results, Discussion, "
                     "Conclusion) followed by ONE opening paragraph.\n"
                     "Do NOT add a References section and do NOT include any in-text citations or bracketed "
