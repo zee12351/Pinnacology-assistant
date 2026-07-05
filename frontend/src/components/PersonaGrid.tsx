@@ -1,16 +1,10 @@
 import React from 'react';
-import { BookOpen, FileText, Stethoscope, FileSignature, ShieldCheck, Beaker, GraduationCap, Microscope, BadgeHelp } from 'lucide-react';
+import { BookOpen, FileText, Stethoscope } from 'lucide-react';
 
 const personas = [
   { id: 'ACADEMIC WRITING', name: 'Academic Writing', icon: FileText, desc: 'Write, cite, and peer-review research papers with a dedicated workspace.', color: 'text-blue-500', bg: 'bg-blue-500/10' },
   { id: 'LITERATURE REVIEW', name: 'Literature Review', icon: BookOpen, desc: 'Discover and synthesize papers in a structured data table view.', color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
   { id: 'MEDICAL WRITING', name: 'Medical Writing', icon: Stethoscope, desc: 'Draft clinical documents with strict medical terminology compliance.', color: 'text-purple-500', bg: 'bg-purple-500/10' },
-  { id: 'CLINICAL WRITING', name: 'Clinical Writing', icon: FileSignature, desc: 'Generate clinical trial protocols and investigator brochures.', color: 'text-orange-500', bg: 'bg-orange-500/10' },
-  { id: 'REGULATORY WRITING', name: 'Regulatory Writing', icon: ShieldCheck, desc: 'Prepare submissions and regulatory documents for health authorities.', color: 'text-red-500', bg: 'bg-red-500/10' },
-  { id: 'PHARMACEUTICAL WRITING', name: 'Pharma Writing', icon: Beaker, desc: 'Create drug safety reports and pharmaceutical marketing copy.', color: 'text-teal-500', bg: 'bg-teal-500/10' },
-  { id: 'RESEARCH & PUBLICATION SUPPORT', name: 'Publication Support', icon: GraduationCap, desc: 'Format manuscripts and handle journal submission requirements.', color: 'text-indigo-500', bg: 'bg-indigo-500/10' },
-  { id: 'GRANT & FUNDING WRITING', name: 'Grant Writing', icon: BadgeHelp, desc: 'Craft persuasive grant proposals to secure research funding.', color: 'text-pink-500', bg: 'bg-pink-500/10' },
-  { id: 'SPECIALIZED BIOMEDICAL WRITING', name: 'Biomedical Writing', icon: Microscope, desc: 'Translate complex biological data into accessible scientific text.', color: 'text-cyan-500', bg: 'bg-cyan-500/10' },
 ];
 
 export function PersonaGrid({ selectedPersona, onSelectPersona, onActivate }: any) {
