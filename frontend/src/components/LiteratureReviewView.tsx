@@ -117,6 +117,7 @@ function mkPaper(w: any, i: number): any {
     abstract: abstractFromIndex(w.abstract_inverted_index),
     summary: '',
     cols: {},
+    colQuotes: {},
     rel: w.relevance_score || 0,
     idx: i,
   };
@@ -148,23 +149,25 @@ function mkTrial(s: any, i: number): any {
     abstract: (p.descriptionModule && p.descriptionModule.briefSummary) || '',
     summary: '',
     cols: {},
+    colQuotes: {},
     rel: 100000 - i,
     idx: i,
   };
 }
 
 const EXTRACT_PRESETS = ['Population / sample', 'Intervention or exposure', 'Main outcome or effect', 'Sample size', 'Study design'];
+const COLUMN_SUGGESTIONS = ['Intervention', 'Outcome measured', 'Intervention effects', 'Study design', 'Duration', 'Length of follow-up', 'Dose', 'Participant count', 'Participant age', 'Population sex', 'Population health conditions', 'Sample size', 'Population', 'Region', 'Main findings', 'Limitations', 'Funding source'];
 
-async function extractAnswers(papersList: any[], cq: string): Promise<string[]> {
+async function extractAnswers(papersList: any[], cq: string): Promise<{ answers: string[]; quotes: string[] }> {
   try {
     const list = papersList.map((p: any, i: number) => '[' + i + '] ' + p.title + '. ABSTRACT: ' + (p.abstract || 'No abstract').slice(0, 800)).join('\n\n');
-    const shape = '{"answers": ["one short answer per paper in order"]}';
-    const prompt = 'For EACH of the ' + papersList.length + ' papers below, extract this in a short phrase (max ~15 words), or "Not reported" if the abstract does not say. Instruction: "' + cq + '".\n\nReturn ONLY valid JSON in this shape: ' + shape + '\n\nPapers:\n' + list;
+    const shape = '{"answers": ["one short answer per paper in order"], "quotes": ["one exact supporting sentence copied from that paper abstract, or empty string"]}';
+    const prompt = 'For EACH of the ' + papersList.length + ' papers below, extract this in a short phrase (max ~15 words), or "Not reported" if the abstract does not say. Also copy the exact supporting sentence from the abstract as the quote (empty string if none). Instruction: "' + cq + '".\n\nReturn ONLY valid JSON in this shape: ' + shape + '\n\nPapers:\n' + list;
     const raw = await callChat(prompt);
     const parsed = extractJSON(raw);
-    return parsed && Array.isArray(parsed.answers) ? parsed.answers : [];
+    return { answers: parsed && Array.isArray(parsed.answers) ? parsed.answers : [], quotes: parsed && Array.isArray(parsed.quotes) ? parsed.quotes : [] };
   } catch {
-    return [];
+    return { answers: [], quotes: [] };
   }
 }
 
@@ -256,6 +259,47 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [collections, setCollections] = useState([] as any[]);
   const [libDocs, setLibDocs] = useState([] as any[]);
   const [activeCol, setActiveCol] = useState('all');
+  const [libSel, setLibSel] = useState({} as any);
+  const [colModal, setColModal] = useState(false);
+  const [colName, setColName] = useState('');
+  const [cellPop, setCellPop] = useState(null as any);
+  function openCellPop(e: any, p: any, c: any) {
+    try {
+      const r = e.currentTarget.getBoundingClientRect();
+      const vw = typeof window !== 'undefined' ? window.innerWidth : 1200;
+      const q = (p.colQuotes && p.colQuotes[c.id]) || '';
+      setCellPop({ x: Math.max(8, Math.min(r.left, vw - 380)), y: r.bottom + 6, title: p.title, url: p.url, quote: q, quote2: p.abstract || '', answer: p.cols[c.id], col: c.name });
+    } catch {}
+  }
+  async function runExtractFromSelection() {
+    const sel = libDocs.filter((d) => libSel[d.id || docName(d)]);
+    setMode('extract');
+    setNavView('search');
+    setColumns([]); setSynthesis(''); setFollowups([]); setChatThread([]);
+    if (!sel.length) { setQuestion(''); setPapers([]); return; }
+    setQuestion('Selected library papers');
+    setSearchTerms(['Selected library papers']);
+    setBusy(true);
+    setPhase('Loading selected papers...');
+    setPapers([]);
+    const built: any[] = [];
+    for (let i = 0; i < sel.length; i++) {
+      const d = sel[i];
+      let paper: any = null;
+      try {
+        const qq = d.name || docName(d);
+        const url = 'https://api.openalex.org/works?search=' + encodeURIComponent(qq) + '&per_page=1&filter=has_abstract:true&mailto=support@pinnovix.app';
+        const r = await fetch(url);
+        const j = await r.json();
+        if (j.results && j.results[0]) paper = mkPaper(j.results[0], i);
+      } catch {}
+      if (!paper) paper = { id: d.id || ('p' + i), kind: 'paper', title: docName(d), authors: d.authorStr ? [d.authorStr] : [], authorStr: d.authorStr || 'Unknown authors', year: d.year || '', venue: '', cited: 0, doi: d.doi || '', url: d.url || (d.doi ? 'https://doi.org/' + d.doi : ''), oa: false, fullText: false, ftLabel: '', abstract: '', summary: '', cols: {}, colQuotes: {}, rel: 1000 - i, idx: i };
+      built.push(paper);
+      setPapers(built.slice());
+    }
+    setBusy(false);
+    setPhase('');
+  }
   const [recentSearch, setRecentSearch] = useState('');
   const fileRef = useRef<HTMLInputElement | null>(null);
   const modalFileRef = useRef<HTMLInputElement | null>(null);
@@ -351,12 +395,16 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     else setMode('find');
   }
   function newCollection() {
-    if (typeof window === 'undefined') return;
-    const name = window.prompt('New collection name');
-    if (!name || !name.trim()) return;
-    const next = [{ id: 'col' + Date.now(), name: name.trim() }].concat(collections);
+    setColName('');
+    setColModal(true);
+  }
+  function createCollectionConfirm() {
+    const name = colName.trim();
+    if (!name) return;
+    const next = [{ id: 'col' + Date.now(), name: name }].concat(collections);
     setCollections(next);
     try { localStorage.setItem('pinnovix_lit_collections', JSON.stringify(next)); } catch {}
+    setColModal(false); setColName('');
   }
   function onUploadFiles(e: any) {
     const files = Array.from((e.target && e.target.files) || []) as any[];
@@ -578,8 +626,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       setPapers(filled);
       for (let k = 0; k < EXTRACT_PRESETS.length; k++) {
         setPhase('Extracting: ' + EXTRACT_PRESETS[k] + ' (' + (k + 1) + '/' + EXTRACT_PRESETS.length + ')...');
-        const ans = await extractAnswers(items, EXTRACT_PRESETS[k]);
-        filled = filled.map((p: any, i: number) => ({ ...p, cols: { ...p.cols, [cols[k].id]: ans[i] || 'Not reported' } }));
+        const res = await extractAnswers(items, EXTRACT_PRESETS[k]);
+        filled = filled.map((p: any, i: number) => ({ ...p, cols: { ...p.cols, [cols[k].id]: res.answers[i] || 'Not reported' }, colQuotes: { ...(p.colQuotes || {}), [cols[k].id]: res.quotes[i] || '' } }));
         setPapers(filled);
       }
     } catch {
@@ -623,8 +671,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     let filled = inc.map((p: any) => ({ ...p, cols: { ...p.cols } }));
     try {
       for (let k = 0; k < EXTRACT_PRESETS.length; k++) {
-        const ans = await extractAnswers(inc, EXTRACT_PRESETS[k]);
-        filled = filled.map((p: any, i: number) => ({ ...p, cols: { ...p.cols, [cols[k].id]: ans[i] || 'Not reported' } }));
+        const res = await extractAnswers(inc, EXTRACT_PRESETS[k]);
+        filled = filled.map((p: any, i: number) => ({ ...p, cols: { ...p.cols, [cols[k].id]: res.answers[i] || 'Not reported' }, colQuotes: { ...(p.colQuotes || {}), [cols[k].id]: res.quotes[i] || '' } }));
         setSysPapers((prev) => prev.map((p) => { const f = filled.find((x: any) => x.id === p.id); return f ? { ...f, included: true } : p; }));
       }
     } catch {
@@ -697,8 +745,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     const name = colLabel(cq);
     setColumns((prev) => [...prev, { id: colId, name: name }]);
     try {
-      const answers = await extractAnswers(papers, cq);
-      setPapers((prev) => prev.map((p, i) => ({ ...p, cols: { ...p.cols, [colId]: answers[i] || 'Not reported' } })));
+      const res = await extractAnswers(papers, cq);
+      setPapers((prev) => prev.map((p, i) => ({ ...p, cols: { ...p.cols, [colId]: res.answers[i] || 'Not reported' }, colQuotes: { ...(p.colQuotes || {}), [colId]: res.quotes[i] || '' } })));
     } catch {
       setPapers((prev) => prev.map((p) => ({ ...p, cols: { ...p.cols, [colId]: 'Not reported' } })));
     } finally {
@@ -1049,14 +1097,26 @@ export function LiteratureReviewView({ messages, onHome }: any) {
             </div>
           ) : (
             <table className="w-full text-[13.5px]">
-              <thead><tr className="text-left text-muted-foreground text-[12px]"><th className="px-6 py-3 font-semibold">Name</th><th className="px-6 py-3 font-semibold w-[180px]">Added</th></tr></thead>
+              <thead>
+                <tr className="text-left text-muted-foreground text-[12px] border-b border-border">
+                  <th className="px-4 py-3 w-10"><input type="checkbox" checked={shownDocs.length > 0 && shownDocs.every((d) => libSel[d.id || docName(d)])} onChange={(e) => { const v = e.target.checked; const o: any = {}; if (v) shownDocs.forEach((d) => { o[d.id || docName(d)] = true; }); setLibSel(o); }} /></th>
+                  <th className="px-2 py-3 font-semibold">{Object.values(libSel).filter(Boolean).length ? Object.values(libSel).filter(Boolean).length + ' source selected' : 'Title'}</th>
+                  <th className="px-6 py-3 font-semibold w-[240px]">Authors</th>
+                  <th className="px-6 py-3 font-semibold w-[150px]">Added</th>
+                </tr>
+              </thead>
               <tbody>
-                {shownDocs.map((d) => (
-                  <tr key={d.id || docName(d)} className="border-t border-border hover:bg-muted/40">
-                    <td className="px-6 py-3"><div className="flex items-center gap-2.5 font-medium"><FileText className="w-4 h-4 text-muted-foreground shrink-0" /> {docName(d)}</div></td>
+                {shownDocs.map((d) => {
+                  const id = d.id || docName(d);
+                  return (
+                  <tr key={id} className={'border-b border-border hover:bg-muted/40 ' + (libSel[id] ? 'bg-primary/5' : '')}>
+                    <td className="px-4 py-3"><input type="checkbox" checked={!!libSel[id]} onChange={() => setLibSel((p: any) => ({ ...p, [id]: !p[id] }))} /></td>
+                    <td className="px-2 py-3"><div className="flex items-center gap-2.5 font-medium"><FileText className="w-4 h-4 text-muted-foreground shrink-0" /> {docName(d)}</div></td>
+                    <td className="px-6 py-3 text-muted-foreground truncate max-w-[240px]">{d.authorStr || '-'}</td>
                     <td className="px-6 py-3 text-muted-foreground">{fmtTime(d.ts || d.uploadedAt || d.date)}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -1065,7 +1125,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       <div className="w-[260px] shrink-0 border-l border-border p-4 hidden lg:block">
         <div className="text-[14px] font-semibold mb-3">New from selection</div>
         <button onClick={startNew} className="w-full flex items-center justify-between border border-border rounded-xl px-3 py-3 text-[13.5px] hover:border-primary transition-colors mb-2"><span>Start systematic review</span><Table2 className="w-4 h-4 text-muted-foreground" /></button>
-        <button onClick={() => fileRef.current && fileRef.current.click()} className="w-full flex items-center justify-between border border-border rounded-xl px-3 py-3 text-[13.5px] hover:border-primary transition-colors mb-4"><span>Extract data</span><Sparkles className="w-4 h-4 text-muted-foreground" /></button>
+        <button onClick={runExtractFromSelection} className="w-full flex items-center justify-between border border-border rounded-xl px-3 py-3 text-[13.5px] hover:border-primary transition-colors mb-4"><span>Extract data</span><Sparkles className="w-4 h-4 text-muted-foreground" /></button>
         <button onClick={() => fileRef.current && fileRef.current.click()} className="w-full flex items-center gap-2 justify-center bg-primary text-primary-foreground rounded-lg px-3 py-2 text-[13.5px] font-semibold"><Upload className="w-4 h-4" /> Upload</button>
       </div>
     </div>
@@ -1475,10 +1535,38 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         ) : null}
 
         {addingCol ? (
-          <div className="p-3 border-b border-border flex items-center gap-2 bg-muted/30">
-            <input autoFocus value={colInput} onChange={(e) => setColInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addColumn(); }} placeholder="Column question, e.g. Sample size? Main outcome? Study design?" className="flex-1 bg-background border border-border rounded-lg px-3 py-1.5 text-[13px] outline-none focus:border-primary" />
-            <button onClick={addColumn} disabled={!colInput.trim() || colBusy} className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-[13px] font-bold disabled:opacity-40">{colBusy ? 'Extracting...' : 'Add'}</button>
-            <button onClick={() => { setAddingCol(false); setColInput(''); }} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+          <div className="p-4 border-b border-border bg-muted/30">
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="text-[13.5px] font-bold">Search or create a column</div>
+                <div className="text-[12px] text-muted-foreground">Describe what kind of data you want to extract</div>
+              </div>
+              <button onClick={() => { setAddingCol(false); setColInput(''); }} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="flex items-center gap-2 mt-3">
+              <input autoFocus value={colInput} onChange={(e) => setColInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addColumn(); }} placeholder="e.g. summary, counter-arguments" className="flex-1 bg-background border border-border rounded-lg px-3 py-1.5 text-[13px] outline-none focus:border-primary" />
+              <button onClick={addColumn} disabled={!colInput.trim() || colBusy} className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-[13px] font-bold disabled:opacity-40">{colBusy ? 'Extracting...' : 'Add'}</button>
+            </div>
+            {columns.length ? (
+              <div className="mt-4">
+                <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-1">Current columns</div>
+                {columns.map((c) => (
+                  <div key={c.id} className="flex items-center justify-between px-2 py-1.5 rounded hover:bg-muted text-[13px]"><span className="truncate">{c.name}</span><button onClick={() => removeColumn(c.id)} className="text-muted-foreground hover:text-red-400 shrink-0"><X className="w-3.5 h-3.5" /></button></div>
+                ))}
+              </div>
+            ) : null}
+            <div className="mt-4">
+              <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-1">Add columns</div>
+              <div className="flex flex-col max-h-[240px] overflow-y-auto custom-scrollbar">
+                {COLUMN_SUGGESTIONS.filter((sg) => !colInput || sg.toLowerCase().indexOf(colInput.toLowerCase()) !== -1).filter((sg) => !columns.some((c) => c.name.toLowerCase() === sg.toLowerCase())).map((sg) => (
+                  <button key={sg} onClick={() => { setAddingCol(false); setColInput(''); runAddColumn(sg); }} disabled={colBusy} className="flex items-center gap-2 text-left px-2 py-2 rounded hover:bg-muted text-[13px] disabled:opacity-50"><Plus className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> {sg}</button>
+                ))}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-border">
+              <button onClick={() => { setAddingCol(false); setColInput(''); }} className="border border-border rounded-lg px-4 py-1.5 text-[13px] font-semibold hover:bg-muted">Cancel</button>
+              <button onClick={() => { setAddingCol(false); setColInput(''); }} className="bg-primary text-primary-foreground rounded-lg px-4 py-1.5 text-[13px] font-semibold">Save</button>
+            </div>
           </div>
         ) : null}
 
@@ -1522,7 +1610,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                     </td>
                     {columns.map((c) => (
                       <td key={c.id} className="p-3 text-foreground/90">
-                        {p.cols[c.id] ? p.cols[c.id] : (colBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" /> : '-')}
+                        {p.cols[c.id] ? <button onClick={(e) => openCellPop(e, p, c)} className="text-left w-full hover:bg-muted/60 rounded px-1 -mx-1 py-0.5 transition-colors">{p.cols[c.id]}</button> : (colBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" /> : '-')}
                       </td>
                     ))}
                   </tr>
@@ -1662,6 +1750,19 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     : searchArea;
 
   const shareTitle = report ? (report.title || report.question) : (question || 'this session');
+  const createColEl = colModal ? (
+    <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-6" onClick={() => setColModal(false)}>
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="text-[16px] font-bold mb-1">New collection</div>
+        <div className="text-[12.5px] text-muted-foreground mb-4">Give your collection a name.</div>
+        <input autoFocus value={colName} onChange={(e) => setColName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') createCollectionConfirm(); }} placeholder="e.g. Quantum computing" className="w-full bg-muted/40 border border-border rounded-lg px-3 py-2 text-[13.5px] outline-none focus:border-primary" />
+        <div className="flex justify-end gap-2 mt-5">
+          <button onClick={() => setColModal(false)} className="border border-border rounded-lg px-4 py-2 text-[13.5px] font-semibold hover:bg-muted">Cancel</button>
+          <button onClick={createCollectionConfirm} disabled={!colName.trim()} className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-[13.5px] font-semibold disabled:opacity-40">Create</button>
+        </div>
+      </div>
+    </div>
+  ) : null;
   const uploadModalEl = uploadModal ? (
     <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-6" onClick={() => setUploadModal(false)}>
       <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg p-6" onClick={(e) => e.stopPropagation()}>
@@ -1726,6 +1827,22 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       </div>
     </div>
   ) : null;
+  const cellPopEl = cellPop ? (
+    <>
+      <div className="fixed inset-0 z-[75]" onClick={() => setCellPop(null)} />
+      <div className="fixed z-[76] w-[360px] max-h-[320px] overflow-y-auto custom-scrollbar bg-card border border-border rounded-xl shadow-2xl p-3" style={{ top: cellPop.y, left: cellPop.x }}>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">Relevant quotes</span>
+          <div className="flex items-center gap-2">
+            {cellPop.url ? <a href={cellPop.url} target="_blank" rel="noreferrer" className="text-[12px] font-semibold border border-border rounded-lg px-2 py-1 flex items-center gap-1 hover:bg-muted">Open paper <ExternalLink className="w-3 h-3" /></a> : null}
+            <button onClick={() => setCellPop(null)} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+          </div>
+        </div>
+        <div className="text-[12px] font-semibold text-primary mb-1">{cellPop.col}: {cellPop.answer}</div>
+        <div className="text-[13px] leading-relaxed text-foreground/90">{cellPop.quote ? '"' + cellPop.quote + '"' : (cellPop.quote2 ? cellPop.quote2.slice(0, 400) + '...' : 'No supporting quote available for this paper.')}</div>
+      </div>
+    </>
+  ) : null;
 
   return (
     <div className="flex w-full h-full bg-background text-foreground overflow-hidden">
@@ -1734,6 +1851,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       {sourceModal}
       {uploadModalEl}
       {shareModalEl}
+      {createColEl}
+      {cellPopEl}
     </div>
   );
 }
