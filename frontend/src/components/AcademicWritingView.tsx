@@ -3223,7 +3223,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                       <span className="text-[10px] text-gray-400">{chat.date}</span>
                     </div>
                   </div>
-                  <div className="flex items-center opacity-0 group-hover:opacity-100 transition-all shrink-0">
+                  <div className="hidden group-hover:flex items-center shrink-0">
                     <button onClick={(e) => { e.stopPropagation(); togglePinChat(chat.id); }} className={`p-1 hover:bg-black/10 dark:hover:bg-[#555] rounded ${chat.pinned ? 'text-amber-500 dark:text-amber-400' : 'text-gray-600 dark:text-gray-400 hover:text-amber-500'}`} title={chat.pinned ? 'Unpin' : 'Pin to top'}>
                       <Star className={`w-3.5 h-3.5 ${chat.pinned ? 'fill-current' : ''}`} />
                     </button>
