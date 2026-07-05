@@ -526,7 +526,7 @@ export default function HomePage() {
         
         {selectedPersona === 'LITERATURE REVIEW' ? (
           <div className="flex-1 min-h-0 h-full overflow-hidden">
-            <LiteratureReviewView messages={messages} onHome={() => { setSelectedPersona('ACADEMIC WRITING'); setIsChatActive(false); }} />
+            <LiteratureReviewView messages={messages} onHome={() => { setSelectedPersona('ACADEMIC WRITING'); setIsChatActive(false); window.history.pushState(null, '', '/home'); }} />
           </div>
         ) : !isChatActive ? (
           <div className="flex-1 min-h-0 flex flex-col items-center justify-start md:justify-center p-6 h-full overflow-y-auto custom-scrollbar">
