@@ -3242,6 +3242,12 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                     </div>
                   </div>
 
+                  <div className="h-[1px] bg-[#222] my-1"></div>
+
+                  <button onClick={(e) => { e.stopPropagation(); }} className="w-full flex items-center gap-2 px-4 py-3 text-[13px] font-bold text-[#7fa3ff] hover:bg-[#1a1a1a] transition-colors">
+                    <Star className="w-4 h-4" /> See Pricing
+                  </button>
+
                 </div>
               </div>
             )}
@@ -3275,9 +3281,6 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
               </button>
               <button onClick={() => setShowAiChat(true)} className="flex items-center gap-2 text-gray-300 hover:text-white transition-colors text-[13px] font-bold" title="AI Chat">
                 <MessageSquare className="w-4 h-4" /> <span className="hidden sm:inline">AI Chat</span>
-              </button>
-              <button className="hidden md:flex bg-[#5b5fff] hover:bg-[#6b6fff] text-white px-3 py-1.5 rounded items-center gap-2 text-[13px] font-bold transition-colors">
-                <Star className="w-3.5 h-3.5" /> See Pricing
               </button>
               <button onClick={() => setShowClaimConfidenceSettings(true)} className="text-gray-400 hover:text-white transition-colors" title="Settings">
                 <SlidersHorizontal className="w-4 h-4" />
@@ -3912,11 +3915,11 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
              </button>
           )}
           <span className="font-bold text-white text-[15px]">
-            {activeReviewTab === 'claim' ? 'Claim confidence' :
-             activeReviewTab === 'analysis' ? 'Document Analysis' : 
-             activeReviewTab === 'tone' ? 'Tone of Voice' : 
+            {activeReviewTab === 'claim' ? 'Citation Health' :
+             activeReviewTab === 'analysis' ? 'Manuscript Insights' : 
+             activeReviewTab === 'tone' ? 'Style & Tone' : 
              activeReviewTab === 'proofread' ? 'Proofread' :
-             activeReviewTab === 'peer' ? 'Peer Review' :
+             activeReviewTab === 'peer' ? 'Expert Review' :
              activeReviewTab === 'matching' ? 'Citation Matching' : 'Review'}
           </span>
           {activeReviewTab && (
@@ -3935,12 +3938,12 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
         <div className="flex-1 overflow-y-auto custom-scrollbar p-4 flex flex-col gap-4">
            {!activeReviewTab && (
               <>
-                 {/* Card 1: Claim confidence */}
+                 {/* Card 1: Citation Health */}
                  <div className="bg-[#1e1e1e] border border-[#2a2a2a] rounded-xl p-5 flex flex-col gap-3">
                    <div className="w-8 h-8 rounded-full bg-[#1b1c3a] flex items-center justify-center mb-1">
                      <Star className="w-4 h-4 text-[#7d84ff]" />
                    </div>
-                   <h3 className="text-[15px] font-bold text-white">Claim confidence</h3>
+                   <h3 className="text-[15px] font-bold text-white">Citation Health</h3>
                    <p className="text-[13px] text-gray-400 leading-relaxed">
                      Checks your writing, finds missing or weak citations, and adds references to help you avoid academic plagiarism
                    </p>
@@ -3955,12 +3958,12 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                    </div>
                  </div>
 
-                 {/* Card: Peer Review */}
+                 {/* Card: Expert Review */}
                  <div className="bg-[#1e1e1e] border border-[#2a2a2a] rounded-xl p-5 flex flex-col gap-3">
                    <div className="w-8 h-8 rounded-full bg-[#1b1c3a] flex items-center justify-center mb-1">
                      <Users className="w-4 h-4 text-[#7d84ff]" />
                    </div>
-                   <h3 className="text-[15px] font-bold text-white">Peer Review</h3>
+                   <h3 className="text-[15px] font-bold text-white">Expert Review</h3>
                    <p className="text-[13px] text-gray-400 leading-relaxed">
                      Simulate an expert academic peer review with scores, strengths, weaknesses and questions for the authors.
                    </p>
@@ -3972,12 +3975,12 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                    </div>
                  </div>
 
-                 {/* Card 2: Document Analysis */}
+                 {/* Card 2: Manuscript Insights */}
                  <div className="bg-[#1e1e1e] border border-[#2a2a2a] rounded-xl p-5 flex flex-col gap-3">
                    <div className="w-8 h-8 rounded-full bg-[#1b1c3a] flex items-center justify-center mb-1">
                      <Users className="w-4 h-4 text-[#7d84ff]" />
                    </div>
-                   <h3 className="text-[15px] font-bold text-white">Document Analysis</h3>
+                   <h3 className="text-[15px] font-bold text-white">Manuscript Insights</h3>
                    <p className="text-[13px] text-gray-400 leading-relaxed">
                      Get comprehensive analysis and actionable recommendations to improve your document's quality.
                    </p>
@@ -3989,12 +3992,12 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                    </div>
                  </div>
 
-                 {/* Card 3: Tone of Voice */}
+                 {/* Card 3: Style & Tone */}
                  <div className="bg-[#1e1e1e] border border-[#2a2a2a] rounded-xl p-5 flex flex-col gap-3">
                    <div className="w-8 h-8 rounded-full bg-[#1b1c3a] flex items-center justify-center mb-1">
                      <MessageSquare className="w-4 h-4 text-[#7d84ff]" />
                    </div>
-                   <h3 className="text-[15px] font-bold text-white">Tone of Voice</h3>
+                   <h3 className="text-[15px] font-bold text-white">Style & Tone</h3>
                    <p className="text-[13px] text-gray-400 leading-relaxed">
                      Match your document's tone to a preset style or a paper from your library.
                    </p>
@@ -4254,7 +4257,7 @@ Required JSON structure:
 }`;
                      fetchReview(prompt, { overview: "Could not generate overview.", weaknesses: ["Insufficient data"], strengths: ["Clear topic"], recommendations: ["Add more evidence"] });
                    }} className="w-full py-2.5 bg-[#5b5fff] hover:bg-[#6b6fff] rounded-lg text-white font-bold flex items-center justify-center gap-2 mb-6">
-                      <Play className="w-4 h-4" /> Run Document Analysis
+                      <Play className="w-4 h-4" /> Run Manuscript Insights
                    </button>
                 )}
               </div>
@@ -4312,7 +4315,7 @@ Required JSON structure:
                    </>
                 ) : (
                    <button onClick={handlePeerReview} className="w-full py-2.5 bg-[#5b5fff] hover:bg-[#6b6fff] rounded-lg text-white font-bold flex items-center justify-center gap-2 mb-6">
-                      <Play className="w-4 h-4" /> Run Peer Review
+                      <Play className="w-4 h-4" /> Run Expert Review
                    </button>
                 )}
               </div>
@@ -5255,7 +5258,7 @@ Required JSON structure:
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="w-[600px] max-w-[92vw] bg-[#161616] border border-[#333] rounded-2xl shadow-2xl overflow-hidden flex flex-col relative animate-in fade-in zoom-in duration-200">
             <div className="px-6 py-5 border-b border-[#2a2a2a] flex items-center justify-between">
-              <h2 className="text-xl font-bold text-white">Claim confidence settings</h2>
+              <h2 className="text-xl font-bold text-white">Citation Health settings</h2>
               <button onClick={() => setShowClaimConfidenceSettings(false)} className="text-gray-400 hover:text-white transition-colors">
                 <X className="w-5 h-5" />
               </button>
