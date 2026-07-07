@@ -532,18 +532,25 @@ export default function HomePage() {
             <SciVizView onHome={() => { setSelectedPersona('ACADEMIC WRITING'); setIsChatActive(false); window.history.pushState(null, '', '/home'); }} />
           </div>
         ) : !isChatActive ? (
-          <div className="flex-1 min-h-0 flex flex-col items-center justify-start md:justify-center p-6 h-full overflow-y-auto custom-scrollbar">
-            <PersonaGrid 
-              selectedPersona={selectedPersona} 
-              onSelectPersona={setSelectedPersona} 
-              onActivate={(id: string) => {
-                const urlSlug = id.toLowerCase().replace(/\s+/g, '-');
-                window.history.pushState(null, '', `/home/${urlSlug}`); setMessages([]); setDocumentContent(''); setStructuredPapers([]); setAiResponse(''); setCurrentChatId(null); setQuery('');
-                setIsChatActive(true);
-              }}
-            />
-            <div className="w-full max-w-3xl mt-4">
-              <SearchBar {...searchBarProps} />
+          <div className="flex-1 min-h-0 flex flex-col items-center justify-start md:justify-center p-6 h-full overflow-y-auto custom-scrollbar relative">
+            <div className="pnx-orbs" aria-hidden="true">
+              <div className="pnx-orb pnx-orb-1" />
+              <div className="pnx-orb pnx-orb-2" />
+              <div className="pnx-orb pnx-orb-3" />
+            </div>
+            <div className="relative z-10 w-full flex flex-col items-center pnx-fade-up">
+              <PersonaGrid
+                selectedPersona={selectedPersona}
+                onSelectPersona={setSelectedPersona}
+                onActivate={(id: string) => {
+                  const urlSlug = id.toLowerCase().replace(/\s+/g, '-');
+                  window.history.pushState(null, '', `/home/${urlSlug}`); setMessages([]); setDocumentContent(''); setStructuredPapers([]); setAiResponse(''); setCurrentChatId(null); setQuery('');
+                  setIsChatActive(true);
+                }}
+              />
+              <div className="w-full max-w-3xl mt-4">
+                <SearchBar {...searchBarProps} />
+              </div>
             </div>
           </div>
         ) : (

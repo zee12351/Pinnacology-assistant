@@ -9,14 +9,14 @@ const personas = [
 
 export function PersonaGrid({ selectedPersona, onSelectPersona, onActivate }: any) {
   return (
-    <div className="w-full max-w-5xl mx-auto flex flex-col items-center md:mt-[-5vh] pt-4 md:pt-0">
+    <div className="w-full max-w-5xl mx-auto flex flex-col items-center md:mt-[-5vh] pt-4 md:pt-0 relative z-10">
       <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-foreground mb-3 tracking-tight">What would you like to do today?</h1>
-        <p className="text-muted-foreground text-sm max-w-xl mx-auto">Select a specialized persona to configure your workspace, or just start typing below for a general search.</p>
+        <h1 className="text-4xl font-bold mb-3 tracking-tight">What would you like to <span className="pnx-gradient-text">do today?</span></h1>
+        <p className="text-muted-foreground text-[15px] max-w-xl mx-auto">Select a specialized persona to configure your workspace, or just start typing below for a general search.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 w-full px-4 md:px-6 mb-8">
-        {personas.map((persona) => {
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 w-full px-4 md:px-6 mb-8">
+        {personas.map((persona, i) => {
           const Icon = persona.icon;
           const isSelected = selectedPersona === persona.id;
           return (
@@ -26,13 +26,14 @@ export function PersonaGrid({ selectedPersona, onSelectPersona, onActivate }: an
                 onSelectPersona(persona.id);
                 onActivate(persona.id);
               }}
-              className={`flex flex-col text-left p-5 rounded-2xl border transition-all ${isSelected ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-500/5' : 'border-border bg-card hover:border-blue-400/50 hover:shadow-sm'}`}
+              style={{ animationDelay: `${i * 0.07}s` }}
+              className={`pnx-card pnx-fade-up flex flex-col text-left p-6 rounded-2xl border ${isSelected ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-500/5' : 'border-border bg-card hover:border-blue-400/60'}`}
             >
-              <div className={`w-10 h-10 rounded-xl ${persona.bg} flex items-center justify-center mb-4`}>
-                <Icon className={`w-5 h-5 ${persona.color}`} />
+              <div className={`w-12 h-12 rounded-xl ${persona.bg} flex items-center justify-center mb-4`}>
+                <Icon className={`w-6 h-6 ${persona.color}`} />
               </div>
-              <h3 className="font-semibold text-foreground text-base mb-1">{persona.name}</h3>
-              <p className="text-xs text-muted-foreground leading-relaxed">{persona.desc}</p>
+              <h3 className="font-bold text-foreground text-[17px] mb-1.5">{persona.name}</h3>
+              <p className="text-[13px] text-muted-foreground leading-relaxed">{persona.desc}</p>
             </button>
           );
         })}
