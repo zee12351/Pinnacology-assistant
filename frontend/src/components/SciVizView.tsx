@@ -378,7 +378,7 @@ export function SciVizView({ onHome }: any) {
   const leftNav = (
     <aside className={(navOpen ? 'w-[224px]' : 'w-[56px]') + ' shrink-0 border-r border-border flex flex-col bg-card/40 h-full'}>
       <div className="flex items-center justify-between px-3 h-12 border-b border-border shrink-0">
-        {navOpen ? <div className="flex items-center gap-2 font-bold text-[14px] text-foreground"><FlaskConical className="w-4 h-4 text-primary" /> SciViz</div> : <FlaskConical className="w-4 h-4 text-primary mx-auto" />}
+        {navOpen ? <div className="flex items-center gap-2 text-foreground min-w-0"><FlaskConical className="w-4 h-4 text-primary shrink-0" /> <div className="flex flex-col leading-tight min-w-0"><span className="font-bold text-[13px]">SciViz</span><span className="text-[9.5px] text-muted-foreground">by Pinnovix</span></div></div> : <FlaskConical className="w-4 h-4 text-primary mx-auto" />}
         <button onClick={() => setNavOpen((v) => !v)} className="text-muted-foreground hover:text-foreground"><PanelLeft className="w-4 h-4" /></button>
       </div>
       <nav className="p-2 flex flex-col gap-0.5 shrink-0">
@@ -401,8 +401,8 @@ export function SciVizView({ onHome }: any) {
     <div className="flex w-full h-full items-start justify-center overflow-y-auto custom-scrollbar">
       <div className="w-full max-w-2xl mt-[8vh] px-4">
         <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold">Turn your research into visuals</h1>
-          <p className="text-muted-foreground text-sm mt-1">Upload a PDF or paste an abstract to generate a poster, slides, infographic, graphical abstract, flowchart or mindmap.</p>
+          <h1 className="text-2xl font-bold">Your research, worth a thousand words</h1>
+          <p className="text-muted-foreground text-sm mt-1">Drop in a PDF or paste an abstract, and watch it become a poster, slide deck, infographic, graphical abstract, flowchart or mindmap in seconds.</p>
         </div>
         <div className="border border-border rounded-2xl bg-card shadow-sm overflow-hidden">
           <div className="flex border-b border-border">
@@ -433,9 +433,10 @@ export function SciVizView({ onHome }: any) {
           )}
         </div>
         {busy ? <div className="flex items-center justify-center gap-2 text-muted-foreground text-[13px] mt-4"><Loader2 className="w-4 h-4 animate-spin" /> {phase}</div> : null}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-6">
+        <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mt-6 mb-2 text-center">Choose what to see first</div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {VIZ.map((v) => (
-            <div key={v.id} className="flex items-center gap-2 border border-border rounded-xl px-3 py-2.5 text-[12.5px] text-muted-foreground"><v.Icon className="w-4 h-4 text-primary" /> {v.label}</div>
+            <button key={v.id} onClick={() => setVizType(v.id)} className={(vizType === v.id ? 'border-primary text-primary ' : 'border-border text-muted-foreground hover:border-primary ') + 'flex items-center gap-2 border rounded-xl px-3 py-2.5 text-[12.5px] transition-colors'}><v.Icon className="w-4 h-4 text-primary" /> {v.label}</button>
           ))}
         </div>
       </div>

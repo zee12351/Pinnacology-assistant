@@ -3312,7 +3312,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
         <div className="flex flex-col border-b border-[#2a2a2a] bg-[#161616]">
           {/* Header Row */}
           <div className="flex items-center justify-between px-4 py-2 border-b border-[#2a2a2a]">
-            <div className="flex items-center gap-2 min-w-0"><button onClick={() => setSidebarOpen(true)} className="md:hidden text-gray-300 hover:text-white shrink-0" title="Menu"><Menu className="w-5 h-5" /></button><div className="flex items-baseline gap-2 min-w-0"><span className="text-[15px] font-bold text-white font-serif tracking-wide">Pinnovix</span>{projectName ? <span className="text-[13px] text-gray-500 truncate max-w-[120px] md:max-w-[160px]">/ {projectName}</span> : null}</div></div>
+            <div className="flex items-center gap-2 min-w-0"><button onClick={() => setSidebarOpen(true)} className="md:hidden text-gray-300 hover:text-white shrink-0" title="Menu"><Menu className="w-5 h-5" /></button><div className="flex items-baseline gap-2 min-w-0"><span className="text-[15px] font-bold text-white font-serif tracking-wide">Academic Writing <span className="text-gray-400 font-normal">by Pinnovix</span></span>{projectName ? <span className="text-[13px] text-gray-500 truncate max-w-[120px] md:max-w-[160px]">/ {projectName}</span> : null}</div></div>
             <div className="flex items-center gap-2 sm:gap-3 shrink-0">
               <button onClick={() => setShowShareModal(true)} className="flex items-center gap-2 text-gray-300 hover:text-white transition-colors text-[13px] font-bold" title="Share">
                 <Users className="w-4 h-4" /> <span className="hidden sm:inline">Share</span>
