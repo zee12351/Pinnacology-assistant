@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles, ArrowRight, ArrowUp, ArrowLeft, FileText, Table2, BookOpen, Copy, SlidersHorizontal, Bookmark, Clock, Library as LibraryIcon, Bell, Upload, FolderPlus, Trash2, PanelLeft, MessageSquare, ChevronDown, Check, ListChecks, Tag, Home, Share2 } from 'lucide-react';
+import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles, ArrowRight, ArrowUp, ArrowLeft, FileText, Table2, BookOpen, Copy, SlidersHorizontal, Bookmark, Clock, Library as LibraryIcon, Bell, Upload, FolderPlus, Trash2, PanelLeft, MessageSquare, ChevronDown, Check, ListChecks, Tag, Home, Share2, Settings, LogOut, ChevronsUpDown, FolderInput } from 'lucide-react';
 
 // Literature Review workspace (Elicit-style)
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -171,6 +171,114 @@ async function extractAnswers(papersList: any[], cq: string): Promise<{ answers:
   }
 }
 
+function normPaper(o: any): any {
+  const authors = o.authors || [];
+  const authorStr = authors.length ? (authors.length > 3 ? authors.slice(0, 2).join(', ') + ' et al.' : authors.join(', ')) : 'Unknown authors';
+  return {
+    id: o.id, kind: 'paper', title: o.title || 'Untitled', authors: authors, authorStr: authorStr,
+    year: o.year || '', venue: o.venue || '', cited: o.cited || 0,
+    doi: o.doi ? String(o.doi).replace('https://doi.org/', '') : '',
+    url: o.url || (o.doi ? 'https://doi.org/' + o.doi : ''),
+    oa: !!o.oa, fullText: !!o.fullText, ftLabel: o.fullText ? 'Full text' : (o.oa ? 'PDF link available' : 'Abstract'),
+    abstract: o.abstract || '', summary: '', cols: {}, colQuotes: {},
+    rel: o.rel != null ? o.rel : (100000 - (o.i || 0)), idx: o.i || 0, srcName: o.source || '',
+  };
+}
+
+async function searchOpenAlex(q: string, n: number): Promise<any[]> {
+  try {
+    const url = 'https://api.openalex.org/works?search=' + encodeURIComponent(q) + '&per_page=' + n + '&sort=relevance_score:desc&filter=has_abstract:true&mailto=support@pinnovix.app';
+    const r = await fetch(url); const j = await r.json();
+    return (j.results || []).map(mkPaper).filter((p: any) => p.title);
+  } catch { return []; }
+}
+
+async function searchSemanticScholar(q: string, n: number): Promise<any[]> {
+  try {
+    const fields = 'title,authors,year,venue,abstract,citationCount,externalIds,openAccessPdf';
+    const url = 'https://api.semanticscholar.org/graph/v1/paper/search?query=' + encodeURIComponent(q) + '&limit=' + n + '&fields=' + fields;
+    const r = await fetch(url); const j = await r.json();
+    return ((j && j.data) || []).map((it: any, i: number) => {
+      const authors = (it.authors || []).map((a: any) => a.name).filter(Boolean);
+      const doi = (it.externalIds && it.externalIds.DOI) || '';
+      const oaUrl = (it.openAccessPdf && it.openAccessPdf.url) || '';
+      return normPaper({ id: it.paperId || ('ss' + i), title: it.title, authors: authors, year: it.year || '', venue: it.venue || '', cited: it.citationCount || 0, doi: doi, url: doi ? 'https://doi.org/' + doi : (oaUrl || ('https://www.semanticscholar.org/paper/' + (it.paperId || ''))), oa: !!oaUrl, fullText: !!oaUrl, abstract: it.abstract || '', i: i, source: 'Semantic Scholar' });
+    }).filter((p: any) => p.title);
+  } catch { return []; }
+}
+
+async function searchEuropePMC(q: string, n: number): Promise<any[]> {
+  try {
+    const url = 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=' + encodeURIComponent(q) + '&format=json&pageSize=' + n + '&resultType=core';
+    const r = await fetch(url); const j = await r.json();
+    const list = (j && j.resultList && j.resultList.result) || [];
+    return list.map((it: any, i: number) => {
+      const authors = (it.authorString || '').split(',').map((x: string) => x.trim()).filter(Boolean);
+      const doi = it.doi || '';
+      const oa = it.isOpenAccess === 'Y' || it.inEPMC === 'Y' || it.inPMC === 'Y';
+      const url2 = doi ? 'https://doi.org/' + doi : ('https://europepmc.org/article/' + (it.source || 'MED') + '/' + (it.id || ''));
+      return normPaper({ id: (it.source || '') + (it.id || ('epmc' + i)), title: it.title, authors: authors, year: it.pubYear || '', venue: it.journalTitle || '', cited: it.citedByCount || 0, doi: doi, url: url2, oa: oa, fullText: oa, abstract: it.abstractText || '', i: i, source: 'Europe PMC' });
+    }).filter((p: any) => p.title);
+  } catch { return []; }
+}
+
+async function searchArxiv(q: string, n: number): Promise<any[]> {
+  try {
+    const url = 'https://export.arxiv.org/api/query?search_query=all:' + encodeURIComponent(q) + '&start=0&max_results=' + n;
+    const r = await fetch(url); const xml = await r.text();
+    const doc = new DOMParser().parseFromString(xml, 'application/xml');
+    const entries = Array.from(doc.getElementsByTagName('entry'));
+    return entries.map((e: any, i: number) => {
+      const g = (tag: string) => { const el = e.getElementsByTagName(tag)[0]; return el ? (el.textContent || '').trim() : ''; };
+      const title = g('title').replace(/\s+/g, ' ');
+      const abstract = g('summary').replace(/\s+/g, ' ');
+      const year = (g('published').match(/\d{4}/) || [''])[0];
+      const authors = Array.from(e.getElementsByTagName('author')).map((a: any) => { const nm = a.getElementsByTagName('name')[0]; return nm ? (nm.textContent || '').trim() : ''; }).filter(Boolean);
+      const idUrl = g('id');
+      const doiEl = e.getElementsByTagName('arxiv:doi')[0];
+      const doi = doiEl ? (doiEl.textContent || '').trim() : '';
+      return normPaper({ id: idUrl || ('arx' + i), title: title, authors: authors, year: year, venue: 'arXiv', cited: 0, doi: doi, url: idUrl, oa: true, fullText: true, abstract: abstract, i: i, source: 'arXiv' });
+    }).filter((p: any) => p.title);
+  } catch { return []; }
+}
+
+async function searchCrossref(q: string, n: number): Promise<any[]> {
+  try {
+    const url = 'https://api.crossref.org/works?query.bibliographic=' + encodeURIComponent(q) + '&rows=' + n + '&select=title,author,published,container-title,DOI,is-referenced-by-count,abstract&mailto=support@pinnovix.app';
+    const r = await fetch(url); const j = await r.json();
+    const items = (j && j.message && j.message.items) || [];
+    return items.map((it: any, i: number) => {
+      const authors = (it.author || []).map((a: any) => [a.given, a.family].filter(Boolean).join(' ')).filter(Boolean);
+      const doi = it.DOI || '';
+      const year = (it.published && it.published['date-parts'] && it.published['date-parts'][0] && it.published['date-parts'][0][0]) || '';
+      const abstractRaw = it.abstract ? String(it.abstract).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : '';
+      return normPaper({ id: doi || ('cr' + i), title: Array.isArray(it.title) ? it.title[0] : (it.title || ''), authors: authors, year: year, venue: Array.isArray(it['container-title']) ? it['container-title'][0] : (it['container-title'] || ''), cited: it['is-referenced-by-count'] || 0, doi: doi, url: doi ? 'https://doi.org/' + doi : '', oa: false, fullText: false, abstract: abstractRaw, i: i, source: 'Crossref' });
+    }).filter((p: any) => p.title);
+  } catch { return []; }
+}
+
+async function searchPapers(q: string, source: string, n: number): Promise<any[]> {
+  n = n || 12;
+  if (source === 'all') {
+    const per = Math.max(5, Math.ceil(n / 2));
+    const arrs = await Promise.all([
+      searchOpenAlex(q, per), searchSemanticScholar(q, per), searchEuropePMC(q, per), searchArxiv(q, Math.min(per, 6)), searchCrossref(q, per),
+    ]);
+    const merged: any[] = []; const seen: any = {};
+    ([] as any[]).concat.apply([], arrs).forEach((p: any) => {
+      const key = (p.doi || p.title || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 60);
+      if (!key || seen[key]) return; seen[key] = 1; merged.push(p);
+    });
+    merged.sort((a, b) => (b.cited || 0) - (a.cited || 0));
+    return merged.slice(0, n).map((p, i) => ({ ...p, idx: i, rel: 100000 - i }));
+  }
+  if (source === 'semanticscholar') return searchSemanticScholar(q, n);
+  if (source === 'europepmc') return searchEuropePMC(q, n);
+  if (source === 'arxiv') return searchArxiv(q, n);
+  if (source === 'crossref') return searchCrossref(q, n);
+  return searchOpenAlex(q, n);
+}
+
 export function LiteratureReviewView({ messages, onHome }: any) {
   const [question, setQuestion] = useState('');
   const [papers, setPapers] = useState([] as any[]);
@@ -201,6 +309,14 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [modeMenu, setModeMenu] = useState(false);
   const modeBtnRef = useRef<HTMLButtonElement | null>(null);
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
+  const [paperSource, setPaperSource] = useState('openalex');
+  const [srcMenu, setSrcMenu] = useState(false);
+  const srcBtnRef = useRef<HTMLButtonElement | null>(null);
+  const [srcBtnPos, setSrcBtnPos] = useState({ top: 0, left: 0 });
+  function toggleSrcMenu() {
+    if (!srcMenu && srcBtnRef.current) { const r = srcBtnRef.current.getBoundingClientRect(); setSrcBtnPos({ top: r.bottom + 6, left: r.left }); }
+    setSrcMenu((v) => !v);
+  }
   function toggleModeMenu() {
     if (!modeMenu && modeBtnRef.current) {
       const r = modeBtnRef.current.getBoundingClientRect();
@@ -314,6 +430,15 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [shareList, setShareList] = useState([] as any[]);
   const [shareLink, setShareLink] = useState(false);
   const [userEmail, setUserEmail] = useState('');
+  const [userName, setUserName] = useState('');
+  const [acctMenu, setAcctMenu] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [saveColModal, setSaveColModal] = useState(false);
+  const [moveMenu, setMoveMenu] = useState(false);
+  const moveBtnRef = useRef<HTMLButtonElement | null>(null);
+  const [moveBtnPos, setMoveBtnPos] = useState({ top: 0, left: 0 });
+  const [tagModal, setTagModal] = useState(false);
+  const [tagInput, setTagInput] = useState('');
 
   useEffect(() => {
     try { const r = localStorage.getItem('pinnovix_lit_recents'); if (r) setRecents(JSON.parse(r)); } catch {}
@@ -325,6 +450,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     let em = '';
     try { em = localStorage.getItem('pinnovix_email') || ''; } catch {}
     if (em) { setUserEmail(em); fetchShared(em); }
+    try { const nm = localStorage.getItem('pinnovix_name'); if (nm) setUserName(nm); } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -470,12 +596,66 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     const chosen = view().filter((p) => selRows[p.id]);
     const picks = chosen.length ? chosen : view();
     if (!picks.length) return;
-    const docs = picks.map((p, i) => ({ id: 'lib_' + Date.now() + '_' + i, name: p.title, kind: 'paper', authorStr: p.authorStr, year: p.year, url: p.url, doi: p.doi, ts: Date.now(), collection: '' }));
+    setSaveColModal(true);
+  }
+  function saveToCollection(colId: string) {
+    const chosen = view().filter((p) => selRows[p.id]);
+    const picks = chosen.length ? chosen : view();
+    if (!picks.length) { setSaveColModal(false); return; }
+    const docs = picks.map((p, i) => ({ id: 'lib_' + Date.now() + '_' + i, name: p.title, kind: 'paper', authorStr: p.authorStr, year: p.year, url: p.url, doi: p.doi, ts: Date.now(), collection: colId || '' }));
     const next = docs.concat(libDocs);
     setLibDocs(next);
     try { localStorage.setItem('pinnovix_library_docs', JSON.stringify(next)); } catch {}
     setSaved(true); setTimeout(() => setSaved(false), 1500);
-    setSelRows({});
+    setSelRows({}); setSaveColModal(false);
+  }
+  function deleteCollection(id: string) {
+    const next = collections.filter((c) => c.id !== id);
+    setCollections(next);
+    try { localStorage.setItem('pinnovix_lit_collections', JSON.stringify(next)); } catch {}
+    setLibDocs((prev) => { const nd = prev.map((d) => d.collection === id ? { ...d, collection: '' } : d); try { localStorage.setItem('pinnovix_library_docs', JSON.stringify(nd)); } catch {} return nd; });
+    if (activeCol === id) setActiveCol('all');
+  }
+  function deleteSelectedDocs() {
+    const ids = Object.keys(libSel).filter((k) => libSel[k]);
+    if (!ids.length) return;
+    const next = libDocs.filter((d) => ids.indexOf(d.id || docName(d)) === -1);
+    setLibDocs(next);
+    try { localStorage.setItem('pinnovix_library_docs', JSON.stringify(next)); } catch {}
+    setLibSel({});
+  }
+  function toggleMoveMenu() {
+    if (!Object.keys(libSel).filter((k) => libSel[k]).length) return;
+    if (!moveMenu && moveBtnRef.current) { const r = moveBtnRef.current.getBoundingClientRect(); setMoveBtnPos({ top: r.bottom + 6, left: r.left }); }
+    setMoveMenu((v) => !v);
+  }
+  function moveSelectedToCollection(colId: string) {
+    const ids = Object.keys(libSel).filter((k) => libSel[k]);
+    if (!ids.length) { setMoveMenu(false); return; }
+    const next = libDocs.map((d) => ids.indexOf(d.id || docName(d)) !== -1 ? { ...d, collection: colId } : d);
+    setLibDocs(next);
+    try { localStorage.setItem('pinnovix_library_docs', JSON.stringify(next)); } catch {}
+    setMoveMenu(false); setLibSel({});
+  }
+  function assignTag() {
+    const t = tagInput.trim();
+    if (!t) return;
+    const ids = Object.keys(libSel).filter((k) => libSel[k]);
+    if (ids.length) { const next = libDocs.map((d) => ids.indexOf(d.id || docName(d)) !== -1 ? { ...d, tag: t } : d); setLibDocs(next); try { localStorage.setItem('pinnovix_library_docs', JSON.stringify(next)); } catch {} }
+    setTagModal(false); setTagInput(''); setLibSel({});
+  }
+  function logout() {
+    try { localStorage.removeItem('pinnovix_email'); localStorage.removeItem('pinnovix_name'); } catch {}
+    setUserEmail(''); setUserName(''); setAcctMenu(false);
+  }
+  function saveAccount() {
+    try { localStorage.setItem('pinnovix_email', userEmail); localStorage.setItem('pinnovix_name', userName); } catch {}
+  }
+  function clearLocalData() {
+    if (typeof window !== 'undefined' && !window.confirm('Clear all local library, collections, recents and prompts on this device?')) return;
+    try { ['pinnovix_library_docs', 'pinnovix_lit_collections', 'pinnovix_lit_recents', 'pinnovix_lit_library'].forEach((k) => localStorage.removeItem(k)); } catch {}
+    setLibDocs([]); setCollections([]); setRecents([]); setLibSel({});
+    setSettingsOpen(false);
   }
   function buildSharePayload() {
     if (report) return { question: report.question, title: report.title, kind: 'report', synthesis: report.abstract || '', papers: report.screened || [], columns: [] };
@@ -523,11 +703,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setFollowups([]);
     setChatThread([]);
     try {
-      const url = 'https://api.openalex.org/works?search=' + encodeURIComponent(q) + '&per_page=12&sort=relevance_score:desc&filter=has_abstract:true&mailto=support@pinnovix.app';
-      const r = await fetch(url);
-      const j = await r.json();
-      const rawList = (j.results || []).map(mkPaper);
-      const items = rawList.filter((p: any) => p.title);
+      const items = await searchPapers(q, paperSource, 12);
       setPapers(items);
       setSearchTerms([q]);
       if (!items.length) {
@@ -613,10 +789,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setPhase('Searching academic databases...');
     setPapers([]); setSynthesis(''); setColumns([]); setSearchTerms([]); setFollowups([]); setChatThread([]);
     try {
-      const url = 'https://api.openalex.org/works?search=' + encodeURIComponent(q) + '&per_page=15&sort=relevance_score:desc&filter=has_abstract:true&mailto=support@pinnovix.app';
-      const r = await fetch(url);
-      const j = await r.json();
-      const items = (j.results || []).map(mkPaper).filter((p: any) => p.title);
+      const items = await searchPapers(q, paperSource, 15);
       setPapers(items);
       setSearchTerms([q]);
       if (!items.length) { setBusy(false); setPhase(''); return; }
@@ -647,10 +820,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setSysStep(1);
     setSysPapers([]); setSysCols([]);
     try {
-      const url = 'https://api.openalex.org/works?search=' + encodeURIComponent(q) + '&per_page=20&sort=relevance_score:desc&filter=has_abstract:true&mailto=support@pinnovix.app';
-      const r = await fetch(url);
-      const j = await r.json();
-      const items = (j.results || []).map(mkPaper).filter((p: any) => p.title).map((p: any) => ({ ...p, included: true }));
+      const items = (await searchPapers(q, paperSource, 20)).map((p: any) => ({ ...p, included: true }));
       setSysPapers(items);
     } catch {
       // ignore
@@ -700,10 +870,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     let sources: any[] = [];
     try {
       setAgentChat((prev) => { const m = [...prev]; m[m.length - 1] = { ...m[m.length - 1], steps: ['Planned research approach', 'Searching academic databases...'] }; return m; });
-      const url = 'https://api.openalex.org/works?search=' + encodeURIComponent(q) + '&per_page=8&sort=relevance_score:desc&filter=has_abstract:true&mailto=support@pinnovix.app';
-      const r = await fetch(url);
-      const j = await r.json();
-      sources = (j.results || []).map(mkPaper).filter((p: any) => p.title);
+      sources = await searchPapers(q, paperSource, 8);
       setAgentChat((prev) => { const m = [...prev]; m[m.length - 1] = { ...m[m.length - 1], steps: ['Planned research approach', 'Found ' + sources.length + ' sources', 'Analysing and synthesising...'], sources: sources }; return m; });
       const list = sources.map((p, i) => '[' + (i + 1) + '] ' + p.title + ' (' + p.authorStr + ', ' + p.year + '). ' + (p.abstract || '').slice(0, 400)).join('\n\n');
       const ans = await callChat('Answer this research question using ONLY the sources below. Give a structured Markdown answer with inline (Author, Year) citations and a short bottom-line synthesis. Question: "' + q + '"\n\nSources:\n' + list);
@@ -875,6 +1042,31 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const filteredRecents = recents.filter((r) => !recentSearch || (r.question || '').toLowerCase().indexOf(recentSearch.toLowerCase()) !== -1);
   const shownDocs = libDocs.filter((d) => (activeCol === 'all' || activeCol === 'trash') ? activeCol !== 'trash' : d.collection === activeCol).filter((d) => !libSearch || docName(d).toLowerCase().indexOf(libSearch.toLowerCase()) !== -1);
 
+  const SOURCES = [
+    { id: 'openalex', label: 'OpenAlex' },
+    { id: 'all', label: 'All sources' },
+    { id: 'semanticscholar', label: 'Semantic Scholar' },
+    { id: 'europepmc', label: 'Europe PMC' },
+    { id: 'arxiv', label: 'arXiv' },
+    { id: 'crossref', label: 'Crossref' },
+  ];
+  const sourceLabel = (SOURCES.find((x) => x.id === paperSource) || SOURCES[0]).label;
+  const sourceDropdown = (
+    <div className="relative inline-block">
+      <button ref={srcBtnRef} onClick={toggleSrcMenu} className="inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[12.5px] font-semibold hover:bg-muted"><BookOpen className="w-3.5 h-3.5" /> Source: <span className="text-primary">{sourceLabel}</span> <ChevronDown className="w-3.5 h-3.5" /></button>
+      {srcMenu ? (
+        <>
+          <div className="fixed inset-0 z-[80]" onClick={() => setSrcMenu(false)} />
+          <div className="fixed z-[81] w-[210px] bg-card border border-border rounded-xl shadow-2xl p-1.5" style={{ top: srcBtnPos.top, left: srcBtnPos.left }}>
+            {SOURCES.map((sc) => (
+              <button key={sc.id} onClick={() => { setPaperSource(sc.id); setSrcMenu(false); }} className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-[13.5px] hover:bg-muted text-left">{sc.label} {paperSource === sc.id ? <Check className="w-3.5 h-3.5 text-primary" /> : null}</button>
+            ))}
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+
   const leftNav = (
     <aside className={(navOpen ? 'w-[224px]' : 'w-[56px]') + ' shrink-0 border-r border-border flex flex-col bg-card/40 h-full'}>
       <div className="flex items-center justify-between px-3 h-12 border-b border-border shrink-0">
@@ -916,6 +1108,26 @@ export function LiteratureReviewView({ messages, onHome }: any) {
           </button>
         </div>
       ) : null}
+      <div className="p-2 border-t border-border shrink-0 relative">
+        {acctMenu && (
+          <>
+            <div className="fixed inset-0 z-[40]" onClick={() => setAcctMenu(false)} />
+            <div className="absolute z-[41] bottom-full left-2 right-2 mb-1 bg-card border border-border rounded-xl shadow-2xl p-1.5">
+              <div className="px-3 py-2 border-b border-border mb-1">
+                <div className="text-[13px] font-bold truncate">{userName || 'Guest user'}</div>
+                <div className="text-[11.5px] text-muted-foreground truncate">{userEmail || 'not signed in'}</div>
+              </div>
+              <button onClick={() => { setSettingsOpen(true); setAcctMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[13.5px] hover:bg-muted text-left"><Settings className="w-4 h-4 text-muted-foreground" /> Settings</button>
+              <button onClick={logout} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[13.5px] hover:bg-muted text-left text-red-500"><LogOut className="w-4 h-4" /> Log out</button>
+            </div>
+          </>
+        )}
+        <button onClick={() => setAcctMenu((v) => !v)} className="w-full flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-muted/60">
+          <span className="w-7 h-7 rounded-full bg-primary/15 text-primary flex items-center justify-center text-[12px] font-bold shrink-0">{(userName || userEmail || 'G').slice(0, 1).toUpperCase()}</span>
+          {navOpen ? <span className="flex-1 text-left text-[12.5px] truncate">{userEmail || 'Guest'}</span> : null}
+          {navOpen ? <ChevronsUpDown className="w-4 h-4 text-muted-foreground shrink-0" /> : null}
+        </button>
+      </div>
     </aside>
   );
 
@@ -1068,7 +1280,10 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         {collections.length === 0 ? (
           <div className="px-1 text-[12px] text-muted-foreground italic">No collections yet.</div>
         ) : collections.map((c) => (
-          <button key={c.id} onClick={() => setActiveCol(c.id)} className={(activeCol === c.id ? 'bg-muted font-semibold ' : 'hover:bg-muted/60 ') + 'w-full text-left rounded-lg px-3 py-2 text-[13.5px] truncate flex items-center gap-2'}><BookOpen className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> {c.name}</button>
+          <div key={c.id} className="group flex items-center gap-1">
+            <button onClick={() => setActiveCol(c.id)} className={(activeCol === c.id ? 'bg-muted font-semibold ' : 'hover:bg-muted/60 ') + 'flex-1 min-w-0 text-left rounded-lg px-3 py-2 text-[13.5px] truncate flex items-center gap-2'}><BookOpen className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> <span className="truncate">{c.name}</span></button>
+            <button onClick={() => deleteCollection(c.id)} title="Delete collection" className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-500 shrink-0 p-1 rounded"><Trash2 className="w-3.5 h-3.5" /></button>
+          </div>
         ))}
       </div>
       <div className="flex-1 flex flex-col min-w-0">
@@ -1080,8 +1295,9 @@ export function LiteratureReviewView({ messages, onHome }: any) {
             <button onClick={() => setLibView('grid')} className={(libView === 'grid' ? 'bg-muted ' : '') + 'px-2 py-1.5 border-l border-border'}><Table2 className="w-3.5 h-3.5" /></button>
           </div>
           <button onClick={newCollection} className="inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[12.5px] font-semibold hover:bg-muted"><FolderPlus className="w-3.5 h-3.5" /> Collections</button>
-          <button className="w-8 h-8 border border-border rounded-lg flex items-center justify-center text-muted-foreground"><Tag className="w-3.5 h-3.5" /></button>
-          <button className="w-8 h-8 border border-border rounded-lg flex items-center justify-center text-muted-foreground"><Trash2 className="w-3.5 h-3.5" /></button>
+          <button onClick={() => Object.values(libSel).filter(Boolean).length && setTagModal(true)} title="Tag selected" className="w-8 h-8 border border-border rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-40" disabled={!Object.values(libSel).filter(Boolean).length}><Tag className="w-3.5 h-3.5" /></button>
+          <button ref={moveBtnRef} onClick={toggleMoveMenu} title="Move to collection" className="w-8 h-8 border border-border rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-40" disabled={!Object.values(libSel).filter(Boolean).length}><FolderInput className="w-3.5 h-3.5" /></button>
+          <button onClick={deleteSelectedDocs} title="Delete selected" className="w-8 h-8 border border-border rounded-lg flex items-center justify-center text-muted-foreground hover:text-red-500 hover:bg-muted disabled:opacity-40" disabled={!Object.values(libSel).filter(Boolean).length}><Trash2 className="w-3.5 h-3.5" /></button>
           <div className="relative ml-auto">
             <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input value={libSearch} onChange={(e) => setLibSearch(e.target.value)} placeholder="Search" className="bg-muted/40 border border-border rounded-lg pl-8 pr-2 py-1.5 text-[13px] outline-none focus:border-primary w-[200px]" />
@@ -1111,7 +1327,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                   return (
                   <tr key={id} className={'border-b border-border hover:bg-muted/40 ' + (libSel[id] ? 'bg-primary/5' : '')}>
                     <td className="px-4 py-3"><input type="checkbox" checked={!!libSel[id]} onChange={() => setLibSel((p: any) => ({ ...p, [id]: !p[id] }))} /></td>
-                    <td className="px-2 py-3"><div className="flex items-center gap-2.5 font-medium"><FileText className="w-4 h-4 text-muted-foreground shrink-0" /> {docName(d)}</div></td>
+                    <td className="px-2 py-3"><div className="flex items-center gap-2.5 font-medium"><FileText className="w-4 h-4 text-muted-foreground shrink-0" /> <span>{docName(d)}</span>{d.tag ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary shrink-0">{d.tag}</span> : null}</div></td>
                     <td className="px-6 py-3 text-muted-foreground truncate max-w-[240px]">{d.authorStr || '-'}</td>
                     <td className="px-6 py-3 text-muted-foreground">{fmtTime(d.ts || d.uploadedAt || d.date)}</td>
                   </tr>
@@ -1207,7 +1423,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
           ) : (
             <div>
               <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitStart(); } }} rows={4} autoFocus placeholder="e.g. Does intermittent fasting improve weight loss in adults?" className="w-full bg-transparent px-4 py-3 text-[15px] outline-none resize-none placeholder:text-muted-foreground" />
-              <div className="flex justify-end px-4 py-3 border-t border-border">
+              <div className="flex items-center justify-between px-4 py-3 border-t border-border">
+                {sourceDropdown}
                 <button onClick={submitStart} disabled={!input.trim()} className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40" title="Search"><ArrowRight className="w-4 h-4" /></button>
               </div>
             </div>
@@ -1432,7 +1649,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
             <div className="bg-muted/40 border border-border rounded-xl p-3">
               <div className="text-[12px] font-bold text-muted-foreground mb-1.5 flex items-center gap-1.5"><FlaskConical className="w-3.5 h-3.5" /> Ran analysis - {papers.length} papers</div>
               {searchTerms.map((t, i) => (
-                <div key={i} className="flex items-center gap-2 text-[12.5px] text-foreground/80 py-0.5"><Search className="w-3.5 h-3.5 text-muted-foreground" /> {t} <span className="text-muted-foreground text-[11px]">- Academic</span></div>
+                <div key={i} className="flex items-center gap-2 text-[12.5px] text-foreground/80 py-0.5"><Search className="w-3.5 h-3.5 text-muted-foreground" /> {t} <span className="text-muted-foreground text-[11px]">- {sourceLabel}</span></div>
               ))}
             </div>
           ) : null}
@@ -1844,6 +2061,85 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     </>
   ) : null;
 
+  const saveColEl = saveColModal ? (
+    <div className="fixed inset-0 z-[72] bg-black/50 flex items-center justify-center p-6" onClick={() => setSaveColModal(false)}>
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="text-[16px] font-bold mb-1">Save to library</div>
+        <div className="text-[12.5px] text-muted-foreground mb-4">Choose a collection to add the selected paper(s) to.</div>
+        <div className="flex flex-col gap-1.5 max-h-[260px] overflow-y-auto custom-scrollbar">
+          <button onClick={() => saveToCollection('')} className="w-full text-left px-3 py-2.5 rounded-lg text-[13.5px] hover:bg-muted border border-border flex items-center gap-2"><LibraryIcon className="w-4 h-4 text-muted-foreground" /> All (no collection)</button>
+          {collections.map((c) => (
+            <button key={c.id} onClick={() => saveToCollection(c.id)} className="w-full text-left px-3 py-2.5 rounded-lg text-[13.5px] hover:bg-muted border border-border flex items-center gap-2"><BookOpen className="w-4 h-4 text-muted-foreground" /> {c.name}</button>
+          ))}
+        </div>
+        <button onClick={() => { setSaveColModal(false); newCollection(); }} className="mt-3 w-full flex items-center justify-center gap-2 text-[13px] font-semibold text-primary border border-dashed border-border rounded-lg px-3 py-2 hover:bg-muted"><FolderPlus className="w-4 h-4" /> New collection</button>
+        <div className="flex justify-end mt-4"><button onClick={() => setSaveColModal(false)} className="border border-border rounded-lg px-4 py-2 text-[13.5px] font-semibold hover:bg-muted">Cancel</button></div>
+      </div>
+    </div>
+  ) : null;
+  const tagModalEl = tagModal ? (
+    <div className="fixed inset-0 z-[72] bg-black/50 flex items-center justify-center p-6" onClick={() => setTagModal(false)}>
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="text-[16px] font-bold mb-1">Tag selected papers</div>
+        <div className="text-[12.5px] text-muted-foreground mb-4">Add a label to the selected paper(s).</div>
+        <input autoFocus value={tagInput} onChange={(e) => setTagInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') assignTag(); }} placeholder="e.g. to-read, key paper" className="w-full bg-muted/40 border border-border rounded-lg px-3 py-2 text-[13.5px] outline-none focus:border-primary" />
+        <div className="flex justify-end gap-2 mt-5"><button onClick={() => setTagModal(false)} className="border border-border rounded-lg px-4 py-2 text-[13.5px] font-semibold hover:bg-muted">Cancel</button><button onClick={assignTag} disabled={!tagInput.trim()} className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-[13.5px] font-semibold disabled:opacity-40">Apply</button></div>
+      </div>
+    </div>
+  ) : null;
+  const moveMenuEl = moveMenu ? (
+    <>
+      <div className="fixed inset-0 z-[80]" onClick={() => setMoveMenu(false)} />
+      <div className="fixed z-[81] w-[220px] bg-card border border-border rounded-xl shadow-2xl p-1.5" style={{ top: moveBtnPos.top, left: moveBtnPos.left }}>
+        <div className="px-3 py-1.5 text-[11px] font-bold text-muted-foreground uppercase tracking-wide">Move to collection</div>
+        <button onClick={() => moveSelectedToCollection('')} className="w-full text-left px-3 py-2 rounded-lg text-[13.5px] hover:bg-muted">No collection</button>
+        {collections.map((c) => (<button key={c.id} onClick={() => moveSelectedToCollection(c.id)} className="w-full text-left px-3 py-2 rounded-lg text-[13.5px] hover:bg-muted flex items-center gap-2"><BookOpen className="w-3.5 h-3.5 text-muted-foreground" /> {c.name}</button>))}
+        {collections.length === 0 ? <div className="px-3 py-2 text-[12px] text-muted-foreground italic">No collections yet. Create one first.</div> : null}
+      </div>
+    </>
+  ) : null;
+  const settingsEl = settingsOpen ? (
+    <div className="fixed inset-0 z-[72] bg-black/50 flex items-start justify-center p-6 overflow-y-auto" onClick={() => setSettingsOpen(false)}>
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg my-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <div className="text-[17px] font-bold">Settings</div>
+          <button onClick={() => setSettingsOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-6 flex flex-col gap-6">
+          <div>
+            <div className="text-[12px] font-bold text-muted-foreground uppercase tracking-wide mb-3">Personal details</div>
+            <label className="block text-[12.5px] font-semibold mb-1">Email</label>
+            <input value={userEmail} onChange={(e) => setUserEmail(e.target.value)} placeholder="you@example.com" className="w-full bg-muted/40 border border-border rounded-lg px-3 py-2 text-[13.5px] outline-none focus:border-primary mb-3" />
+            <label className="block text-[12.5px] font-semibold mb-1">Display name</label>
+            <input value={userName} onChange={(e) => setUserName(e.target.value)} placeholder="Your name" className="w-full bg-muted/40 border border-border rounded-lg px-3 py-2 text-[13.5px] outline-none focus:border-primary" />
+            <button onClick={saveAccount} className="mt-3 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-[13px] font-semibold">Save</button>
+          </div>
+          <div className="border-t border-border pt-5">
+            <div className="text-[12px] font-bold text-muted-foreground uppercase tracking-wide mb-3">Preferences</div>
+            <label className="block text-[12.5px] font-semibold mb-1">Default paper source</label>
+            <select value={paperSource} onChange={(e) => setPaperSource(e.target.value)} className="w-full bg-muted/40 border border-border rounded-lg px-3 py-2 text-[13.5px] outline-none focus:border-primary">
+              {SOURCES.map((sc) => (<option key={sc.id} value={sc.id}>{sc.label}</option>))}
+            </select>
+          </div>
+          <div className="border-t border-border pt-5">
+            <div className="text-[12px] font-bold text-muted-foreground uppercase tracking-wide mb-2">Usage & plan</div>
+            <div className="text-[13.5px]">Current plan: <span className="font-semibold">Free</span></div>
+            <div className="text-[12.5px] text-muted-foreground mt-0.5">Unlimited searches across OpenAlex, Semantic Scholar, Europe PMC, arXiv and Crossref.</div>
+          </div>
+          <div className="border-t border-border pt-5">
+            <div className="text-[12px] font-bold text-muted-foreground uppercase tracking-wide mb-3">Integrations</div>
+            <div className="flex items-center justify-between mb-2"><span className="text-[13.5px]">Zotero</span><button className="border border-border rounded-lg px-3 py-1.5 text-[12.5px] font-semibold hover:bg-muted">Connect</button></div>
+            <div className="flex items-center justify-between"><span className="text-[13.5px]">Browser extension</span><span className="text-[12px] text-muted-foreground">Coming soon</span></div>
+          </div>
+          <div className="border-t border-border pt-5">
+            <div className="text-[12px] font-bold text-muted-foreground uppercase tracking-wide mb-2">Advanced</div>
+            <div className="flex items-center justify-between gap-3"><div><div className="text-[13.5px] font-semibold">Clear local data</div><div className="text-[12px] text-muted-foreground">Removes your saved library, collections, recents and prompts on this device.</div></div><button onClick={clearLocalData} className="border border-red-300 text-red-500 rounded-lg px-3 py-1.5 text-[12.5px] font-semibold hover:bg-red-500/10 shrink-0">Clear</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div className="flex w-full h-full bg-background text-foreground overflow-hidden">
       {leftNav}
@@ -1853,6 +2149,10 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       {shareModalEl}
       {createColEl}
       {cellPopEl}
+      {saveColEl}
+      {tagModalEl}
+      {moveMenuEl}
+      {settingsEl}
     </div>
   );
 }
