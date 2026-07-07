@@ -8,6 +8,7 @@ import { PersonaGrid } from '@/components/PersonaGrid';
 import { DefaultChatView } from '@/components/DefaultChatView';
 import { AcademicWritingView } from '@/components/AcademicWritingView';
 import { LiteratureReviewView } from '@/components/LiteratureReviewView';
+import { SciVizView } from '@/components/SciVizView';
 import { UploadModal } from '@/components/UploadModal';
 
 interface Message {
@@ -473,7 +474,7 @@ export default function HomePage() {
     <div className="flex h-screen w-full bg-background text-foreground font-sans overflow-hidden">
       
       {/* LEFT SIDEBAR */}
-      {isLeftSidebarOpen && (!isChatActive || selectedPersona !== 'ACADEMIC WRITING') && selectedPersona !== 'LITERATURE REVIEW' && (
+      {isLeftSidebarOpen && (!isChatActive || selectedPersona !== 'ACADEMIC WRITING') && selectedPersona !== 'LITERATURE REVIEW' && selectedPersona !== 'SCIVIZ' && (
         <div className="w-[240px] bg-card border-r border-border flex flex-col justify-between shrink-0 hidden md:flex z-10 relative">
           <div className="flex flex-col h-full overflow-hidden w-full">
             <div className="p-4 flex flex-col gap-6">
@@ -527,6 +528,10 @@ export default function HomePage() {
         {selectedPersona === 'LITERATURE REVIEW' ? (
           <div className="flex-1 min-h-0 h-full overflow-hidden">
             <LiteratureReviewView messages={messages} onHome={() => { setSelectedPersona('ACADEMIC WRITING'); setIsChatActive(false); window.history.pushState(null, '', '/home'); }} />
+          </div>
+        ) : selectedPersona === 'SCIVIZ' ? (
+          <div className="flex-1 min-h-0 h-full overflow-hidden">
+            <SciVizView onHome={() => { setSelectedPersona('ACADEMIC WRITING'); setIsChatActive(false); window.history.pushState(null, '', '/home'); }} />
           </div>
         ) : !isChatActive ? (
           <div className="flex-1 min-h-0 flex flex-col items-center justify-start md:justify-center p-6 h-full overflow-y-auto custom-scrollbar">

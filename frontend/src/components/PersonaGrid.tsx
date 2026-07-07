@@ -1,10 +1,10 @@
 import React from 'react';
-import { BookOpen, FileText, Stethoscope } from 'lucide-react';
+import { BookOpen, FileText, BarChart3 } from 'lucide-react';
 
 const personas = [
   { id: 'ACADEMIC WRITING', name: 'Academic Writing', icon: FileText, desc: 'Write, cite, and peer-review research papers with a dedicated workspace.', color: 'text-blue-500', bg: 'bg-blue-500/10' },
   { id: 'LITERATURE REVIEW', name: 'Literature Review', icon: BookOpen, desc: 'Discover and synthesize papers in a structured data table view.', color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
-  { id: 'MEDICAL WRITING', name: 'Medical Writing', icon: Stethoscope, desc: 'Draft clinical documents with strict medical terminology compliance.', color: 'text-purple-500', bg: 'bg-purple-500/10' },
+  { id: 'SCIVIZ', name: 'SciViz', icon: BarChart3, desc: 'Turn any paper into posters, slides, infographics, and graphical abstracts.', color: 'text-purple-500', bg: 'bg-purple-500/10' },
 ];
 
 export function PersonaGrid({ selectedPersona, onSelectPersona, onActivate }: any) {
