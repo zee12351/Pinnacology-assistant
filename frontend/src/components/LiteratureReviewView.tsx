@@ -279,6 +279,20 @@ async function searchPapers(q: string, source: string, n: number): Promise<any[]
   return searchOpenAlex(q, n);
 }
 
+function linkifyAgent(text: string, sources: any[]): string {
+  let t = text || '';
+  t = t.replace(/\[(\d+)\]/g, (m, n) => { const src = sources[parseInt(n, 10) - 1]; return src && src.url ? '[[' + n + ']](' + src.url + ')' : m; });
+  t = t.replace(/\(([^()]*?(?:19|20)\d{2}[a-z]?)\)/g, (m, inner) => {
+    const ym = String(inner).match(/(19|20)\d{2}/); if (!ym) return m;
+    const yr = ym[0];
+    const tok = String(inner).split(',')[0].replace(/\bet al\.?/i, '').replace(/&.*/, '').trim().split(/\s+/)[0].toLowerCase();
+    if (!tok || tok.length < 2) return m;
+    const src = sources.find((x: any) => String(x.year) === yr && (x.authorStr || '').toLowerCase().indexOf(tok) !== -1);
+    return src && src.url ? '[' + m + '](' + src.url + ')' : m;
+  });
+  return t;
+}
+
 export function LiteratureReviewView({ messages, onHome }: any) {
   const [question, setQuestion] = useState('');
   const [papers, setPapers] = useState([] as any[]);
@@ -293,6 +307,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [colInput, setColInput] = useState('');
   const [colBusy, setColBusy] = useState(false);
   const lastQRef = useRef('');
+  const agentSessionKeyRef = useRef('');
   const [input, setInput] = useState('');
   const [followups, setFollowups] = useState([] as string[]);
   const [filtOpen, setFiltOpen] = useState(false);
@@ -465,6 +480,13 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     }
   }
 
+  function persistAgentSession(key: string, arr: any[]) {
+    if (!key) return;
+    try { const raw = localStorage.getItem('pinnovix_lit_agent_sessions'); const map = raw ? JSON.parse(raw) : {}; map[key] = arr; localStorage.setItem('pinnovix_lit_agent_sessions', JSON.stringify(map)); } catch {}
+  }
+  function loadAgentSession(key: string): any[] | null {
+    try { const raw = localStorage.getItem('pinnovix_lit_agent_sessions'); const map = raw ? JSON.parse(raw) : {}; return map[key] || null; } catch { return null; }
+  }
   function pushRecent(q: string, type: string) {
     try {
       const raw = localStorage.getItem('pinnovix_lit_recents');
@@ -508,6 +530,12 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     const ty = typeof r === 'string' ? '' : r.type;
     lastQRef.current = q;
     if (ty === 'Research report') { setMode('report'); runReport(q, reportSource); }
+    else if (ty === 'Research agent') {
+      setMode('agent');
+      const saved = loadAgentSession(q);
+      if (saved && saved.length) { setAgentChat(saved); agentSessionKeyRef.current = q; }
+      else { setAgentChat([]); agentSessionKeyRef.current = q; setTimeout(() => agentSend(q), 60); }
+    }
     else { setMode('find'); runReview(q); }
   }
   function selectMode(id: string) {
@@ -864,7 +892,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     const q = (text || '').trim();
     if (!q || agentBusy) return;
     setAgentInput('');
-    if (!agentChat.length) pushRecent(q, 'Research agent');
+    if (!agentChat.length) { pushRecent(q, 'Research agent'); agentSessionKeyRef.current = q; }
     setAgentChat((prev) => [...prev, { role: 'user', text: q }, { role: 'assistant', text: '', busy: true, steps: ['Planning research approach...'], sources: [] }]);
     setAgentBusy(true);
     let sources: any[] = [];
@@ -873,8 +901,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       sources = await searchPapers(q, paperSource, 8);
       setAgentChat((prev) => { const m = [...prev]; m[m.length - 1] = { ...m[m.length - 1], steps: ['Planned research approach', 'Found ' + sources.length + ' sources', 'Analysing and synthesising...'], sources: sources }; return m; });
       const list = sources.map((p, i) => '[' + (i + 1) + '] ' + p.title + ' (' + p.authorStr + ', ' + p.year + '). ' + (p.abstract || '').slice(0, 400)).join('\n\n');
-      const ans = await callChat('Answer this research question using ONLY the sources below. Give a structured Markdown answer with inline (Author, Year) citations and a short bottom-line synthesis. Question: "' + q + '"\n\nSources:\n' + list);
-      setAgentChat((prev) => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', busy: false, text: ans || 'No answer generated.', steps: ['Planned research approach', 'Found ' + sources.length + ' sources', 'Synthesised findings'], sources: sources }; return m; });
+      const ans = await callChat('Answer this research question using ONLY the numbered sources below. Support each claim with a bracketed citation like [1] or [2] that refers to the matching source number (you may combine like [1][3]). Do not invent sources. Give a structured Markdown answer with a short bottom-line synthesis. Question: "' + q + '"\n\nSources:\n' + list);
+      setAgentChat((prev) => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', busy: false, text: linkifyAgent(ans || 'No answer generated.', sources), steps: ['Planned research approach', 'Found ' + sources.length + ' sources', 'Synthesised findings'], sources: sources }; persistAgentSession(agentSessionKeyRef.current, m); return m; });
     } catch {
       setAgentChat((prev) => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', busy: false, text: 'Could not complete the research. Please try again.', steps: [], sources: [] }; return m; });
     } finally {
@@ -1929,7 +1957,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                 </div>
               ) : null}
               {m.text ? (
-                <div className="bg-muted/50 border border-border rounded-2xl px-4 py-2.5 text-[13.5px] prose prose-sm dark:prose-invert max-w-none"><ReactMarkdown>{m.text}</ReactMarkdown></div>
+                <div className="bg-muted/50 border border-border rounded-2xl px-4 py-2.5 text-[13.5px] prose prose-sm dark:prose-invert max-w-none"><ReactMarkdown components={{ a: (props: any) => <a {...props} target="_blank" rel="noreferrer" className="text-primary font-semibold no-underline hover:underline" /> }}>{m.text}</ReactMarkdown></div>
               ) : null}
               {m.sources && m.sources.length ? (
                 <div className="flex flex-col gap-1.5">
