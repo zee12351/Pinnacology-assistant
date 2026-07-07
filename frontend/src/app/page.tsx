@@ -480,10 +480,8 @@ export default function HomePage() {
             <div className="p-4 flex flex-col gap-6">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
+                  <span className="w-7 h-7 bg-contain bg-no-repeat bg-center shrink-0" style={{ backgroundImage: 'url(/logo.svg)' }} />
                   <span className="font-bold text-lg tracking-wide text-foreground">Pinnovix</span>
-                  <div className="w-6 h-6 rounded bg-gradient-to-br from-teal-400 to-blue-500 flex items-center justify-center shadow-lg text-white font-bold text-[10px]">
-                    Ai
-                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <button onClick={() => setIsLeftSidebarOpen(false)} className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded hover:bg-muted">

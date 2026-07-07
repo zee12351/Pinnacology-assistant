@@ -798,7 +798,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     const labels = labelsRaw.split(',').map(l => l.trim()).filter(Boolean);
     const data = valuesRaw.split(',').map(v => parseFloat(v.trim())).filter(n => !isNaN(n));
     if (!data.length) { alert('No valid numeric values provided.'); return; }
-    const palette = ['#5b5fff', '#10b981', '#f59e0b', '#ef4444', '#6d93e8', '#a855f7', '#14b8a6', '#ec4899'];
+    const palette = ['#2563eb', '#10b981', '#f59e0b', '#ef4444', '#6d93e8', '#a855f7', '#14b8a6', '#ec4899'];
     const isCircular = type === 'pie' || type === 'doughnut';
     const config = {
       type,
@@ -807,8 +807,8 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         datasets: [{
           label: 'Data',
           data,
-          backgroundColor: isCircular ? palette : '#5b5fff',
-          borderColor: '#5b5fff',
+          backgroundColor: isCircular ? palette : '#2563eb',
+          borderColor: '#2563eb',
           fill: type !== 'line',
         }],
       },
@@ -2732,7 +2732,7 @@ Text to review: "${editor?.getText() || documentContent}"`, {
             const { svg } = await mermaid.render(id, block.textContent);
             // Replace the pre element with a beautiful div containing the SVG
             const div = document.createElement('div');
-            div.className = 'my-6 p-4 bg-[#1e1e1e] border border-[#333] rounded-xl flex justify-center shadow-lg';
+            div.className = 'my-6 p-4 bg-[#0f1d3d] border border-[#333] rounded-xl flex justify-center shadow-lg';
             div.innerHTML = svg;
             pre.parentNode?.replaceChild(div, pre);
           }
@@ -3155,7 +3155,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                 value={chatSearch}
                 onChange={(e) => setChatSearch(e.target.value)}
                 placeholder="Search chats"
-                className="w-full bg-[#222] border border-[#3d3d3d] rounded-lg pl-8 pr-2 py-1.5 text-[12px] text-gray-200 placeholder:text-gray-500 outline-none focus:border-[#5b5fff] transition-colors"
+                className="w-full bg-[#222] border border-[#3d3d3d] rounded-lg pl-8 pr-2 py-1.5 text-[12px] text-gray-200 placeholder:text-gray-500 outline-none focus:border-[#2563eb] transition-colors"
               />
             </div>
 
@@ -3194,7 +3194,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                           setSelectedChats(selectedChats.filter(id => id !== chat.id));
                         }
                       }}
-                      className="w-3.5 h-3.5 shrink-0 rounded border-gray-500 bg-transparent accent-[#5b5fff] cursor-pointer"
+                      className="w-3.5 h-3.5 shrink-0 rounded border-gray-500 bg-transparent accent-[#2563eb] cursor-pointer"
                     />
                     {chat.pinned
                       ? <Star className="w-4 h-4 shrink-0 text-amber-400 fill-amber-400" />
@@ -3211,7 +3211,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                             if (e.key === 'Enter') { renameChat(chat.id, editingTitle); setEditingChatId(null); }
                             if (e.key === 'Escape') setEditingChatId(null);
                           }}
-                          className="bg-[#1a1a1a] border border-[#5b5fff] rounded px-1.5 py-0.5 text-sm text-white outline-none w-full"
+                          className="bg-[#0c1830] border border-[#2563eb] rounded px-1.5 py-0.5 text-sm text-white outline-none w-full"
                         />
                       ) : (
                         <span
@@ -3270,13 +3270,13 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                     <div className="flex gap-2">
                       <button
                         onClick={(e) => { e.stopPropagation(); setTheme('dark'); }}
-                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[13px] font-bold border transition-colors ${themeMounted && currentTheme === 'dark' ? 'bg-[#5b5fff] border-[#5b5fff] text-white' : 'border-[#333] text-gray-300 hover:bg-[#1a1a1a]'}`}
+                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[13px] font-bold border transition-colors ${themeMounted && currentTheme === 'dark' ? 'bg-[#2563eb] border-[#2563eb] text-white' : 'border-[#333] text-gray-300 hover:bg-[#0c1830]'}`}
                       >
                         <Moon className="w-4 h-4" /> Dark
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); setTheme('light'); }}
-                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[13px] font-bold border transition-colors ${themeMounted && currentTheme === 'light' ? 'bg-[#5b5fff] border-[#5b5fff] text-white' : 'border-[#333] text-gray-300 hover:bg-[#1a1a1a]'}`}
+                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[13px] font-bold border transition-colors ${themeMounted && currentTheme === 'light' ? 'bg-[#2563eb] border-[#2563eb] text-white' : 'border-[#333] text-gray-300 hover:bg-[#0c1830]'}`}
                       >
                         <Sun className="w-4 h-4" /> Light
                       </button>
@@ -3285,7 +3285,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
 
                   <div className="h-[1px] bg-[#222] my-1"></div>
 
-                  <button onClick={(e) => { e.stopPropagation(); }} className="w-full flex items-center gap-2 px-4 py-3 text-[13px] font-bold text-[#7fa3ff] hover:bg-[#1a1a1a] transition-colors">
+                  <button onClick={(e) => { e.stopPropagation(); }} className="w-full flex items-center gap-2 px-4 py-3 text-[13px] font-bold text-[#7fa3ff] hover:bg-[#0c1830] transition-colors">
                     <Star className="w-4 h-4" /> See Pricing
                   </button>
 
@@ -3306,19 +3306,19 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
       </div>
 
       {/* 2. MIDDLE SECTION */}
-      <div className="flex-1 min-w-0 bg-[#161616] flex flex-col border-r border-[#2a2a2a] relative">
+      <div className="flex-1 min-w-0 bg-[#0a1428] flex flex-col border-r border-[#1b2c4e] relative">
         
         {/* Top Toolbar */}
-        <div className="flex flex-col border-b border-[#2a2a2a] bg-[#161616]">
+        <div className="flex flex-col border-b border-[#1b2c4e] bg-[#0a1428]">
           {/* Header Row */}
-          <div className="flex items-center justify-between px-4 py-2 border-b border-[#2a2a2a]">
-            <div className="flex items-center gap-2 min-w-0"><button onClick={() => setSidebarOpen(true)} className="md:hidden text-gray-300 hover:text-white shrink-0" title="Menu"><Menu className="w-5 h-5" /></button><div className="flex items-baseline gap-2 min-w-0"><span className="text-[15px] font-bold text-white font-serif tracking-wide">Academic Writing <span className="text-gray-400 font-normal">by Pinnovix</span></span>{projectName ? <span className="text-[13px] text-gray-500 truncate max-w-[120px] md:max-w-[160px]">/ {projectName}</span> : null}</div></div>
+          <div className="flex items-center justify-between px-4 py-2 border-b border-[#1b2c4e]">
+            <div className="flex items-center gap-2 min-w-0"><button onClick={() => setSidebarOpen(true)} className="md:hidden text-gray-300 hover:text-white shrink-0" title="Menu"><Menu className="w-5 h-5" /></button><span className="w-6 h-6 bg-contain bg-no-repeat bg-center shrink-0 self-center" style={{ backgroundImage: 'url(/logo.svg)' }} /><div className="flex items-baseline gap-2 min-w-0"><span className="text-[15px] font-bold text-white font-serif tracking-wide">Academic Writing <span className="text-gray-400 font-normal">by Pinnovix</span></span>{projectName ? <span className="text-[13px] text-gray-500 truncate max-w-[120px] md:max-w-[160px]">/ {projectName}</span> : null}</div></div>
             <div className="flex items-center gap-2 sm:gap-3 shrink-0">
               <button onClick={() => setShowShareModal(true)} className="flex items-center gap-2 text-gray-300 hover:text-white transition-colors text-[13px] font-bold" title="Share">
                 <Users className="w-4 h-4" /> <span className="hidden sm:inline">Share</span>
               </button>
               <button onClick={() => { setShowComments(true); setShowAiChat(false); }} className="flex items-center gap-2 text-gray-300 hover:text-white transition-colors text-[13px] font-bold relative" title="Comments">
-                <MessageCircle className="w-4 h-4" /> <span className="hidden sm:inline">Comments</span>{comments.filter(c => !c.archived && c.status === 'open').length > 0 && <span className="absolute -top-1 -right-1 bg-[#5b5fff] text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center">{comments.filter(c => !c.archived && c.status === 'open').length}</span>}
+                <MessageCircle className="w-4 h-4" /> <span className="hidden sm:inline">Comments</span>{comments.filter(c => !c.archived && c.status === 'open').length > 0 && <span className="absolute -top-1 -right-1 bg-[#2563eb] text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center">{comments.filter(c => !c.archived && c.status === 'open').length}</span>}
               </button>
               <button onClick={() => setShowAiChat(true)} className="flex items-center gap-2 text-gray-300 hover:text-white transition-colors text-[13px] font-bold" title="AI Chat">
                 <MessageSquare className="w-4 h-4" /> <span className="hidden sm:inline">AI Chat</span>
@@ -3349,7 +3349,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                   {textMenuOpen && (
                     <>
                       <div className="fixed inset-0 z-[5]" onClick={() => setTextMenuOpen(false)} />
-                      <div className="absolute z-10 top-full left-0 mt-2 w-44 bg-[#1a1a1a] border border-[#333] rounded-lg shadow-2xl py-1">
+                      <div className="absolute z-10 top-full left-0 mt-2 w-44 bg-[#0c1830] border border-[#333] rounded-lg shadow-2xl py-1">
                         <button onClick={() => { editor?.chain().focus().setParagraph().run(); setTextMenuOpen(false); }} className={`w-full text-left px-3 py-2 text-[13px] hover:bg-[#222] ${editor?.isActive('paragraph') ? 'text-white' : 'text-gray-300'}`}>Normal text</button>
                         <button onClick={() => { editor?.chain().focus().toggleHeading({ level: 1 }).run(); setTextMenuOpen(false); }} className={`w-full text-left px-3 py-2 text-[18px] font-bold hover:bg-[#222] ${editor?.isActive('heading', { level: 1 }) ? 'text-white' : 'text-gray-300'}`}>Heading 1</button>
                         <button onClick={() => { editor?.chain().focus().toggleHeading({ level: 2 }).run(); setTextMenuOpen(false); }} className={`w-full text-left px-3 py-2 text-[16px] font-bold hover:bg-[#222] ${editor?.isActive('heading', { level: 2 }) ? 'text-white' : 'text-gray-300'}`}>Heading 2</button>
@@ -3383,7 +3383,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                   <span>Download</span>
                 </button>
                 {downloadMenuOpen && (
-                  <div className="absolute top-full left-0 mt-2 w-40 bg-[#1a1a1a] border border-[#333] rounded-lg shadow-lg overflow-hidden z-50 flex flex-col">
+                  <div className="absolute top-full left-0 mt-2 w-40 bg-[#0c1830] border border-[#333] rounded-lg shadow-lg overflow-hidden z-50 flex flex-col">
                     <button onClick={() => handleDownload('docx')} className="w-full text-left px-4 py-2 hover:bg-[#222] transition-colors text-white font-medium text-[13px] border-b border-[#333]">Word (.docx)</button>
                     <button onClick={() => handleDownload('pdf')} className="w-full text-left px-4 py-2 hover:bg-[#222] transition-colors text-white font-medium text-[13px] border-b border-[#333]">PDF (.pdf)</button>
                     <button onClick={() => handleDownload('txt')} className="w-full text-left px-4 py-2 hover:bg-[#222] transition-colors text-white font-medium text-[13px] border-b border-[#333]">Plain Text (.txt)</button>
@@ -3403,9 +3403,9 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                 <button onClick={() => handleInsertEquation(true)} className="hover:text-white transition-colors" title="Insert inline math (LaTeX)">[x]</button>
                 <button onClick={() => handleInsertEquation(false)} className="hover:text-white transition-colors" title="Insert equation (LaTeX)">∑</button>
              </div>
-             <div className="ml-auto flex items-center gap-1 bg-[#1a1a1a] border border-[#333] rounded-lg p-0.5 mr-3">
-                <button onClick={() => setGenMode('full')} title="Generate the whole paper at once" className={`px-2.5 py-1 rounded-md text-[12px] font-bold transition-colors ${genMode === 'full' ? 'bg-[#5b5fff] text-white' : 'text-gray-400 hover:text-white'}`}>Full paper</button>
-                <button onClick={() => setGenMode('paragraph')} title="Generate one section at a time, like jenni" className={`px-2.5 py-1 rounded-md text-[12px] font-bold transition-colors ${genMode === 'paragraph' ? 'bg-[#5b5fff] text-white' : 'text-gray-400 hover:text-white'}`}>Paragraph</button>
+             <div className="ml-auto flex items-center gap-1 bg-[#0c1830] border border-[#333] rounded-lg p-0.5 mr-3">
+                <button onClick={() => setGenMode('full')} title="Generate the whole paper at once" className={`px-2.5 py-1 rounded-md text-[12px] font-bold transition-colors ${genMode === 'full' ? 'bg-[#2563eb] text-white' : 'text-gray-400 hover:text-white'}`}>Full paper</button>
+                <button onClick={() => setGenMode('paragraph')} title="Generate one section at a time, like jenni" className={`px-2.5 py-1 rounded-md text-[12px] font-bold transition-colors ${genMode === 'paragraph' ? 'bg-[#2563eb] text-white' : 'text-gray-400 hover:text-white'}`}>Paragraph</button>
              </div>
              <button
                 onClick={() => {
@@ -3419,9 +3419,9 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                 className="flex items-center gap-2"
                 title={autocompleteOn ? 'AI autocomplete on (type, pause, then press Tab to accept)' : 'AI autocomplete off'}
              >
-                <Check className={`w-3 h-3 ${autocompleteOn ? 'text-[#5b5fff]' : 'text-gray-600'}`} />
+                <Check className={`w-3 h-3 ${autocompleteOn ? 'text-[#2563eb]' : 'text-gray-600'}`} />
                 <span className="text-gray-300 font-bold">Autocomplete</span>
-                <div className={`w-8 h-4 rounded-full relative transition-colors ${autocompleteOn ? 'bg-[#5b5fff]' : 'bg-[#444]'}`}>
+                <div className={`w-8 h-4 rounded-full relative transition-colors ${autocompleteOn ? 'bg-[#2563eb]' : 'bg-[#444]'}`}>
                    <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-all ${autocompleteOn ? 'right-0.5' : 'left-0.5'}`}></div>
                 </div>
              </button>
@@ -3442,7 +3442,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
               />
 
               {/* Section 2: Fill Document Prompt */}
-              <div className={`rounded-xl border border-[#2a2a2a] overflow-hidden transition-all duration-300 bg-[#161616]`}>
+              <div className={`rounded-xl border border-[#1b2c4e] overflow-hidden transition-all duration-300 bg-[#0a1428]`}>
                 {promptExpanded ? (
                   <>
                     <div className="px-4 py-3 flex items-center justify-between cursor-pointer" onClick={() => setPromptExpanded(false)}>
@@ -3481,11 +3481,11 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                       })()}
                       
                       <div className="flex items-center justify-center gap-4 my-4 relative">
-                        <div className="absolute left-0 right-0 h-[1px] bg-[#2a2a2a]"></div>
-                        <span className="text-[12px] text-gray-400 bg-[#161616] px-3 relative z-10">or also</span>
+                        <div className="absolute left-0 right-0 h-[1px] bg-[#1b2c4e]"></div>
+                        <span className="text-[12px] text-gray-400 bg-[#0a1428] px-3 relative z-10">or also</span>
                       </div>
                       
-                      <label className="rounded-lg bg-[#222] border border-[#2a2a2a] hover:bg-[#2a2a2a] transition-colors cursor-pointer flex items-center justify-between p-3 relative">
+                      <label className="rounded-lg bg-[#222] border border-[#1b2c4e] hover:bg-[#1b2c4e] transition-colors cursor-pointer flex items-center justify-between p-3 relative">
                         <input type="file" accept=".docx,.pdf,.md,.txt" onChange={handleDocumentImport} disabled={uploadingDoc || localUploadingDoc} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
                         <div className="flex items-center gap-3">
                           <div className="w-6 h-6 rounded bg-[#2b579a] flex items-center justify-center text-white font-bold text-[11px]">W</div>
@@ -3498,7 +3498,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                       </label>
 
                       {importedFileName && (
-                        <div className="mt-3 p-3 rounded-lg bg-[#1a1a1a] border border-[#333] flex items-center justify-between">
+                        <div className="mt-3 p-3 rounded-lg bg-[#0c1830] border border-[#333] flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <CheckCircle2 className="w-4 h-4 text-[#10b981]" />
                             <span className="text-[13px] text-gray-200">{importedFileName}</span>
@@ -3516,7 +3516,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                     </div>
                   </>
                 ) : (
-                  <div onClick={() => setPromptExpanded(true)} className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-[#1a1a1a] transition-colors">
+                  <div onClick={() => setPromptExpanded(true)} className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-[#0c1830] transition-colors">
                     <div className="flex items-center gap-3">
                       <CheckCircle className="w-4 h-4 text-[#10b981]" />
                       <span className="text-[14px] font-bold text-gray-200">Fill document prompt</span>
@@ -3527,31 +3527,31 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
               </div>
 
               {/* Section 3: Citation Settings */}
-              <div className={`rounded-xl border border-[#2a2a2a] overflow-hidden transition-all duration-300 bg-[#161616]`}>
+              <div className={`rounded-xl border border-[#1b2c4e] overflow-hidden transition-all duration-300 bg-[#0a1428]`}>
                 {citationExpanded ? (
                   <>
-                    <div className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-[#1a1a1a] transition-colors" onClick={() => setCitationExpanded(false)}>
+                    <div className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-[#0c1830] transition-colors" onClick={() => setCitationExpanded(false)}>
                       <div className="flex items-center gap-3">
                         <div className="w-4 h-4 rounded-full border-2 border-[#333]" />
                         <span className="text-[14px] font-bold text-gray-200">Citation settings</span>
                       </div>
                       <ChevronRight className="w-4 h-4 text-gray-500 rotate-90" />
                     </div>
-                    <div className="p-4 flex flex-col gap-6 border-t border-[#2a2a2a]">
+                    <div className="p-4 flex flex-col gap-6 border-t border-[#1b2c4e]">
                       
                       <div className="flex items-center justify-between">
                         <span className="text-[14px] font-bold text-white">Publish year</span>
                         <div className="flex gap-1 items-center">
-                          <button onClick={() => setPublishYear('All')} className={`px-3 py-1.5 rounded-md text-[13px] font-bold transition-colors ${publishYear === 'All' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333]'}`}>All</button>
-                          <button onClick={() => setPublishYear('Last 5 years')} className={`px-3 py-1.5 rounded-md text-[13px] font-bold transition-colors ${publishYear === 'Last 5 years' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333]'}`}>Last 5 years</button>
-                          <button onClick={() => setPublishYear('Custom')} className={`px-3 py-1.5 rounded-md text-[13px] font-bold transition-colors ${publishYear === 'Custom' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333]'}`}>Custom</button>
+                          <button onClick={() => setPublishYear('All')} className={`px-3 py-1.5 rounded-md text-[13px] font-bold transition-colors ${publishYear === 'All' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#1b2c4e] text-gray-300 hover:bg-[#333]'}`}>All</button>
+                          <button onClick={() => setPublishYear('Last 5 years')} className={`px-3 py-1.5 rounded-md text-[13px] font-bold transition-colors ${publishYear === 'Last 5 years' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#1b2c4e] text-gray-300 hover:bg-[#333]'}`}>Last 5 years</button>
+                          <button onClick={() => setPublishYear('Custom')} className={`px-3 py-1.5 rounded-md text-[13px] font-bold transition-colors ${publishYear === 'Custom' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#1b2c4e] text-gray-300 hover:bg-[#333]'}`}>Custom</button>
                           {publishYear === 'Custom' && (
                             <input 
                               type="text" 
                               value={customPublishYear}
                               onChange={(e) => setCustomPublishYear(e.target.value)}
                               placeholder="e.g. 2010-2020" 
-                              className="ml-2 px-3 py-1.5 bg-[#1a1a1a] text-white rounded-md border border-[#333] outline-none text-[13px] w-28 placeholder:text-gray-500 transition-colors focus:border-[#464eb8]" 
+                              className="ml-2 px-3 py-1.5 bg-[#0c1830] text-white rounded-md border border-[#333] outline-none text-[13px] w-28 placeholder:text-gray-500 transition-colors focus:border-[#464eb8]" 
                             />
                           )}
                         </div>
@@ -3560,10 +3560,10 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                       <div className="flex items-center justify-between">
                         <span className="text-[14px] font-bold text-white">Impact Factor</span>
                         <div className="flex gap-1">
-                          <button onClick={() => setImpactFactor('All')} className={`px-3 py-1.5 rounded-md text-[13px] font-bold transition-colors ${impactFactor === 'All' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333]'}`}>All</button>
-                          <button onClick={() => setImpactFactor('0.25+')} className={`px-3 py-1.5 rounded-md text-[13px] font-bold transition-colors ${impactFactor === '0.25+' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333]'}`}>0.25+</button>
-                          <button onClick={() => setImpactFactor('3+')} className={`px-3 py-1.5 rounded-md text-[13px] font-bold transition-colors ${impactFactor === '3+' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333]'}`}>3+</button>
-                          <button onClick={() => setImpactFactor('10+')} className={`px-3 py-1.5 rounded-md text-[13px] font-bold transition-colors ${impactFactor === '10+' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333]'}`}>10+</button>
+                          <button onClick={() => setImpactFactor('All')} className={`px-3 py-1.5 rounded-md text-[13px] font-bold transition-colors ${impactFactor === 'All' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#1b2c4e] text-gray-300 hover:bg-[#333]'}`}>All</button>
+                          <button onClick={() => setImpactFactor('0.25+')} className={`px-3 py-1.5 rounded-md text-[13px] font-bold transition-colors ${impactFactor === '0.25+' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#1b2c4e] text-gray-300 hover:bg-[#333]'}`}>0.25+</button>
+                          <button onClick={() => setImpactFactor('3+')} className={`px-3 py-1.5 rounded-md text-[13px] font-bold transition-colors ${impactFactor === '3+' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#1b2c4e] text-gray-300 hover:bg-[#333]'}`}>3+</button>
+                          <button onClick={() => setImpactFactor('10+')} className={`px-3 py-1.5 rounded-md text-[13px] font-bold transition-colors ${impactFactor === '10+' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#1b2c4e] text-gray-300 hover:bg-[#333]'}`}>10+</button>
                         </div>
                       </div>
 
@@ -3572,7 +3572,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                           <span className="text-[14px] font-bold text-white">Consider external sources</span>
                           <span className="text-[13px] text-gray-500">Pinnovix will consider sources from the web</span>
                         </div>
-                        <div onClick={() => setExternalSources(!externalSources)} className={`w-[42px] h-[24px] rounded-full flex items-center px-0.5 cursor-pointer transition-colors ${externalSources ? 'bg-[#5b5fff]' : 'bg-[#3d3d3d]'}`}>
+                        <div onClick={() => setExternalSources(!externalSources)} className={`w-[42px] h-[24px] rounded-full flex items-center px-0.5 cursor-pointer transition-colors ${externalSources ? 'bg-[#2563eb]' : 'bg-[#3d3d3d]'}`}>
                           <div className={`w-[18px] h-[18px] bg-white rounded-full shadow-sm transition-transform ${externalSources ? 'translate-x-[20px]' : 'translate-x-0'}`} />
                         </div>
                       </div>
@@ -3592,7 +3592,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                           <span className="text-[14px] font-bold text-white">Limit to a collection</span>
                           <span className="text-[13px] text-gray-500">Pinnovix will focus on sources from this collection</span>
                         </div>
-                        <div className="px-4 py-2.5 border border-[#444] rounded-lg text-[14px] font-bold text-gray-400 flex items-center justify-between gap-4 w-[240px] bg-[#1a1a1a] cursor-pointer">
+                        <div className="px-4 py-2.5 border border-[#444] rounded-lg text-[14px] font-bold text-gray-400 flex items-center justify-between gap-4 w-[240px] bg-[#0c1830] cursor-pointer">
                           <span>All Sources</span>
                           <ChevronRight className="w-4 h-4 rotate-90 text-gray-500" />
                         </div>
@@ -3600,7 +3600,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
 
                       <div className="flex items-center justify-between">
                         <span className="text-[14px] font-bold text-white">Citation Style</span>
-                        <div onClick={() => { setShowCitationModal(true); loadStyleIndex(); }} className="px-4 py-2.5 border border-[#444] rounded-lg text-[14px] font-bold text-gray-200 flex items-center justify-between gap-4 w-[300px] bg-[#1a1a1a] cursor-pointer hover:bg-[#222] transition-colors">
+                        <div onClick={() => { setShowCitationModal(true); loadStyleIndex(); }} className="px-4 py-2.5 border border-[#444] rounded-lg text-[14px] font-bold text-gray-200 flex items-center justify-between gap-4 w-[300px] bg-[#0c1830] cursor-pointer hover:bg-[#222] transition-colors">
                           <span className="truncate">{citationStyle}</span>
                           <ChevronRight className="w-4 h-4 rotate-90 text-gray-500 shrink-0" />
                         </div>
@@ -3608,7 +3608,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
 
                       <div className="flex items-center justify-between">
                         <span className="text-[14px] font-bold text-white">Show page number in citations</span>
-                        <div onClick={() => setPageNumbers(!pageNumbers)} className={`w-[42px] h-[24px] rounded-full flex items-center px-0.5 cursor-pointer transition-colors ${pageNumbers ? 'bg-[#5b5fff]' : 'bg-[#3d3d3d]'}`}>
+                        <div onClick={() => setPageNumbers(!pageNumbers)} className={`w-[42px] h-[24px] rounded-full flex items-center px-0.5 cursor-pointer transition-colors ${pageNumbers ? 'bg-[#2563eb]' : 'bg-[#3d3d3d]'}`}>
                           <div className={`w-[18px] h-[18px] bg-white rounded-full shadow-sm transition-transform ${pageNumbers ? 'translate-x-[20px]' : 'translate-x-0'}`} />
                         </div>
                       </div>
@@ -3619,7 +3619,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                     </div>
                   </>
                 ) : (
-                  <div onClick={() => setCitationExpanded(true)} className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-[#1a1a1a] transition-colors">
+                  <div onClick={() => setCitationExpanded(true)} className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-[#0c1830] transition-colors">
                     <div className="flex items-center gap-3">
                       <CheckCircle className="w-4 h-4 text-[#10b981]" />
                       <span className="text-[14px] font-bold text-gray-200">Citation settings</span>
@@ -3630,7 +3630,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
               </div>
 
               {/* Section 4: Generate Headings */}
-              <div className={`rounded-xl border border-[#2a2a2a] overflow-hidden transition-all duration-300 bg-[#161616]`}>
+              <div className={`rounded-xl border border-[#1b2c4e] overflow-hidden transition-all duration-300 bg-[#0a1428]`}>
                 {headingsExpanded ? (
                   <>
                     <div className="px-4 py-3 flex items-center justify-between cursor-pointer" onClick={() => setHeadingsExpanded(false)}>
@@ -3641,16 +3641,16 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                       <ChevronRight className="w-4 h-4 text-gray-500 rotate-90" />
                     </div>
                     
-                    <div className="p-4 flex flex-col gap-3 border-t border-[#2a2a2a]">
+                    <div className="p-4 flex flex-col gap-3 border-t border-[#1b2c4e]">
                       <span className="text-[14px] font-bold text-gray-200 mb-2">Generate outline</span>
                       
                       {/* Option 1 */}
                       <div 
                         onClick={() => setHeadingsOption('Standard headings (IMRaD)')}
-                        className={`p-4 rounded-lg border cursor-pointer transition-colors flex items-start gap-4 ${headingsOption === 'Standard headings (IMRaD)' ? 'bg-[#1b1c3a] border-[#5b5fff]' : 'bg-[#1a1a1a] border-[#2a2a2a] hover:bg-[#222]'}`}
+                        className={`p-4 rounded-lg border cursor-pointer transition-colors flex items-start gap-4 ${headingsOption === 'Standard headings (IMRaD)' ? 'bg-[#1b1c3a] border-[#2563eb]' : 'bg-[#0c1830] border-[#1b2c4e] hover:bg-[#222]'}`}
                       >
-                        <div className={`w-4 h-4 mt-0.5 rounded-full border-2 flex items-center justify-center ${headingsOption === 'Standard headings (IMRaD)' ? 'border-[#5b5fff]' : 'border-[#444]'}`}>
-                          {headingsOption === 'Standard headings (IMRaD)' && <div className="w-2 h-2 bg-[#5b5fff] rounded-full" />}
+                        <div className={`w-4 h-4 mt-0.5 rounded-full border-2 flex items-center justify-center ${headingsOption === 'Standard headings (IMRaD)' ? 'border-[#2563eb]' : 'border-[#444]'}`}>
+                          {headingsOption === 'Standard headings (IMRaD)' && <div className="w-2 h-2 bg-[#2563eb] rounded-full" />}
                         </div>
                         <div className="w-8 h-10 bg-white rounded flex flex-col gap-1.5 items-center justify-center px-1">
                            <div className="w-full h-0.5 bg-gray-300"></div>
@@ -3666,13 +3666,13 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                       {/* Option 2 */}
                       <div 
                         onClick={() => setHeadingsOption('Smart headings')}
-                        className={`p-4 rounded-lg border cursor-pointer transition-colors flex items-start gap-4 ${headingsOption === 'Smart headings' ? 'bg-[#1b1c3a] border-[#5b5fff]' : 'bg-[#1a1a1a] border-[#2a2a2a] hover:bg-[#222]'}`}
+                        className={`p-4 rounded-lg border cursor-pointer transition-colors flex items-start gap-4 ${headingsOption === 'Smart headings' ? 'bg-[#1b1c3a] border-[#2563eb]' : 'bg-[#0c1830] border-[#1b2c4e] hover:bg-[#222]'}`}
                       >
-                        <div className={`w-4 h-4 mt-0.5 rounded-full border-2 flex items-center justify-center ${headingsOption === 'Smart headings' ? 'border-[#5b5fff]' : 'border-[#444]'}`}>
-                          {headingsOption === 'Smart headings' && <div className="w-2 h-2 bg-[#5b5fff] rounded-full" />}
+                        <div className={`w-4 h-4 mt-0.5 rounded-full border-2 flex items-center justify-center ${headingsOption === 'Smart headings' ? 'border-[#2563eb]' : 'border-[#444]'}`}>
+                          {headingsOption === 'Smart headings' && <div className="w-2 h-2 bg-[#2563eb] rounded-full" />}
                         </div>
                         <div className="w-8 h-10 bg-white rounded flex flex-col gap-1.5 items-center justify-center px-1 relative">
-                           <Star className="w-3 h-3 text-[#5b5fff] absolute -top-2 -right-2 fill-[#5b5fff]" />
+                           <Star className="w-3 h-3 text-[#2563eb] absolute -top-2 -right-2 fill-[#2563eb]" />
                            <div className="w-full h-0.5 bg-gray-300"></div>
                            <div className="w-full h-0.5 bg-gray-300"></div>
                            <div className="w-full h-0.5 bg-gray-300"></div>
@@ -3686,10 +3686,10 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                       {/* Option 3 */}
                       <div 
                         onClick={() => setHeadingsOption('No headings')}
-                        className={`p-4 rounded-lg border cursor-pointer transition-colors flex items-start gap-4 ${headingsOption === 'No headings' ? 'bg-[#1b1c3a] border-[#5b5fff]' : 'bg-[#1a1a1a] border-[#2a2a2a] hover:bg-[#222]'}`}
+                        className={`p-4 rounded-lg border cursor-pointer transition-colors flex items-start gap-4 ${headingsOption === 'No headings' ? 'bg-[#1b1c3a] border-[#2563eb]' : 'bg-[#0c1830] border-[#1b2c4e] hover:bg-[#222]'}`}
                       >
-                        <div className={`w-4 h-4 mt-0.5 rounded-full border-2 flex items-center justify-center ${headingsOption === 'No headings' ? 'border-[#5b5fff]' : 'border-[#444]'}`}>
-                          {headingsOption === 'No headings' && <div className="w-2 h-2 bg-[#5b5fff] rounded-full" />}
+                        <div className={`w-4 h-4 mt-0.5 rounded-full border-2 flex items-center justify-center ${headingsOption === 'No headings' ? 'border-[#2563eb]' : 'border-[#444]'}`}>
+                          {headingsOption === 'No headings' && <div className="w-2 h-2 bg-[#2563eb] rounded-full" />}
                         </div>
                         <div className="w-8 h-10 bg-white rounded flex flex-col gap-1.5 items-center justify-center px-1">
                            <div className="w-full h-0.5 bg-gray-300"></div>
@@ -3701,12 +3701,12 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                       </div>
 
                       <div className="flex justify-end mt-4">
-                         <button onClick={onStartWriting} className="bg-[#5b5fff] hover:bg-[#6b6fff] text-white px-6 py-2.5 rounded-lg text-[15px] font-bold transition-colors shadow-sm">Start Writing</button>
+                         <button onClick={onStartWriting} className="bg-[#2563eb] hover:bg-[#3b82f6] text-white px-6 py-2.5 rounded-lg text-[15px] font-bold transition-colors shadow-sm">Start Writing</button>
                       </div>
                     </div>
                   </>
                 ) : (
-                  <div onClick={() => setHeadingsExpanded(true)} className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-[#1a1a1a] transition-colors">
+                  <div onClick={() => setHeadingsExpanded(true)} className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-[#0c1830] transition-colors">
                     <div className="flex items-center gap-3">
                       <div className="w-4 h-4 rounded-full border-2 border-[#333]" />
                       <span className="text-[14px] font-bold text-gray-200">Generate Headings</span>
@@ -3719,7 +3719,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                 <h3 className="text-[13px] font-bold text-gray-400 mb-2 px-1">Or start from a template</h3>
                 <div className="grid grid-cols-2 gap-2">
                   {PAPER_TEMPLATES.map(tpl => (
-                    <button key={tpl.id} onClick={() => insertTemplate(tpl)} className="text-left rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] hover:border-[#5b5fff] hover:bg-[#222] p-3 transition-colors">
+                    <button key={tpl.id} onClick={() => insertTemplate(tpl)} className="text-left rounded-xl border border-[#1b2c4e] bg-[#0c1830] hover:border-[#2563eb] hover:bg-[#222] p-3 transition-colors">
                       <div className="text-[14px] font-bold text-gray-200">{tpl.name}</div>
                       <div className="text-[12px] text-gray-500 leading-snug">{tpl.desc}</div>
                     </button>
@@ -3734,12 +3734,12 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
               <div className="mt-4 flex flex-col gap-3">
                 <h3 className="text-[14px] font-bold text-gray-300">Explore</h3>
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-xl bg-[#222] p-4 flex flex-col gap-2 hover:bg-[#2a2a2a] transition-colors cursor-pointer border border-[#2a2a2a]">
+                  <div className="rounded-xl bg-[#222] p-4 flex flex-col gap-2 hover:bg-[#1b2c4e] transition-colors cursor-pointer border border-[#1b2c4e]">
                      <MessageSquare className="w-5 h-5 text-gray-300" />
                      <h4 className="text-[14px] font-bold text-gray-200">Chat with AI</h4>
                      <p className="text-[12px] text-gray-500 leading-relaxed">Discover papers, brainstorm ideas or write a draft</p>
                   </div>
-                  <button type="button" onClick={() => setShowUploadModal(true)} className="text-left rounded-xl bg-[#222] p-4 flex flex-col gap-2 hover:bg-[#2a2a2a] transition-colors cursor-pointer border border-[#2a2a2a] relative">
+                  <button type="button" onClick={() => setShowUploadModal(true)} className="text-left rounded-xl bg-[#222] p-4 flex flex-col gap-2 hover:bg-[#1b2c4e] transition-colors cursor-pointer border border-[#1b2c4e] relative">
                      <Upload className="w-5 h-5 text-gray-300" />
                      <h4 className="text-[14px] font-bold text-gray-200">Upload Sources</h4>
                      <p className="text-[12px] text-gray-500 leading-relaxed">Upload PDFs, or import from Zotero, Mendeley or by DOI/PMID/arXiv</p>
@@ -3782,7 +3782,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                           {pending.text}{pending.cite ? <> <span className="text-blue-500 font-medium">{pending.cite}</span></> : null}
                         </p>
                         <div className="flex items-center gap-3 mt-3">
-                          <button onClick={acceptPending} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#5b5fff] text-white font-bold text-[13px] hover:bg-[#6b6fff] transition-colors">Accept <Check className="w-4 h-4" /></button>
+                          <button onClick={acceptPending} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#2563eb] text-white font-bold text-[13px] hover:bg-[#3b82f6] transition-colors">Accept <Check className="w-4 h-4" /></button>
                           <button onClick={() => generateNextSectionRef.current?.()} disabled={genBusy} className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 text-gray-700 font-semibold text-[13px] hover:bg-gray-100 disabled:opacity-50 transition-colors">{genBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} Refine suggestion</button>
                           <button onClick={() => setPending(null)} className="text-gray-400 hover:text-gray-600" title="Dismiss"><X className="w-4 h-4" /></button>
                         </div>
@@ -3885,13 +3885,13 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                               <p className="text-[12px] text-[#10b981]">{it.container}{it.year && <span className="text-gray-500"> • {it.year}</span>}</p>
                             )}
                             {it.abstract ? (
-                              <div onClick={() => viewCitationSection(it)} title="Open this passage in the source paper" className="mt-1 bg-[#333]/50 rounded-lg p-2.5 text-[12px] text-gray-300 leading-relaxed border-l-2 border-[#5b5fff] cursor-pointer hover:bg-[#3a3a3a]/70 transition-colors">
+                              <div onClick={() => viewCitationSection(it)} title="Open this passage in the source paper" className="mt-1 bg-[#333]/50 rounded-lg p-2.5 text-[12px] text-gray-300 leading-relaxed border-l-2 border-[#2563eb] cursor-pointer hover:bg-[#3a3a3a]/70 transition-colors">
                                 {citeExpanded || !it.truncated
                                   ? it.abstract
                                   : <>{it.abstract}… <button onClick={(e) => { e.stopPropagation(); setCiteExpanded(true); }} className="text-white font-bold hover:underline">See more</button></>}
                               </div>
                             ) : (it.title && (
-                              <div onClick={() => viewCitationSection(it)} title="Open this passage in the source paper" className="mt-1 bg-[#333]/50 rounded-lg p-2.5 text-[12px] text-gray-400 italic leading-relaxed border-l-2 border-[#5b5fff] cursor-pointer hover:bg-[#3a3a3a]/70 transition-colors">
+                              <div onClick={() => viewCitationSection(it)} title="Open this passage in the source paper" className="mt-1 bg-[#333]/50 rounded-lg p-2.5 text-[12px] text-gray-400 italic leading-relaxed border-l-2 border-[#2563eb] cursor-pointer hover:bg-[#3a3a3a]/70 transition-colors">
                                 {`A ${it.type || 'paper'}${it.container ? ` published in ${it.container}` : ''}${it.year ? ` in ${it.year}` : ''}${it.authors ? ` by ${it.authors.split(',')[0]}${it.authors.includes(',') ? ' et al.' : ''}` : ''}${it.citedBy != null ? `, cited ${it.citedBy} times` : ''}. No abstract was available from the indexing databases.`}
                               </div>
                             ))}
@@ -3905,19 +3905,19 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                       ))
                     )}
                   </div>
-                  <div className="px-3 py-2.5 bg-[#1e1e1e] border-t border-[#333] flex items-center justify-between text-gray-300">
+                  <div className="px-3 py-2.5 bg-[#0f1d3d] border-t border-[#333] flex items-center justify-between text-gray-300">
                     <div className="flex items-center gap-1">
-                      <button onClick={() => refineCitation(citationPopup.text)} title="Edit / change the linked source" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] font-bold hover:bg-[#2a2a2a] transition-colors">
+                      <button onClick={() => refineCitation(citationPopup.text)} title="Edit / change the linked source" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] font-bold hover:bg-[#1b2c4e] transition-colors">
                         <Pencil className="w-3.5 h-3.5" /> Edit
                       </button>
-                      <button onClick={narrativeCitation} title="Switch between parenthetical and narrative form" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] font-bold hover:bg-[#2a2a2a] transition-colors">
+                      <button onClick={narrativeCitation} title="Switch between parenthetical and narrative form" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] font-bold hover:bg-[#1b2c4e] transition-colors">
                         <ArrowLeftRight className="w-3.5 h-3.5" /> Narrative
                       </button>
-                      <button onClick={viewCitationSource} title="Open the source page" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] font-bold hover:bg-[#2a2a2a] transition-colors">
+                      <button onClick={viewCitationSource} title="Open the source page" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] font-bold hover:bg-[#1b2c4e] transition-colors">
                         <ExternalLink className="w-3.5 h-3.5" /> View
                       </button>
                     </div>
-                    <button onClick={saveCitationRef} title="Copy the full reference" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] font-bold hover:bg-[#2a2a2a] transition-colors">
+                    <button onClick={saveCitationRef} title="Copy the full reference" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] font-bold hover:bg-[#1b2c4e] transition-colors">
                       <Bookmark className="w-3.5 h-3.5" /> {citeSaved ? 'Saved' : 'Save'}
                     </button>
                   </div>
@@ -3929,7 +3929,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
 
         {/* Floating Edit Bar */}
         {isEditing && (
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-full max-w-2xl bg-[#1e1e1e] border border-[#333] rounded-2xl shadow-2xl p-2 flex items-center gap-3 z-50">
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-full max-w-2xl bg-[#0f1d3d] border border-[#333] rounded-2xl shadow-2xl p-2 flex items-center gap-3 z-50">
              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-teal-400 to-blue-500 flex items-center justify-center shadow-lg text-white font-bold text-xs shrink-0 ml-1">
                Ai
              </div>
@@ -3957,10 +3957,10 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
       {/* 3. RIGHT SECTION: Review Panel */}
       {rightDrawerOpen && <div className="lg:hidden fixed inset-0 bg-black/50 z-40" onClick={() => setRightDrawerOpen(false)} />}
       {(isRightPanelOpen || rightDrawerOpen) && (
-        <div className={`${rightDrawerOpen ? 'flex' : 'hidden lg:flex'} fixed lg:static inset-y-0 right-0 z-50 w-[85vw] max-w-[360px] lg:w-[340px] bg-[#1a1a1a] border-l border-[#2a2a2a] flex-col shrink-0 h-full transition-transform duration-200`}>
+        <div className={`${rightDrawerOpen ? 'flex' : 'hidden lg:flex'} fixed lg:static inset-y-0 right-0 z-50 w-[85vw] max-w-[360px] lg:w-[340px] bg-[#0c1830] border-l border-[#1b2c4e] flex-col shrink-0 h-full transition-transform duration-200`}>
         
         {/* Header */}
-        <div className="px-5 py-5 flex items-center gap-3 border-b border-[#2a2a2a]">
+        <div className="px-5 py-5 flex items-center gap-3 border-b border-[#1b2c4e]">
           {activeReviewTab ? (
              <button onClick={() => setActiveReviewTab(null)} className="text-gray-400 hover:text-white transition-colors">
                <ChevronLeft className="w-5 h-5" />
@@ -3983,7 +3983,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                {activeReviewTab === 'claim' && <button onClick={() => setShowClaimConfidenceSettings(true)} className="text-gray-400 hover:text-white"><SlidersHorizontal className="w-4 h-4" /></button>}
                <button onClick={() => {
                  setActiveReviewTab(null);
-               }} className="w-6 h-6 border border-[#333] rounded flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#2a2a2a]">
+               }} className="w-6 h-6 border border-[#333] rounded flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#1b2c4e]">
                  <RotateCcw className="w-3.5 h-3.5" />
                </button>
              </div>
@@ -3995,7 +3995,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
            {!activeReviewTab && (
               <>
                  {/* Card 1: Citation Health */}
-                 <div className="bg-[#1e1e1e] border border-[#2a2a2a] rounded-xl p-5 flex flex-col gap-3">
+                 <div className="bg-[#0f1d3d] border border-[#1b2c4e] rounded-xl p-5 flex flex-col gap-3">
                    <div className="w-8 h-8 rounded-full bg-[#1b1c3a] flex items-center justify-center mb-1">
                      <Star className="w-4 h-4 text-[#7d84ff]" />
                    </div>
@@ -4004,7 +4004,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                      Checks your writing, finds missing or weak citations, and adds references to help you avoid academic plagiarism
                    </p>
                    <div className="flex items-center gap-3 mt-2">
-                     <button onClick={handleClaimConfidence} disabled={loading} className="flex items-center gap-2 border border-[#333] rounded-lg px-3 py-1.5 hover:bg-[#2a2a2a] transition-colors disabled:opacity-50">
+                     <button onClick={handleClaimConfidence} disabled={loading} className="flex items-center gap-2 border border-[#333] rounded-lg px-3 py-1.5 hover:bg-[#1b2c4e] transition-colors disabled:opacity-50">
                         <Play className="w-3.5 h-3.5 text-gray-300" />
                         <span className="text-[13px] font-bold text-white">Run review</span>
                      </button>
@@ -4015,7 +4015,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                  </div>
 
                  {/* Card: Expert Review */}
-                 <div className="bg-[#1e1e1e] border border-[#2a2a2a] rounded-xl p-5 flex flex-col gap-3">
+                 <div className="bg-[#0f1d3d] border border-[#1b2c4e] rounded-xl p-5 flex flex-col gap-3">
                    <div className="w-8 h-8 rounded-full bg-[#1b1c3a] flex items-center justify-center mb-1">
                      <Users className="w-4 h-4 text-[#7d84ff]" />
                    </div>
@@ -4024,7 +4024,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                      Simulate an expert academic peer review with scores, strengths, weaknesses and questions for the authors.
                    </p>
                    <div className="flex items-center gap-3 mt-2">
-                     <button onClick={handlePeerReview} disabled={loading} className="flex items-center gap-2 border border-[#333] rounded-lg px-3 py-1.5 hover:bg-[#2a2a2a] transition-colors disabled:opacity-50">
+                     <button onClick={handlePeerReview} disabled={loading} className="flex items-center gap-2 border border-[#333] rounded-lg px-3 py-1.5 hover:bg-[#1b2c4e] transition-colors disabled:opacity-50">
                         <Play className="w-3.5 h-3.5 text-gray-300" />
                         <span className="text-[13px] font-bold text-white">Run review</span>
                      </button>
@@ -4032,7 +4032,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                  </div>
 
                  {/* Card 2: Manuscript Insights */}
-                 <div className="bg-[#1e1e1e] border border-[#2a2a2a] rounded-xl p-5 flex flex-col gap-3">
+                 <div className="bg-[#0f1d3d] border border-[#1b2c4e] rounded-xl p-5 flex flex-col gap-3">
                    <div className="w-8 h-8 rounded-full bg-[#1b1c3a] flex items-center justify-center mb-1">
                      <Users className="w-4 h-4 text-[#7d84ff]" />
                    </div>
@@ -4041,7 +4041,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                      Get comprehensive analysis and actionable recommendations to improve your document's quality.
                    </p>
                    <div className="flex items-center gap-3 mt-2">
-                     <button onClick={handleDocumentAnalysis} disabled={loading} className="flex items-center gap-2 border border-[#333] rounded-lg px-3 py-1.5 hover:bg-[#2a2a2a] transition-colors disabled:opacity-50">
+                     <button onClick={handleDocumentAnalysis} disabled={loading} className="flex items-center gap-2 border border-[#333] rounded-lg px-3 py-1.5 hover:bg-[#1b2c4e] transition-colors disabled:opacity-50">
                         <Play className="w-3.5 h-3.5 text-gray-300" />
                         <span className="text-[13px] font-bold text-white">Run review</span>
                      </button>
@@ -4049,7 +4049,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                  </div>
 
                  {/* Card 3: Style & Tone */}
-                 <div className="bg-[#1e1e1e] border border-[#2a2a2a] rounded-xl p-5 flex flex-col gap-3">
+                 <div className="bg-[#0f1d3d] border border-[#1b2c4e] rounded-xl p-5 flex flex-col gap-3">
                    <div className="w-8 h-8 rounded-full bg-[#1b1c3a] flex items-center justify-center mb-1">
                      <MessageSquare className="w-4 h-4 text-[#7d84ff]" />
                    </div>
@@ -4058,7 +4058,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                      Match your document's tone to a preset style or a paper from your library.
                    </p>
                    <div className="flex items-center gap-3 mt-2">
-                     <button onClick={handleToneOfVoice} disabled={loading} className="flex items-center gap-2 border border-[#333] rounded-lg px-3 py-1.5 hover:bg-[#2a2a2a] transition-colors disabled:opacity-50">
+                     <button onClick={handleToneOfVoice} disabled={loading} className="flex items-center gap-2 border border-[#333] rounded-lg px-3 py-1.5 hover:bg-[#1b2c4e] transition-colors disabled:opacity-50">
                         <Play className="w-3.5 h-3.5 text-gray-300" />
                         <span className="text-[13px] font-bold text-white">Run review</span>
                      </button>
@@ -4069,7 +4069,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                  </div>
 
                  {/* Card 4: Proofread */}
-                 <div className="bg-[#1e1e1e] border border-[#2a2a2a] rounded-xl p-5 flex flex-col gap-3">
+                 <div className="bg-[#0f1d3d] border border-[#1b2c4e] rounded-xl p-5 flex flex-col gap-3">
                    <div className="w-8 h-8 rounded-full bg-[#1b1c3a] flex items-center justify-center mb-1">
                      <ListChecks className="w-4 h-4 text-[#7d84ff]" />
                    </div>
@@ -4078,7 +4078,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                      Identify grammar, punctuation, word choice, and other writing issues in your document.
                    </p>
                    <div className="flex items-center gap-3 mt-2">
-                     <button onClick={handleProofread} disabled={loading} className="flex items-center gap-2 border border-[#333] rounded-lg px-3 py-1.5 hover:bg-[#2a2a2a] transition-colors disabled:opacity-50">
+                     <button onClick={handleProofread} disabled={loading} className="flex items-center gap-2 border border-[#333] rounded-lg px-3 py-1.5 hover:bg-[#1b2c4e] transition-colors disabled:opacity-50">
                         <Play className="w-3.5 h-3.5 text-gray-300" />
                         <span className="text-[13px] font-bold text-white">Run review</span>
                      </button>
@@ -4094,7 +4094,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                   {matchingUnmatched.length > 0 && <span className="flex items-center gap-1.5"><AlertTriangle className="w-4 h-4 text-amber-400" /><span className="text-amber-300 font-bold">{matchingUnmatched.length} unmatched</span></span>}
                   {matchingActive && (<span className="flex items-center gap-1.5 text-gray-400"><Loader2 className="w-3.5 h-3.5 animate-spin" />{Math.max(0, matchingTotal - matchingDone)} processing</span>)}
                 </div>
-                <div className="w-full h-1 bg-[#2a2a2a] rounded-full overflow-hidden">
+                <div className="w-full h-1 bg-[#1b2c4e] rounded-full overflow-hidden">
                   <div className="h-full bg-[#34d399] transition-all" style={{ width: `${matchingTotal ? Math.round((matchingDone / matchingTotal) * 100) : 0}%` }} />
                 </div>
                 {(!matchingActive && matchingMatched.length === 0 && matchingUnmatched.length === 0) && (
@@ -4102,7 +4102,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                 )}
                 <div className="flex flex-col gap-2">
                   {matchingMatched.map((m: any, i: number) => (
-                    <div key={i} className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-3 flex gap-2">
+                    <div key={i} className="bg-[#0c1830] border border-[#1b2c4e] rounded-lg p-3 flex gap-2">
                       <CheckCircle2 className="w-4 h-4 text-[#34d399] shrink-0 mt-0.5" />
                       <div className="min-w-0">
                         <div className="text-[13px] font-semibold text-white leading-snug">{(m.title || 'Untitled source').slice(0, 120)}{(m.title || '').length > 120 ? '\u2026' : ''}</div>
@@ -4115,7 +4115,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                   <div className="mt-2 flex flex-col gap-2">
                     <div className="text-[11px] font-bold text-amber-300 uppercase tracking-wide">Needs review</div>
                     {matchingUnmatched.map((u: any, i: number) => (
-                      <div key={i} className="bg-[#1a1a1a] border border-amber-500/40 rounded-lg p-3 flex flex-col gap-2">
+                      <div key={i} className="bg-[#0c1830] border border-amber-500/40 rounded-lg p-3 flex flex-col gap-2">
                         <div className="flex items-start gap-2">
                           <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                           <div className="min-w-0">
@@ -4128,7 +4128,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                             <div className="text-[11px] text-gray-400 mb-1">Suggested replacement</div>
                             <div className="text-[12.5px] text-[#34d399] font-semibold leading-snug">{(u.suggestion.title || '').slice(0, 120)}{(u.suggestion.title || '').length > 120 ? '\u2026' : ''}</div>
                             <div className="text-[11.5px] text-gray-400 mt-0.5 truncate">{[u.suggestion.authors, u.suggestion.year, u.suggestion.container].filter(Boolean).join(' \u00b7 ')}</div>
-                            <button onClick={() => applyCitationSuggestion(u.intext, u.suggestion)} className="mt-2 px-3 py-1 bg-[#5b5fff] hover:bg-[#6b6fff] text-white rounded-md text-[12px] font-bold">Use this source</button>
+                            <button onClick={() => applyCitationSuggestion(u.intext, u.suggestion)} className="mt-2 px-3 py-1 bg-[#2563eb] hover:bg-[#3b82f6] text-white rounded-md text-[12px] font-bold">Use this source</button>
                           </div>
                         ) : (
                           <div className="text-[11.5px] text-gray-500 italic">No confident replacement found \u2014 please add the correct source manually.</div>
@@ -4159,7 +4159,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                      <p className="text-[14px] text-gray-200 mb-4 leading-relaxed">
                        {reviewData.summary}
                      </p>
-                     <button className="w-full py-2.5 bg-[#5b5fff] hover:bg-[#6b6fff] rounded-lg text-white font-bold flex items-center justify-center gap-2 mb-6">
+                     <button className="w-full py-2.5 bg-[#2563eb] hover:bg-[#3b82f6] rounded-lg text-white font-bold flex items-center justify-center gap-2 mb-6">
                        <Play className="w-4 h-4" /> Review Changes
                      </button>
                      
@@ -4186,7 +4186,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                          <div key={item.label} className="flex flex-col">
                            <div 
                              onClick={() => hasItems && setExpandedSection(expandedSection === item.label ? null : item.label)} 
-                             className={`flex items-center justify-between bg-[#151515] border border-[#2a2a2a] rounded-lg px-4 py-3 ${hasItems ? 'cursor-pointer hover:bg-[#1a1a1a]' : ''}`}
+                             className={`flex items-center justify-between bg-[#151515] border border-[#1b2c4e] rounded-lg px-4 py-3 ${hasItems ? 'cursor-pointer hover:bg-[#0c1830]' : ''}`}
                            >
                              <div className="flex items-center gap-2">
                                <span className="text-[14px] font-bold text-white">{item.label}</span>
@@ -4201,7 +4201,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                              )}
                            </div>
                            {hasItems && expandedSection === item.label && (
-                             <div className="bg-[#1a1a1a] border border-[#2a2a2a] border-t-0 rounded-b-lg px-4 py-3 -mt-1 text-[13px] text-gray-300">
+                             <div className="bg-[#0c1830] border border-[#1b2c4e] border-t-0 rounded-b-lg px-4 py-3 -mt-1 text-[13px] text-gray-300">
                                {items.map((text: string, idx: number) => (
                                  <div key={idx} className="flex gap-2">
                                    <div className="w-1.5 h-1.5 rounded-full bg-yellow-500 mt-1.5 shrink-0" />
@@ -4213,12 +4213,12 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                          </div>
                        )})}
                      </div>
-                     <button onClick={autoCiteDocument} disabled={autoCiting} className="mt-4 w-full py-2.5 bg-[#5b5fff] hover:bg-[#6b6fff] disabled:opacity-50 rounded-lg text-white font-bold flex items-center justify-center gap-2 transition-colors">
+                     <button onClick={autoCiteDocument} disabled={autoCiting} className="mt-4 w-full py-2.5 bg-[#2563eb] hover:bg-[#3b82f6] disabled:opacity-50 rounded-lg text-white font-bold flex items-center justify-center gap-2 transition-colors">
                        {autoCiting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} {autoCiting ? 'Adding real citations\u2026' : 'Add real citations to uncited claims'}
                      </button>
                      {Array.isArray(reviewData.fixes) && reviewData.fixes.length > 0 && (
                        <div className="mt-4">
-                         <div className="flex items-center justify-between mb-2"><h3 className="text-[14px] font-bold text-white">Suggested fixes</h3><button onClick={() => applyAllFixes(reviewData.fixes)} className="text-[12px] font-bold text-[#7d84ff] hover:text-white px-2 py-1 rounded border border-[#3b3c6a] hover:bg-[#2a2a2a]">Apply all</button></div>
+                         <div className="flex items-center justify-between mb-2"><h3 className="text-[14px] font-bold text-white">Suggested fixes</h3><button onClick={() => applyAllFixes(reviewData.fixes)} className="text-[12px] font-bold text-[#7d84ff] hover:text-white px-2 py-1 rounded border border-[#3b3c6a] hover:bg-[#1b2c4e]">Apply all</button></div>
                          <div className="flex flex-col gap-3">
                            {reviewData.fixes.map((it: any, i: number) => (
                              <div key={i} className="bg-[#222] rounded-lg p-3 border border-[#333] flex flex-col gap-1.5">
@@ -4226,7 +4226,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                                {it.original && <div className="text-[13px] text-red-300 line-through">{it.original}</div>}
                                {it.suggestion && <div className="text-[13px] text-[#34d399]">{it.suggestion}</div>}
                                {it.original && it.suggestion && (
-                                 <button onClick={() => applyTextFix(it.original, it.suggestion)} className="self-start mt-1 px-3 py-1 bg-[#5b5fff] hover:bg-[#6b6fff] text-white rounded-lg text-[12px] font-bold">Apply fix</button>
+                                 <button onClick={() => applyTextFix(it.original, it.suggestion)} className="self-start mt-1 px-3 py-1 bg-[#2563eb] hover:bg-[#3b82f6] text-white rounded-lg text-[12px] font-bold">Apply fix</button>
                                )}
                              </div>
                            ))}
@@ -4243,7 +4243,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                  <p className="text-[15px] text-white font-bold leading-relaxed">
                    Run a comprehensive AI analysis of this document to identify weaknesses, assess claims, and get recommendations for improvement.
                  </p>
-                 <div className="bg-[#151515] border border-[#2a2a2a] rounded-xl p-4 flex flex-col gap-3">
+                 <div className="bg-[#151515] border border-[#1b2c4e] rounded-xl p-4 flex flex-col gap-3">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-lg bg-[#222] flex items-center justify-center">
                         <Star className="w-4 h-4 text-gray-300" />
@@ -4254,15 +4254,15 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
 
                  {isReviewing ? (
                    <div className="flex flex-col items-center justify-center py-10 gap-3">
-                      <Loader2 className="w-6 h-6 animate-spin text-[#5b5fff]" />
+                      <Loader2 className="w-6 h-6 animate-spin text-[#2563eb]" />
                       <span className="text-sm font-bold text-gray-400">Analyzing document...</span>
                    </div>
                  ) : reviewData ? (
                    <>
                       {['Analysis Overview', 'Recommendations', 'Weaknesses', 'Strengths'].map((item) => (
-                        <div key={item} className="bg-[#151515] border border-[#2a2a2a] rounded-xl overflow-hidden mb-2">
+                        <div key={item} className="bg-[#151515] border border-[#1b2c4e] rounded-xl overflow-hidden mb-2">
                           <div 
-                            className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-[#1a1a1a] transition-colors"
+                            className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-[#0c1830] transition-colors"
                             onClick={() => setExpandedSection(expandedSection === item ? null : item)}
                           >
                             <span className="text-[14px] font-bold text-gray-300">{item}</span>
@@ -4282,7 +4282,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                       ))}
                      {Array.isArray(reviewData.fixes) && reviewData.fixes.length > 0 && (
                        <div className="mt-4">
-                         <div className="flex items-center justify-between mb-2"><h3 className="text-[14px] font-bold text-white">Suggested fixes</h3><button onClick={() => applyAllFixes(reviewData.fixes)} className="text-[12px] font-bold text-[#7d84ff] hover:text-white px-2 py-1 rounded border border-[#3b3c6a] hover:bg-[#2a2a2a]">Apply all</button></div>
+                         <div className="flex items-center justify-between mb-2"><h3 className="text-[14px] font-bold text-white">Suggested fixes</h3><button onClick={() => applyAllFixes(reviewData.fixes)} className="text-[12px] font-bold text-[#7d84ff] hover:text-white px-2 py-1 rounded border border-[#3b3c6a] hover:bg-[#1b2c4e]">Apply all</button></div>
                          <div className="flex flex-col gap-3">
                            {reviewData.fixes.map((it: any, i: number) => (
                              <div key={i} className="bg-[#222] rounded-lg p-3 border border-[#333] flex flex-col gap-1.5">
@@ -4290,7 +4290,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                                {it.original && <div className="text-[13px] text-red-300 line-through">{it.original}</div>}
                                {it.suggestion && <div className="text-[13px] text-[#34d399]">{it.suggestion}</div>}
                                {it.original && it.suggestion && (
-                                 <button onClick={() => applyTextFix(it.original, it.suggestion)} className="self-start mt-1 px-3 py-1 bg-[#5b5fff] hover:bg-[#6b6fff] text-white rounded-lg text-[12px] font-bold">Apply fix</button>
+                                 <button onClick={() => applyTextFix(it.original, it.suggestion)} className="self-start mt-1 px-3 py-1 bg-[#2563eb] hover:bg-[#3b82f6] text-white rounded-lg text-[12px] font-bold">Apply fix</button>
                                )}
                              </div>
                            ))}
@@ -4312,7 +4312,7 @@ Required JSON structure:
   "recommendations": ["list of actionable recommendations to improve the document"]
 }`;
                      fetchReview(prompt, { overview: "Could not generate overview.", weaknesses: ["Insufficient data"], strengths: ["Clear topic"], recommendations: ["Add more evidence"] });
-                   }} className="w-full py-2.5 bg-[#5b5fff] hover:bg-[#6b6fff] rounded-lg text-white font-bold flex items-center justify-center gap-2 mb-6">
+                   }} className="w-full py-2.5 bg-[#2563eb] hover:bg-[#3b82f6] rounded-lg text-white font-bold flex items-center justify-center gap-2 mb-6">
                       <Play className="w-4 h-4" /> Run Manuscript Insights
                    </button>
                 )}
@@ -4323,13 +4323,13 @@ Required JSON structure:
               <div className="flex flex-col gap-4">
                 {isReviewing ? (
                    <div className="flex flex-col items-center justify-center py-10 gap-3">
-                      <Loader2 className="w-6 h-6 animate-spin text-[#5b5fff]" />
+                      <Loader2 className="w-6 h-6 animate-spin text-[#2563eb]" />
                       <span className="text-sm font-bold text-gray-400">Simulating peer review...</span>
                    </div>
                 ) : reviewData?.type === 'peer' ? (
                    <>
                      <h3 className="text-[15px] font-bold text-white">Overall assessment</h3>
-                     <div className="bg-[#151515] border border-[#2a2a2a] rounded-xl p-4 flex flex-col gap-2.5">
+                     <div className="bg-[#151515] border border-[#1b2c4e] rounded-xl p-4 flex flex-col gap-2.5">
                        {[['Soundness','soundness'],['Presentation','presentation'],['Contribution','contribution']].map(([label,key]) => (
                          <div key={key} className="flex items-center justify-between">
                            <span className="text-[13px] text-gray-300">{label}</span>
@@ -4341,7 +4341,7 @@ Required JSON structure:
                            </div>
                          </div>
                        ))}
-                       <div className="border-t border-[#2a2a2a] my-1" />
+                       <div className="border-t border-[#1b2c4e] my-1" />
                        <div className="flex items-center justify-between">
                          <span className="text-[14px] font-bold text-white">Overall score</span>
                          <span className="text-[16px] font-black text-[#7d84ff]">{reviewData.overallScore||0}<span className="text-[12px] text-gray-500">/10</span></span>
@@ -4370,7 +4370,7 @@ Required JSON structure:
                      ))}
                    </>
                 ) : (
-                   <button onClick={handlePeerReview} className="w-full py-2.5 bg-[#5b5fff] hover:bg-[#6b6fff] rounded-lg text-white font-bold flex items-center justify-center gap-2 mb-6">
+                   <button onClick={handlePeerReview} className="w-full py-2.5 bg-[#2563eb] hover:bg-[#3b82f6] rounded-lg text-white font-bold flex items-center justify-center gap-2 mb-6">
                       <Play className="w-4 h-4" /> Run Expert Review
                    </button>
                 )}
@@ -4390,7 +4390,7 @@ Required JSON structure:
                       { name: 'Concise Scientific', desc: 'Active voice, short sentences, minimal hedging', Icon: FlaskConical },
                       { name: 'Clear & Natural', desc: 'Plain vocabulary, active voice, conversational', Icon: Feather },
                     ].map(({ name, desc, Icon }) => (
-                      <button key={name} onClick={() => setTonePreset(name)} className={`text-left rounded-xl p-4 flex items-center justify-between cursor-pointer border transition-colors ${tonePreset === name ? 'bg-[#2a2a2a] border-[#5b5fff]' : 'bg-[#151515] border-[#2a2a2a] hover:border-[#444]'}`}>
+                      <button key={name} onClick={() => setTonePreset(name)} className={`text-left rounded-xl p-4 flex items-center justify-between cursor-pointer border transition-colors ${tonePreset === name ? 'bg-[#1b2c4e] border-[#2563eb]' : 'bg-[#151515] border-[#1b2c4e] hover:border-[#444]'}`}>
                         <div className="flex items-center gap-4">
                           <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${tonePreset === name ? 'bg-[#333]' : 'bg-[#222]'}`}>
                             <Icon className="w-5 h-5 text-gray-300" />
@@ -4400,19 +4400,19 @@ Required JSON structure:
                             <span className="text-[13px] text-gray-400">{desc}</span>
                           </div>
                         </div>
-                        {tonePreset === name && <CheckCircle2 className="w-5 h-5 text-[#5b5fff]" />}
+                        {tonePreset === name && <CheckCircle2 className="w-5 h-5 text-[#2563eb]" />}
                       </button>
                     ))}
                  </div>
 
                  <div className="text-[11px] font-bold text-gray-500 tracking-wider mb-2">MATCH A PAPER</div>
-                 <div className="border border-dashed border-[#333] rounded-xl p-6 flex flex-col items-center justify-center text-center bg-[#151515] hover:bg-[#1a1a1a] cursor-pointer transition-colors mb-6">
+                 <div className="border border-dashed border-[#333] rounded-xl p-6 flex flex-col items-center justify-center text-center bg-[#151515] hover:bg-[#0c1830] cursor-pointer transition-colors mb-6">
                     <Upload className="w-6 h-6 text-gray-500 mb-3" />
                     <h3 className="text-[15px] font-bold text-white mb-1">No PDFs in your library</h3>
                     <p className="text-[13px] text-gray-400">Upload a PDF to your library to use as a tone reference.</p>
                  </div>
 
-                 <button onClick={handleToneOfVoice} disabled={isReviewing} className="w-full py-2.5 bg-[#5b5fff] hover:bg-[#6b6fff] rounded-lg text-white font-bold flex items-center justify-center gap-2 transition-colors disabled:opacity-50 mt-2">
+                 <button onClick={handleToneOfVoice} disabled={isReviewing} className="w-full py-2.5 bg-[#2563eb] hover:bg-[#3b82f6] rounded-lg text-white font-bold flex items-center justify-center gap-2 transition-colors disabled:opacity-50 mt-2">
                    <Play className="w-4 h-4" /> Run review
                  </button>
 
@@ -4424,7 +4424,7 @@ Required JSON structure:
                  )}
                  {reviewData?.type === 'tone' && (
                    <div className="mt-4 flex flex-col gap-2">
-                     <div className="flex items-center justify-between"><h3 className="text-[15px] font-bold text-white">Suggestions:</h3>{reviewData.suggestions && reviewData.suggestions.length > 0 && <button onClick={() => applyAllFixes(reviewData.suggestions)} className="text-[12px] font-bold text-[#7d84ff] hover:text-white px-2 py-1 rounded border border-[#3b3c6a] hover:bg-[#2a2a2a]">Apply all</button>}</div>
+                     <div className="flex items-center justify-between"><h3 className="text-[15px] font-bold text-white">Suggestions:</h3>{reviewData.suggestions && reviewData.suggestions.length > 0 && <button onClick={() => applyAllFixes(reviewData.suggestions)} className="text-[12px] font-bold text-[#7d84ff] hover:text-white px-2 py-1 rounded border border-[#3b3c6a] hover:bg-[#1b2c4e]">Apply all</button>}</div>
                      {(!reviewData.suggestions || reviewData.suggestions.length === 0) ? (
                        <p className="text-[13px] text-[#34d399]">Tone looks appropriately academic - no changes suggested.</p>
                      ) : (
@@ -4438,14 +4438,14 @@ Required JSON structure:
                                {it.original && <div className="text-[13px] text-red-300 line-through">{it.original}</div>}
                                {it.suggestion && <div className="text-[13px] text-[#34d399]">{it.suggestion}</div>}
                                {it.original && it.suggestion && (
-                                 <button onClick={() => applyTextFix(it.original, it.suggestion)} className="self-start mt-1 px-3 py-1 bg-[#5b5fff] hover:bg-[#6b6fff] text-white rounded-lg text-[12px] font-bold">Apply rewrite</button>
+                                 <button onClick={() => applyTextFix(it.original, it.suggestion)} className="self-start mt-1 px-3 py-1 bg-[#2563eb] hover:bg-[#3b82f6] text-white rounded-lg text-[12px] font-bold">Apply rewrite</button>
                                )}
                              </div>
                            )
                          ))}
                        </div>
                      )}
-                     <button className="mt-4 w-full py-2 bg-[#5b5fff] hover:bg-[#6b6fff] rounded-lg text-white font-bold flex items-center justify-center gap-2 transition-colors">
+                     <button className="mt-4 w-full py-2 bg-[#2563eb] hover:bg-[#3b82f6] rounded-lg text-white font-bold flex items-center justify-center gap-2 transition-colors">
                        Review Changes
                      </button>
                    </div>
@@ -4469,7 +4469,7 @@ Required JSON structure:
                        <p className="text-[14px] text-[#34d399] mb-4">No issues found - your text looks clean.</p>
                      ) : (
                        <div className="flex flex-col gap-3 mb-4">
-                         <button onClick={() => applyAllFixes(reviewData.issues)} className="self-start text-[12px] font-bold text-[#7d84ff] hover:text-white px-2 py-1 rounded border border-[#3b3c6a] hover:bg-[#2a2a2a]">Apply all fixes</button>
+                         <button onClick={() => applyAllFixes(reviewData.issues)} className="self-start text-[12px] font-bold text-[#7d84ff] hover:text-white px-2 py-1 rounded border border-[#3b3c6a] hover:bg-[#1b2c4e]">Apply all fixes</button>
                          {reviewData.issues.map((it: any, idx: number) => (
                            typeof it === 'string' ? (
                              <div key={idx} className="text-[14px] text-gray-200 bg-[#222] rounded-lg p-3 border border-[#333]">{it}</div>
@@ -4479,7 +4479,7 @@ Required JSON structure:
                                {it.original && <div className="text-[13px] text-red-300 line-through">{it.original}</div>}
                                {it.suggestion && <div className="text-[13px] text-[#34d399]">{it.suggestion}</div>}
                                {it.original && it.suggestion && (
-                                 <button onClick={() => applyTextFix(it.original, it.suggestion)} className="self-start mt-1 px-3 py-1 bg-[#5b5fff] hover:bg-[#6b6fff] text-white rounded-lg text-[12px] font-bold">Apply fix</button>
+                                 <button onClick={() => applyTextFix(it.original, it.suggestion)} className="self-start mt-1 px-3 py-1 bg-[#2563eb] hover:bg-[#3b82f6] text-white rounded-lg text-[12px] font-bold">Apply fix</button>
                                )}
                              </div>
                            )
@@ -4492,7 +4492,7 @@ Required JSON structure:
                      <p className="text-[14px] text-gray-200 mb-4 leading-relaxed">
                        Identify grammar, punctuation, word choice, and other writing issues in your document.
                      </p>
-                     <button onClick={handleProofread} className="w-full py-2.5 bg-[#5b5fff] hover:bg-[#6b6fff] rounded-lg text-white font-bold flex items-center justify-center gap-2 mb-6">
+                     <button onClick={handleProofread} className="w-full py-2.5 bg-[#2563eb] hover:bg-[#3b82f6] rounded-lg text-white font-bold flex items-center justify-center gap-2 mb-6">
                        <Play className="w-4 h-4" /> Run Proofread
                      </button>
                    </>
@@ -4509,7 +4509,7 @@ Required JSON structure:
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="w-[850px] max-w-[94vw] bg-[#151515] rounded-xl border border-[#333] shadow-2xl flex flex-col overflow-hidden">
             {/* Header */}
-            <div className="px-6 py-5 border-b border-[#2a2a2a] flex justify-between items-center">
+            <div className="px-6 py-5 border-b border-[#1b2c4e] flex justify-between items-center">
               <h2 className="text-xl font-bold text-white">Citation Style</h2>
               <button onClick={() => setShowCitationModal(false)} className="text-gray-400 hover:text-white transition-colors">
                 <X className="w-5 h-5" />
@@ -4530,7 +4530,7 @@ Required JSON structure:
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search 2600+ styles" 
-                  className="w-full bg-[#111111] border border-[#2a2a2a] rounded-lg pl-12 pr-4 py-3 text-[15px] text-gray-200 focus:outline-none focus:border-[#444] transition-colors" 
+                  className="w-full bg-[#111111] border border-[#1b2c4e] rounded-lg pl-12 pr-4 py-3 text-[15px] text-gray-200 focus:outline-none focus:border-[#444] transition-colors" 
                 />
               </div>
 
@@ -4547,7 +4547,7 @@ Required JSON structure:
                       <div 
                         key={st.id}
                         onClick={() => { setSelectedStyle(st.label); setSelectedStyleId(st.id); }}
-                        className={`px-4 py-3 rounded-lg text-[15px] cursor-pointer transition-colors ${selectedStyleId === st.id ? 'bg-[#2a2a2a] text-white font-bold' : 'text-gray-300 hover:bg-[#222]'}`}
+                        className={`px-4 py-3 rounded-lg text-[15px] cursor-pointer transition-colors ${selectedStyleId === st.id ? 'bg-[#1b2c4e] text-white font-bold' : 'text-gray-300 hover:bg-[#222]'}`}
                       >
                         {st.label}
                       </div>
@@ -4556,7 +4556,7 @@ Required JSON structure:
                   </div>
                 </div>
 
-                <div className="w-[1px] bg-[#2a2a2a] my-2" />
+                <div className="w-[1px] bg-[#1b2c4e] my-2" />
 
                 {/* Right Col: Locales */}
                 <div className="w-[320px] flex flex-col shrink-0">
@@ -4575,7 +4575,7 @@ Required JSON structure:
                       <div 
                         key={locale.name}
                         onClick={() => setSelectedLocale(locale.name)}
-                        className={`px-3 py-2.5 rounded-lg text-[15px] cursor-pointer flex items-center justify-between transition-colors ${selectedLocale === locale.name ? 'bg-[#2a2a2a] text-white' : 'text-gray-300 hover:bg-[#222]'}`}
+                        className={`px-3 py-2.5 rounded-lg text-[15px] cursor-pointer flex items-center justify-between transition-colors ${selectedLocale === locale.name ? 'bg-[#1b2c4e] text-white' : 'text-gray-300 hover:bg-[#222]'}`}
                       >
                         <div className="flex items-center gap-3">
                           <span className={`text-xs font-bold w-6 text-center ${selectedLocale === locale.name ? 'text-white' : 'text-gray-500'}`}>{locale.code.split('-')[0].toUpperCase()}</span>
@@ -4595,7 +4595,7 @@ Required JSON structure:
               <div className="flex flex-col gap-3 mt-2">
                 <div className="flex justify-between items-center">
                   <h3 className="text-[11px] font-bold text-gray-500 tracking-wider uppercase">PREVIEW</h3>
-                  <div className="flex bg-[#111111] rounded-full p-1 border border-[#2a2a2a]">
+                  <div className="flex bg-[#111111] rounded-full p-1 border border-[#1b2c4e]">
                     <button 
                       onClick={() => setPreviewMode('Bibliography')}
                       className={`px-4 py-1.5 rounded-full text-[13px] font-bold transition-colors ${previewMode === 'Bibliography' ? 'bg-[#333] text-white' : 'text-gray-400 hover:text-white'}`}
@@ -4610,7 +4610,7 @@ Required JSON structure:
                     </button>
                   </div>
                 </div>
-                <div className="bg-[#222] border border-[#2a2a2a] rounded-xl p-5 text-[15px] text-gray-200 leading-relaxed min-h-[100px]">
+                <div className="bg-[#222] border border-[#1b2c4e] rounded-xl p-5 text-[15px] text-gray-200 leading-relaxed min-h-[100px]">
                   {previewMode === 'Bibliography' ? 
                     <span>JOHNSON, Emily R., CHEN, Wei, PATEL, Ananya. The impact of artificial intelligence on modern research methodologies. En <i className="text-gray-300">Journal of Computational Science</i> [en línea]. 2024, vol. 42, n° 3, pp. 112-128. DOI: 10.1234/jcs.2024.0042</span>
                     :
@@ -4621,7 +4621,7 @@ Required JSON structure:
             </div>
             
             {/* Footer */}
-            <div className="px-6 py-4 border-t border-[#2a2a2a] flex justify-between items-center bg-[#111111]">
+            <div className="px-6 py-4 border-t border-[#1b2c4e] flex justify-between items-center bg-[#111111]">
               <div className="text-[14px] text-gray-400">
                 Selected style: <strong className="text-white">{selectedStyle}</strong>, localised for <strong className="text-white">{selectedLocale}</strong>
               </div>
@@ -4631,7 +4631,7 @@ Required JSON structure:
                   setCitationStyleId(selectedStyleId); 
                   setShowCitationModal(false); 
                 }} 
-                className="bg-[#5b5fff] hover:bg-[#6b6fff] text-white px-8 py-2.5 rounded-lg text-[15px] font-bold transition-colors"
+                className="bg-[#2563eb] hover:bg-[#3b82f6] text-white px-8 py-2.5 rounded-lg text-[15px] font-bold transition-colors"
               >
                 Done
               </button>
@@ -4643,15 +4643,15 @@ Required JSON structure:
       {chatPdfOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setChatPdfOpen(false)}>
           <div className="w-[600px] max-w-[90vw] bg-[#151515] rounded-xl border border-[#333] shadow-2xl flex flex-col overflow-hidden text-white font-sans" onClick={(e) => e.stopPropagation()}>
-            <div className="px-6 py-4 flex justify-between items-center border-b border-[#2a2a2a]">
+            <div className="px-6 py-4 flex justify-between items-center border-b border-[#1b2c4e]">
               <h2 className="text-lg font-bold">Ask your library</h2>
               <button onClick={() => setChatPdfOpen(false)} className="text-gray-400 hover:text-white transition-colors">X</button>
             </div>
             <div className="p-6 flex flex-col gap-3">
               <p className="text-[13px] text-gray-400">Ask a question about the papers you have uploaded or imported. Answers are grounded in your library.</p>
               <textarea value={chatPdfQ} onChange={(e) => setChatPdfQ(e.target.value)} placeholder="e.g. What methods do the uploaded papers use?" rows={3} className="w-full bg-[#111] border border-[#444] rounded-lg p-3 text-[14px] text-white outline-none focus:border-blue-500 resize-none" />
-              <button onClick={handleAskLibrary} disabled={chatPdfBusy || !chatPdfQ.trim()} className="self-start bg-[#5b5fff] hover:bg-[#6b6fff] disabled:opacity-50 text-white px-5 py-2 rounded-lg font-bold text-[14px] transition-colors">{chatPdfBusy ? 'Thinking...' : 'Ask'}</button>
-              {chatPdfA && <div className="mt-2 max-h-[320px] overflow-y-auto bg-[#1a1a1a] border border-[#333] rounded-lg p-4 text-[14px] text-gray-200 whitespace-pre-wrap">{chatPdfA}</div>}
+              <button onClick={handleAskLibrary} disabled={chatPdfBusy || !chatPdfQ.trim()} className="self-start bg-[#2563eb] hover:bg-[#3b82f6] disabled:opacity-50 text-white px-5 py-2 rounded-lg font-bold text-[14px] transition-colors">{chatPdfBusy ? 'Thinking...' : 'Ask'}</button>
+              {chatPdfA && <div className="mt-2 max-h-[320px] overflow-y-auto bg-[#0c1830] border border-[#333] rounded-lg p-4 text-[14px] text-gray-200 whitespace-pre-wrap">{chatPdfA}</div>}
             </div>
           </div>
         </div>
@@ -4660,8 +4660,8 @@ Required JSON structure:
       {/* Citation search modal */}
       {showCiteSearch && (
         <div className="fixed inset-0 z-[100] flex items-start justify-center bg-black/60 backdrop-blur-sm pt-24" onClick={() => setShowCiteSearch(false)}>
-          <div className="w-[640px] max-w-[92vw] bg-[#161616] border border-[#333] rounded-2xl shadow-2xl overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className="px-5 py-4 border-b border-[#2a2a2a] flex items-center justify-between">
+          <div className="w-[640px] max-w-[92vw] bg-[#0a1428] border border-[#333] rounded-2xl shadow-2xl overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-[#1b2c4e] flex items-center justify-between">
               <h2 className="text-lg font-bold text-white">Add citation</h2>
               <button onClick={() => setShowCiteSearch(false)} className="text-gray-400 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
             </div>
@@ -4674,16 +4674,16 @@ Required JSON structure:
                   onChange={(e) => setCiteQuery(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleCiteSearch()}
                   placeholder="Search by title, author, keywords or paste a DOI…"
-                  className="flex-1 bg-[#1a1a1a] border border-[#333] rounded-lg px-4 py-2.5 text-white text-[14px] outline-none focus:border-[#5b5fff] transition-colors"
+                  className="flex-1 bg-[#0c1830] border border-[#333] rounded-lg px-4 py-2.5 text-white text-[14px] outline-none focus:border-[#2563eb] transition-colors"
                 />
-                <button onClick={() => handleCiteSearch()} disabled={citeSearching || !citeQuery.trim()} className="bg-[#5b5fff] hover:bg-[#6b6fff] disabled:opacity-50 text-white px-4 py-2.5 rounded-lg font-bold text-[14px] flex items-center gap-2 transition-colors">
+                <button onClick={() => handleCiteSearch()} disabled={citeSearching || !citeQuery.trim()} className="bg-[#2563eb] hover:bg-[#3b82f6] disabled:opacity-50 text-white px-4 py-2.5 rounded-lg font-bold text-[14px] flex items-center gap-2 transition-colors">
                   {citeSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />} Search
                 </button>
               </div>
               <p className="text-[12px] text-gray-500">Powered by CrossRef. Inserts an in-text citation and stores the DOI so the reference list and hover cards stay accurate.</p>
               <div className="flex flex-col gap-2 max-h-[46vh] overflow-y-auto custom-scrollbar">
                 {citeResults.map((r, i) => (
-                  <button key={(r.doi || r.title) + i} onClick={() => handleCiteInsert(r)} className="text-left bg-[#1a1a1a] hover:bg-[#222] border border-[#2a2a2a] hover:border-[#5b5fff] rounded-lg p-3 transition-colors group">
+                  <button key={(r.doi || r.title) + i} onClick={() => handleCiteInsert(r)} className="text-left bg-[#0c1830] hover:bg-[#222] border border-[#1b2c4e] hover:border-[#2563eb] rounded-lg p-3 transition-colors group">
                     <div className="flex items-start justify-between gap-3">
                       <h3 className="text-[14px] font-bold text-white leading-snug">{r.title}</h3>
                       {r.citedBy != null && <span className="shrink-0 bg-[#333] rounded px-2 py-0.5 text-gray-300 text-[10px] font-bold">CITED BY {r.citedBy}</span>}
@@ -4707,8 +4707,8 @@ Required JSON structure:
       {/* AI citation suggestions modal */}
       {showSuggestModal && (
         <div className="fixed inset-0 z-[100] flex items-start justify-center bg-black/60 backdrop-blur-sm pt-16" onClick={() => setShowSuggestModal(false)}>
-          <div className="w-[680px] max-w-[92vw] bg-[#161616] border border-[#333] rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
-            <div className="px-5 py-4 border-b border-[#2a2a2a] flex items-center justify-between">
+          <div className="w-[680px] max-w-[92vw] bg-[#0a1428] border border-[#333] rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-[#1b2c4e] flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-bold text-white flex items-center gap-2"><Sparkles className="w-4 h-4 text-amber-400" /> Suggested citations</h2>
                 <p className="text-[12px] text-gray-500 mt-0.5">Claims that may need a source, with a matching paper. Accept to insert it.</p>
@@ -4722,10 +4722,10 @@ Required JSON structure:
                 <div className="text-gray-500 text-[14px] py-6 text-center">No uncited claims found. Your document looks well-supported, or there isn't enough text yet.</div>
               ) : (
                 suggestions.map((sug, idx) => (
-                  <div key={idx} className={`rounded-xl border p-3 flex flex-col gap-2 ${sug.status === 'accepted' ? 'border-[#10b981]/40 bg-[#10b981]/5' : 'border-[#2a2a2a] bg-[#1a1a1a]'}`}>
+                  <div key={idx} className={`rounded-xl border p-3 flex flex-col gap-2 ${sug.status === 'accepted' ? 'border-[#10b981]/40 bg-[#10b981]/5' : 'border-[#1b2c4e] bg-[#0c1830]'}`}>
                     <p className="text-[13px] text-gray-300 italic leading-snug">“{sug.claim.length > 180 ? sug.claim.slice(0, 180) + '…' : sug.claim}”</p>
                     {sug.paper && !sug.paper.none ? (
-                      <div className="bg-[#222] rounded-lg p-3 border border-[#2a2a2a]">
+                      <div className="bg-[#222] rounded-lg p-3 border border-[#1b2c4e]">
                         <div className="flex items-start justify-between gap-2">
                           <h3 className="text-[13px] font-bold text-white leading-snug">{sug.paper.title}</h3>
                           <div className="flex items-center gap-1.5 shrink-0">
@@ -4744,8 +4744,8 @@ Required JSON structure:
                         <span className="text-[13px] font-bold text-[#34d399] flex items-center gap-1"><CheckCircle2 className="w-4 h-4" /> Inserted</span>
                       ) : (
                         <>
-                          <button onClick={() => acceptSuggestion(sug)} disabled={!sug.paper || sug.paper.none} className="bg-[#5b5fff] hover:bg-[#6b6fff] disabled:opacity-40 text-white px-4 py-1.5 rounded-lg text-[13px] font-bold flex items-center gap-1.5 transition-colors">Accept <ChevronRight className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => { setShowSuggestModal(false); refineCitation(sug.query); }} className="border border-[#444] hover:bg-[#2a2a2a] text-white px-3 py-1.5 rounded-lg text-[13px] font-bold flex items-center gap-1.5 transition-colors"><Sparkles className="w-3.5 h-3.5" /> Refine</button>
+                          <button onClick={() => acceptSuggestion(sug)} disabled={!sug.paper || sug.paper.none} className="bg-[#2563eb] hover:bg-[#3b82f6] disabled:opacity-40 text-white px-4 py-1.5 rounded-lg text-[13px] font-bold flex items-center gap-1.5 transition-colors">Accept <ChevronRight className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => { setShowSuggestModal(false); refineCitation(sug.query); }} className="border border-[#444] hover:bg-[#1b2c4e] text-white px-3 py-1.5 rounded-lg text-[13px] font-bold flex items-center gap-1.5 transition-colors"><Sparkles className="w-3.5 h-3.5" /> Refine</button>
                           <button onClick={() => setSuggestions(prev => prev.filter(x => x !== sug))} className="text-gray-400 hover:text-white px-2 py-1.5 text-[13px]">Skip</button>
                         </>
                       )}
@@ -4760,8 +4760,8 @@ Required JSON structure:
 
       {showSavedModal && (
         <div className="fixed inset-0 z-[100] flex items-start justify-center bg-black/60 backdrop-blur-sm pt-20" onClick={() => setShowSavedModal(false)}>
-          <div className="w-[680px] max-w-[92vw] bg-[#161616] border border-[#333] rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
-            <div className="px-5 py-4 border-b border-[#2a2a2a] flex items-center justify-between">
+          <div className="w-[680px] max-w-[92vw] bg-[#0a1428] border border-[#333] rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-[#1b2c4e] flex items-center justify-between">
               <h2 className="text-lg font-bold text-white flex items-center gap-2"><Bookmark className="w-4 h-4 text-[#7fa3ff]" /> Saved citations <span className="text-gray-500 text-[13px] font-normal">({savedCitations.length})</span></h2>
               <button onClick={() => setShowSavedModal(false)} className="text-gray-400 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
             </div>
@@ -4770,14 +4770,14 @@ Required JSON structure:
                 <p className="text-gray-500 text-[14px] py-8 text-center">No saved citations yet. Hover a citation and click <span className="text-gray-300 font-semibold">Save</span> to add it here.</p>
               ) : (
                 savedCitations.map((c: any, idx: number) => (
-                  <div key={(c.doi || c.title) + idx} className="rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-3 flex flex-col gap-1.5">
+                  <div key={(c.doi || c.title) + idx} className="rounded-xl border border-[#1b2c4e] bg-[#0c1830] p-3 flex flex-col gap-1.5">
                     <h3 className="text-[14px] font-bold text-white leading-snug">{c.title}</h3>
                     {c.authors && <p className="text-[12px] text-gray-400">{c.authors}</p>}
                     {c.container && <p className="text-[12px] text-[#10b981]">{c.container}{c.year ? ` · ${c.year}` : ''}</p>}
                     <div className="flex items-center gap-2 mt-1">
-                      <button onClick={() => insertSavedCitation(c)} className="bg-[#5b5fff] hover:bg-[#6b6fff] text-white px-3 py-1.5 rounded-lg text-[12px] font-bold flex items-center gap-1.5 transition-colors">Insert <ChevronRight className="w-3.5 h-3.5" /></button>
-                      {c.url && <a href={c.url} target="_blank" rel="noreferrer" className="border border-[#444] hover:bg-[#2a2a2a] text-white px-3 py-1.5 rounded-lg text-[12px] font-bold flex items-center gap-1.5 transition-colors"><ExternalLink className="w-3.5 h-3.5" /> View</a>}
-                      <button onClick={() => { const ref = [c.authors, c.year ? `(${c.year}).` : '', c.title ? `${c.title}.` : '', c.container ? `${c.container}.` : '', c.url].filter(Boolean).join(' '); navigator.clipboard?.writeText(ref); }} className="border border-[#444] hover:bg-[#2a2a2a] text-white px-3 py-1.5 rounded-lg text-[12px] font-bold transition-colors">Copy</button>
+                      <button onClick={() => insertSavedCitation(c)} className="bg-[#2563eb] hover:bg-[#3b82f6] text-white px-3 py-1.5 rounded-lg text-[12px] font-bold flex items-center gap-1.5 transition-colors">Insert <ChevronRight className="w-3.5 h-3.5" /></button>
+                      {c.url && <a href={c.url} target="_blank" rel="noreferrer" className="border border-[#444] hover:bg-[#1b2c4e] text-white px-3 py-1.5 rounded-lg text-[12px] font-bold flex items-center gap-1.5 transition-colors"><ExternalLink className="w-3.5 h-3.5" /> View</a>}
+                      <button onClick={() => { const ref = [c.authors, c.year ? `(${c.year}).` : '', c.title ? `${c.title}.` : '', c.container ? `${c.container}.` : '', c.url].filter(Boolean).join(' '); navigator.clipboard?.writeText(ref); }} className="border border-[#444] hover:bg-[#1b2c4e] text-white px-3 py-1.5 rounded-lg text-[12px] font-bold transition-colors">Copy</button>
                       <button onClick={() => removeSavedCitation(c.doi || c.title)} className="ml-auto text-gray-400 hover:text-red-400 p-1.5" title="Remove"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   </div>
@@ -4790,9 +4790,9 @@ Required JSON structure:
 
       {showShareModal && (
         <div className="fixed inset-0 z-[100] flex items-start justify-center bg-black/60 backdrop-blur-sm pt-24" onClick={() => setShowShareModal(false)}>
-          <div className="w-[480px] max-w-[94vw] bg-[#161616] border border-[#333] rounded-2xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center border-b border-[#2a2a2a]">
-              <button className="flex-1 flex items-center justify-center gap-2 py-3 text-[14px] font-bold text-white border-b-2 border-[#5b5fff]"><Users className="w-4 h-4" /> Share</button>
+          <div className="w-[480px] max-w-[94vw] bg-[#0a1428] border border-[#333] rounded-2xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center border-b border-[#1b2c4e]">
+              <button className="flex-1 flex items-center justify-center gap-2 py-3 text-[14px] font-bold text-white border-b-2 border-[#2563eb]"><Users className="w-4 h-4" /> Share</button>
               <button disabled title="Coming soon" className="flex-1 flex items-center justify-center gap-2 py-3 text-[14px] font-bold text-gray-600 cursor-not-allowed">Publish</button>
               <button onClick={() => setShowShareModal(false)} className="px-4 text-gray-400 hover:text-white"><X className="w-5 h-5" /></button>
             </div>
@@ -4803,7 +4803,7 @@ Required JSON structure:
                   value={shareEmail}
                   onChange={(e) => setShareEmail(e.target.value)}
                   placeholder="Invite people via email address"
-                  className="flex-1 bg-[#1a1a1a] border border-[#333] rounded-lg px-3 py-2.5 text-[14px] text-white outline-none focus:border-[#5b5fff] transition-colors"
+                  className="flex-1 bg-[#0c1830] border border-[#333] rounded-lg px-3 py-2.5 text-[14px] text-white outline-none focus:border-[#2563eb] transition-colors"
                 />
                 <button
                   onClick={() => {
@@ -4814,7 +4814,7 @@ Required JSON structure:
                     }
                     setShareEmail('');
                   }}
-                  className="bg-[#5b5fff] hover:bg-[#6b6fff] text-white px-4 py-2.5 rounded-lg text-[14px] font-bold transition-colors"
+                  className="bg-[#2563eb] hover:bg-[#3b82f6] text-white px-4 py-2.5 rounded-lg text-[14px] font-bold transition-colors"
                 >Invite</button>
               </div>
               <div>
@@ -4841,7 +4841,7 @@ Required JSON structure:
               </div>
               <button
                 onClick={() => { try { navigator.clipboard?.writeText(window.location.href); setShareCopied(true); setTimeout(() => setShareCopied(false), 1500); } catch {} }}
-                className="self-start bg-[#5b5fff] hover:bg-[#6b6fff] text-white px-4 py-2.5 rounded-lg text-[14px] font-bold flex items-center gap-2 transition-colors"
+                className="self-start bg-[#2563eb] hover:bg-[#3b82f6] text-white px-4 py-2.5 rounded-lg text-[14px] font-bold flex items-center gap-2 transition-colors"
               ><Link2 className="w-4 h-4" /> {shareCopied ? 'Link copied!' : 'Copy Link'}</button>
             </div>
           </div>
@@ -4850,13 +4850,13 @@ Required JSON structure:
 
       {showAiChat && (
         <div className="fixed inset-0 z-[100] flex justify-end bg-black/40" onClick={() => setShowAiChat(false)}>
-          <div className="w-[420px] max-w-[92vw] h-full bg-[#161616] border-l border-[#333] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="px-4 py-3 border-b border-[#2a2a2a] flex items-center justify-between shrink-0 relative">
+          <div className="w-[420px] max-w-[92vw] h-full bg-[#0a1428] border-l border-[#333] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b border-[#1b2c4e] flex items-center justify-between shrink-0 relative">
               <h2 className="text-[15px] font-bold text-white flex items-center gap-2"><MessageSquare className="w-4 h-4 text-[#7fa3ff]" /> AI Chat</h2>
               <div className="flex items-center gap-1">
-                <button onClick={() => setShowAiHistory(v => !v)} title="Chat history" className="w-8 h-8 rounded-lg text-gray-400 hover:text-white hover:bg-[#2a2a2a] flex items-center justify-center"><Clock className="w-4 h-4" /></button>
-                <button onClick={newAiChat} title="New chat" className="w-8 h-8 rounded-lg text-gray-400 hover:text-white hover:bg-[#2a2a2a] flex items-center justify-center"><SquarePen className="w-4 h-4" /></button>
-                <button onClick={() => setShowAiChat(false)} className="w-8 h-8 rounded-lg text-gray-400 hover:text-white hover:bg-[#2a2a2a] flex items-center justify-center"><X className="w-5 h-5" /></button>
+                <button onClick={() => setShowAiHistory(v => !v)} title="Chat history" className="w-8 h-8 rounded-lg text-gray-400 hover:text-white hover:bg-[#1b2c4e] flex items-center justify-center"><Clock className="w-4 h-4" /></button>
+                <button onClick={newAiChat} title="New chat" className="w-8 h-8 rounded-lg text-gray-400 hover:text-white hover:bg-[#1b2c4e] flex items-center justify-center"><SquarePen className="w-4 h-4" /></button>
+                <button onClick={() => setShowAiChat(false)} className="w-8 h-8 rounded-lg text-gray-400 hover:text-white hover:bg-[#1b2c4e] flex items-center justify-center"><X className="w-5 h-5" /></button>
               </div>
               {showAiHistory && (
                 <>
@@ -4865,7 +4865,7 @@ Required JSON structure:
                     <div className="px-3 py-1.5 text-[11px] font-bold text-gray-500 uppercase tracking-wide">Chat history</div>
                     {aiChatSessions.length === 0 ? <div className="px-3 py-2 text-[12px] text-gray-500 italic">No previous chats yet.</div> : aiChatSessions.map((sess: any) => (
                       <div key={sess.id} className="group flex items-center gap-1">
-                        <button onClick={() => loadAiSession(sess)} className={`flex-1 text-left px-3 py-2 rounded-lg hover:bg-[#2a2a2a] text-[13px] truncate ${sess.id === aiChatSessionId ? 'text-white bg-[#2a2a2a]' : 'text-gray-200'}`}>{sess.title || 'Untitled chat'}</button>
+                        <button onClick={() => loadAiSession(sess)} className={`flex-1 text-left px-3 py-2 rounded-lg hover:bg-[#1b2c4e] text-[13px] truncate ${sess.id === aiChatSessionId ? 'text-white bg-[#1b2c4e]' : 'text-gray-200'}`}>{sess.title || 'Untitled chat'}</button>
                         <button onClick={() => deleteAiSession(sess.id)} className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 px-2"><Trash2 className="w-3.5 h-3.5" /></button>
                       </div>
                     ))}
@@ -4883,10 +4883,10 @@ Required JSON structure:
                   m.role === 'system' ? (
                     <div key={i} className="text-[12px] text-gray-400 italic text-center">{m.text}</div>
                   ) : m.role === 'user' ? (
-                    <div key={i} className="max-w-[85%] self-end rounded-2xl px-3.5 py-2 text-[13.5px] leading-relaxed whitespace-pre-wrap bg-[#5b5fff] text-white">{m.text}</div>
+                    <div key={i} className="max-w-[85%] self-end rounded-2xl px-3.5 py-2 text-[13.5px] leading-relaxed whitespace-pre-wrap bg-[#2563eb] text-white">{m.text}</div>
                   ) : (
                     <div key={i} className="self-start max-w-[92%] flex flex-col gap-2">
-                      <div className="ai-md rounded-2xl px-3.5 py-2 text-[13.5px] leading-relaxed bg-[#222] text-gray-200 border border-[#2a2a2a]" onMouseOver={handleChatCiteHover} onMouseOut={handleCitationHoverOut} dangerouslySetInnerHTML={{ __html: m.text ? linkifyChatCitations(m.text, m.sources || []) : ('<span style=\"color:#6b7280\">' + (m.status || 'Thinking…') + '</span>') }} />
+                      <div className="ai-md rounded-2xl px-3.5 py-2 text-[13.5px] leading-relaxed bg-[#222] text-gray-200 border border-[#1b2c4e]" onMouseOver={handleChatCiteHover} onMouseOut={handleCitationHoverOut} dangerouslySetInnerHTML={{ __html: m.text ? linkifyChatCitations(m.text, m.sources || []) : ('<span style=\"color:#6b7280\">' + (m.status || 'Thinking…') + '</span>') }} />
                       {Array.isArray(m.sources) && m.sources.length > 0 && m.text ? (
                         <div className="flex flex-col gap-1">
                           <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wide px-1">Sources</div>
@@ -4896,7 +4896,7 @@ Required JSON structure:
                               onMouseLeave={scheduleHideCitation}
                               onClick={() => window.open(sr.url || (sr.doi ? 'https://doi.org/' + sr.doi : '#'), '_blank', 'noopener,noreferrer')}
                               title="Hover for details, click to open"
-                              className="cursor-pointer bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-3 py-2 hover:border-[#5b5fff] transition-colors">
+                              className="cursor-pointer bg-[#0c1830] border border-[#1b2c4e] rounded-lg px-3 py-2 hover:border-[#2563eb] transition-colors">
                               <div className="text-[12.5px] text-gray-100 font-semibold leading-snug">{sr.title}</div>
                               <div className="text-[11px] text-gray-400 truncate">{[sr.author, sr.year, sr.container].filter(Boolean).join(' · ')}</div>
                             </div>
@@ -4908,14 +4908,14 @@ Required JSON structure:
                 ))
               )}
             </div>
-            <div className="border-t border-[#2a2a2a] p-3 shrink-0 relative">
+            <div className="border-t border-[#1b2c4e] p-3 shrink-0 relative">
               <input ref={aiChatFileRef} type="file" accept=".pdf,.docx,.txt,.md" className="hidden" onChange={handleAiChatUpload} />
 
               {aiChatPlusOpen && (
                 <>
                   <div className="fixed inset-0 z-[5]" onClick={() => { setAiChatPlusOpen(false); setAiChatCollectionOpen(false); setAiChatSourcesOpen(false); }} />
                   <div className="absolute z-10 bottom-[100%] left-3 mb-2 w-[300px] max-w-[calc(100%-24px)] bg-[#1f1f1f] border border-[#333] rounded-xl shadow-2xl p-2">
-                    <button onClick={() => setAiChatSourcesOpen(v => !v)} className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-[#2a2a2a] text-gray-200 text-[13px]">
+                    <button onClick={() => setAiChatSourcesOpen(v => !v)} className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-[#1b2c4e] text-gray-200 text-[13px]">
                       <span className="flex items-center gap-2"><FileText className="w-4 h-4 text-gray-400" /> Sources</span>
                       <ChevronRight className={`w-4 h-4 text-gray-500 transition-transform ${aiChatSourcesOpen ? 'rotate-90' : ''}`} />
                     </button>
@@ -4924,7 +4924,7 @@ Required JSON structure:
                         {aiLibraryDocs.length ? aiLibraryDocs.map(d => <div key={d} className="truncate">• {d}</div>) : <div className="italic">No uploaded sources yet. Use the paperclip or type / to add one.</div>}
                       </div>
                     )}
-                    <button onClick={() => setAiChatCollectionOpen(v => !v)} className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-[#2a2a2a] text-gray-200 text-[13px]">
+                    <button onClick={() => setAiChatCollectionOpen(v => !v)} className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-[#1b2c4e] text-gray-200 text-[13px]">
                       <span className="flex items-center gap-2"><Folder className="w-4 h-4 text-gray-400" /> Collections</span>
                       <ChevronRight className={`w-4 h-4 text-gray-500 transition-transform ${aiChatCollectionOpen ? 'rotate-90' : ''}`} />
                     </button>
@@ -4937,7 +4937,7 @@ Required JSON structure:
                       return (
                         <div className="pl-9 pr-2 pb-1 flex flex-col gap-1">
                           {available.map(item => (
-                            <button key={item} onClick={() => setAiChatContexts(c => [...c, item])} className="text-left px-2 py-1.5 rounded-md hover:bg-[#2a2a2a] text-[12.5px] text-gray-300 flex items-center gap-2 border border-[#333]">
+                            <button key={item} onClick={() => setAiChatContexts(c => [...c, item])} className="text-left px-2 py-1.5 rounded-md hover:bg-[#1b2c4e] text-[12.5px] text-gray-300 flex items-center gap-2 border border-[#333]">
                               <Plus className="w-3.5 h-3.5 text-gray-500 shrink-0" /> <FileText className="w-3.5 h-3.5 text-gray-400 shrink-0" /> <span className="truncate">{item}</span>
                             </button>
                           ))}
@@ -4949,7 +4949,7 @@ Required JSON structure:
                       <span className="text-[13px] text-gray-200 font-semibold">Web search</span>
                       <div className="flex rounded-md overflow-hidden border border-[#3a3a3a]">
                         {(['off','ask','on'] as const).map(v => (
-                          <button key={v} onClick={() => setAiChatWebSearch(v)} className={`px-2.5 py-1 text-[11px] font-semibold capitalize ${aiChatWebSearch === v ? (v==='off'?'bg-[#3a3a3a] text-white':'bg-[#c2570c] text-white') : 'bg-[#1a1a1a] text-gray-400 hover:text-white'}`}>{v}</button>
+                          <button key={v} onClick={() => setAiChatWebSearch(v)} className={`px-2.5 py-1 text-[11px] font-semibold capitalize ${aiChatWebSearch === v ? (v==='off'?'bg-[#3a3a3a] text-white':'bg-[#c2570c] text-white') : 'bg-[#0c1830] text-gray-400 hover:text-white'}`}>{v}</button>
                         ))}
                       </div>
                     </div>
@@ -4957,7 +4957,7 @@ Required JSON structure:
                       <span className="text-[13px] text-gray-200 font-semibold">Library search</span>
                       <div className="flex rounded-md overflow-hidden border border-[#3a3a3a]">
                         {(['off','ask','on'] as const).map(v => (
-                          <button key={v} onClick={() => setAiChatLibSearch(v)} className={`px-2.5 py-1 text-[11px] font-semibold capitalize ${aiChatLibSearch === v ? (v==='off'?'bg-[#3a3a3a] text-white':'bg-[#c2570c] text-white') : 'bg-[#1a1a1a] text-gray-400 hover:text-white'}`}>{v}</button>
+                          <button key={v} onClick={() => setAiChatLibSearch(v)} className={`px-2.5 py-1 text-[11px] font-semibold capitalize ${aiChatLibSearch === v ? (v==='off'?'bg-[#3a3a3a] text-white':'bg-[#c2570c] text-white') : 'bg-[#0c1830] text-gray-400 hover:text-white'}`}>{v}</button>
                         ))}
                       </div>
                     </div>
@@ -4966,7 +4966,7 @@ Required JSON structure:
               )}
 
               <div className="flex items-center gap-2 flex-wrap mb-2">
-                <button onClick={() => setAiChatPlusOpen(v => !v)} title="Sources, collections & permissions" className="shrink-0 w-7 h-7 rounded-full bg-[#222] border border-[#333] text-gray-300 hover:text-white hover:bg-[#2a2a2a] flex items-center justify-center"><Plus className="w-4 h-4" /></button>
+                <button onClick={() => setAiChatPlusOpen(v => !v)} title="Sources, collections & permissions" className="shrink-0 w-7 h-7 rounded-full bg-[#222] border border-[#333] text-gray-300 hover:text-white hover:bg-[#1b2c4e] flex items-center justify-center"><Plus className="w-4 h-4" /></button>
                 <button onClick={() => setAiChatWebSearch(w => w==='on'?'ask':w==='ask'?'off':'on')} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#222] border border-[#333] text-[12px] text-gray-200">
                   <Globe className="w-3.5 h-3.5" /> Web <span className={`text-[10px] font-bold capitalize ${aiChatWebSearch==='off'?'text-gray-500':'text-[#e08a3c]'}`}>{aiChatWebSearch}</span>
                 </button>
@@ -4992,12 +4992,12 @@ Required JSON structure:
                         {items.length === 0 ? (
                           <div className="px-3 py-2 text-[12px] text-gray-500">No saved prompts</div>
                         ) : items.map((p: any) => (
-                          <button key={p.id} onClick={() => selectPrompt(p)} className="w-full text-left px-3 py-2 rounded-lg hover:bg-[#2a2a2a] flex flex-col">
+                          <button key={p.id} onClick={() => selectPrompt(p)} className="w-full text-left px-3 py-2 rounded-lg hover:bg-[#1b2c4e] flex flex-col">
                             <span className="text-[13px] text-gray-100 font-semibold truncate">{p.command}</span>
                             <span className="text-[11.5px] text-gray-400 truncate">{p.prompt}</span>
                           </button>
                         ))}
-                        <button onClick={() => { setShowPromptMenu(false); setPromptCreating(false); setShowPromptManager(true); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-[#2a2a2a] flex items-start gap-2 border-t border-[#333] mt-1">
+                        <button onClick={() => { setShowPromptMenu(false); setPromptCreating(false); setShowPromptManager(true); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-[#1b2c4e] flex items-start gap-2 border-t border-[#333] mt-1">
                           <SquarePen className="w-4 h-4 text-gray-400 shrink-0 mt-0.5" />
                           <span className="flex flex-col"><span className="text-[13px] text-gray-100 font-semibold">Create and manage prompts</span><span className="text-[11.5px] text-gray-400">Once created, saved prompts appear here</span></span>
                         </button>
@@ -5021,7 +5021,7 @@ Required JSON structure:
                       ].filter(it => it.label.toLowerCase().includes(q));
                       if (!items.length) return <div className="px-3 py-2 text-[12px] text-gray-500 italic">No matching documents. Type / to upload one, or Save citations to add them to your library.</div>;
                       return items.map((it, i) => (
-                        <button key={i} onClick={() => selectMention(it.label)} className="w-full text-left px-3 py-2 rounded-lg hover:bg-[#2a2a2a] flex items-start gap-2">
+                        <button key={i} onClick={() => selectMention(it.label)} className="w-full text-left px-3 py-2 rounded-lg hover:bg-[#1b2c4e] flex items-start gap-2">
                           <FileText className="w-4 h-4 text-gray-400 shrink-0 mt-0.5" />
                           <span className="flex flex-col min-w-0">
                             <span className="text-[13px] text-gray-100 font-semibold truncate">{it.label}</span>
@@ -5033,7 +5033,7 @@ Required JSON structure:
                   </div>
                 </>
               )}
-              <div className="bg-[#1a1a1a] border border-[#333] rounded-xl px-3 pt-2.5 pb-2 focus-within:border-[#5b5fff]">
+              <div className="bg-[#0c1830] border border-[#333] rounded-xl px-3 pt-2.5 pb-2 focus-within:border-[#2563eb]">
                 <textarea
                   value={aiChatInput}
                   onChange={(e) => {
@@ -5052,7 +5052,7 @@ Required JSON structure:
                 />
                 <div className="flex items-center justify-between mt-1">
                   <button onClick={() => aiChatFileRef.current?.click()} title="Attach a document" className="w-8 h-8 rounded-lg text-gray-400 hover:text-white hover:bg-[#262626] flex items-center justify-center"><Paperclip className="w-4 h-4" /></button>
-                  <button onClick={handleAiChatSend} disabled={aiChatBusy || !aiChatInput.trim()} className="shrink-0 w-9 h-9 rounded-full bg-[#5b5fff] hover:bg-[#6b6fff] disabled:opacity-40 text-white flex items-center justify-center">
+                  <button onClick={handleAiChatSend} disabled={aiChatBusy || !aiChatInput.trim()} className="shrink-0 w-9 h-9 rounded-full bg-[#2563eb] hover:bg-[#3b82f6] disabled:opacity-40 text-white flex items-center justify-center">
                     {aiChatBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUp className="w-4 h-4" />}
                   </button>
                 </div>
@@ -5064,14 +5064,14 @@ Required JSON structure:
 
       {showComments && (
         <div className="fixed inset-0 z-[100] flex justify-end bg-black/40" onClick={() => { setShowComments(false); setCommentSortOpen(false); setCommentFilterOpen(false); }}>
-          <div className="w-[420px] max-w-[92vw] h-full bg-[#161616] border-l border-[#333] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="px-4 py-3 border-b border-[#2a2a2a] flex items-center justify-between shrink-0">
+          <div className="w-[420px] max-w-[92vw] h-full bg-[#0a1428] border-l border-[#333] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b border-[#1b2c4e] flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2"><button onClick={() => setShowComments(false)} className="text-gray-300 hover:text-white"><ChevronsRight className="w-5 h-5" /></button><h2 className="text-[15px] font-bold text-white">Comments</h2></div>
               <div className="flex items-center gap-3">
                 <div className="relative">
                   <button onClick={() => { setCommentSortOpen(v => !v); setCommentFilterOpen(false); }} className="flex items-center gap-1.5 text-[13px] text-gray-300 hover:text-white"><ArrowUpDown className="w-4 h-4" /> Sort</button>
                   {commentSortOpen && (
-                    <div className="absolute right-0 top-[130%] z-20 w-[200px] bg-[#1a1a1a] border border-[#333] rounded-lg shadow-2xl py-1">
+                    <div className="absolute right-0 top-[130%] z-20 w-[200px] bg-[#0c1830] border border-[#333] rounded-lg shadow-2xl py-1">
                       <div className="px-3 py-1.5 text-[11px] text-gray-500 uppercase font-bold">Sort</div>
                       {['Newest first','Oldest first','Most recently active','Major first'].map(so => (
                         <button key={so} onClick={() => { setCommentSort(so); setCommentSortOpen(false); }} className="w-full text-left px-3 py-2 text-[13px] text-gray-200 hover:bg-[#222] flex items-center justify-between">{so}{commentSort === so && <Check className="w-4 h-4 text-[#7fa3ff]" />}</button>
@@ -5082,11 +5082,11 @@ Required JSON structure:
                 <div className="relative">
                   <button onClick={() => { setCommentFilterOpen(v => !v); setCommentSortOpen(false); }} className="flex items-center gap-1.5 text-[13px] text-gray-300 hover:text-white"><SlidersHorizontal className="w-4 h-4" /> Filter{!(commentFilters.open && commentFilters.resolved && commentFilters.unread && commentFilters.archived) && <span className="w-1.5 h-1.5 rounded-full bg-red-500" />}</button>
                   {commentFilterOpen && (
-                    <div className="absolute right-0 top-[130%] z-20 w-[170px] bg-[#1a1a1a] border border-[#333] rounded-lg shadow-2xl py-1">
+                    <div className="absolute right-0 top-[130%] z-20 w-[170px] bg-[#0c1830] border border-[#333] rounded-lg shadow-2xl py-1">
                       <div className="px-3 py-1.5 text-[11px] text-gray-500 uppercase font-bold">Filter</div>
                       {([['open','Open'],['resolved','Resolved'],['unread','Unread'],['archived','Archived']] as const).map(([k,label]) => (
                         <label key={k} className="flex items-center gap-2 px-3 py-2 text-[13px] text-gray-200 hover:bg-[#222] cursor-pointer">
-                          <input type="checkbox" checked={(commentFilters as any)[k]} onChange={(e) => setCommentFilters(f => ({ ...f, [k]: e.target.checked }))} className="accent-[#5b5fff]" /> {label}
+                          <input type="checkbox" checked={(commentFilters as any)[k]} onChange={(e) => setCommentFilters(f => ({ ...f, [k]: e.target.checked }))} className="accent-[#2563eb]" /> {label}
                         </label>
                       ))}
                     </div>
@@ -5096,12 +5096,12 @@ Required JSON structure:
             </div>
             <div className="flex-1 overflow-y-auto custom-scrollbar p-4 flex flex-col gap-3">
               {composingComment && (
-                <div className="bg-[#1a1a1a] border border-[#5b5fff] rounded-xl p-3">
-                  {commentQuote && <div className="text-[12px] text-gray-400 border-l-2 border-[#5b5fff] pl-2 mb-2 italic">“{commentQuote}”</div>}
-                  <textarea value={commentDraft} onChange={(e) => setCommentDraft(e.target.value)} rows={3} placeholder="Add a comment..." autoFocus className="w-full resize-none bg-[#111] border border-[#333] rounded-lg px-3 py-2 text-[13.5px] text-white outline-none focus:border-[#5b5fff]" />
+                <div className="bg-[#0c1830] border border-[#2563eb] rounded-xl p-3">
+                  {commentQuote && <div className="text-[12px] text-gray-400 border-l-2 border-[#2563eb] pl-2 mb-2 italic">“{commentQuote}”</div>}
+                  <textarea value={commentDraft} onChange={(e) => setCommentDraft(e.target.value)} rows={3} placeholder="Add a comment..." autoFocus className="w-full resize-none bg-[#111] border border-[#333] rounded-lg px-3 py-2 text-[13.5px] text-white outline-none focus:border-[#2563eb]" />
                   <div className="flex items-center justify-end gap-2 mt-2">
                     <button onClick={() => { setComposingComment(false); setCommentDraft(''); setCommentQuote(''); }} className="text-[12.5px] text-gray-400 hover:text-white px-3 py-1.5">Cancel</button>
-                    <button onClick={addComment} disabled={!commentDraft.trim()} className="bg-[#5b5fff] hover:bg-[#6b6fff] disabled:opacity-40 text-white text-[12.5px] font-semibold rounded-md px-4 py-1.5">Comment</button>
+                    <button onClick={addComment} disabled={!commentDraft.trim()} className="bg-[#2563eb] hover:bg-[#3b82f6] disabled:opacity-40 text-white text-[12.5px] font-semibold rounded-md px-4 py-1.5">Comment</button>
                   </div>
                 </div>
               )}
@@ -5117,8 +5117,8 @@ Required JSON structure:
                   );
                 }
                 return list.map(c => (
-                  <div key={c.id} className={`rounded-xl p-3 border ${c.archived ? 'bg-[#141414] border-[#2a2a2a] opacity-70' : 'bg-[#1a1a1a] border-[#2a2a2a]'}`}>
-                    {c.quote && <div className="text-[12px] text-gray-400 border-l-2 border-[#5b5fff] pl-2 mb-2 italic">“{c.quote}”</div>}
+                  <div key={c.id} className={`rounded-xl p-3 border ${c.archived ? 'bg-[#141414] border-[#1b2c4e] opacity-70' : 'bg-[#0c1830] border-[#1b2c4e]'}`}>
+                    {c.quote && <div className="text-[12px] text-gray-400 border-l-2 border-[#2563eb] pl-2 mb-2 italic">“{c.quote}”</div>}
                     <div className="text-[13.5px] text-gray-100 whitespace-pre-wrap">{c.text}</div>
                     <div className="flex items-center gap-2 mt-2 flex-wrap text-[11px] text-gray-500">
                       <span>{commentTime(c.createdAt)}</span>
@@ -5136,8 +5136,8 @@ Required JSON structure:
                 ));
               })()}
             </div>
-            <div className="border-t border-[#2a2a2a] p-3 shrink-0">
-              <button onClick={startComment} className="w-full bg-[#222] hover:bg-[#2a2a2a] border border-[#333] text-gray-200 text-[13px] font-semibold rounded-lg py-2 flex items-center justify-center gap-2"><MessageCircle className="w-4 h-4" /> Comment on selected text</button>
+            <div className="border-t border-[#1b2c4e] p-3 shrink-0">
+              <button onClick={startComment} className="w-full bg-[#222] hover:bg-[#1b2c4e] border border-[#333] text-gray-200 text-[13px] font-semibold rounded-lg py-2 flex items-center justify-center gap-2"><MessageCircle className="w-4 h-4" /> Comment on selected text</button>
             </div>
           </div>
         </div>
@@ -5145,8 +5145,8 @@ Required JSON structure:
 
       {showFindPapers && (
         <div className="fixed inset-0 z-[100] flex bg-black/40" onClick={() => { setShowFindPapers(false); setFpSortOpen(false); setFpFilterOpen(false); }}>
-          <div className="w-[420px] max-w-[92vw] h-full bg-[#161616] border-r border-[#333] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="px-4 py-3 border-b border-[#2a2a2a] flex items-center gap-2 shrink-0">
+          <div className="w-[420px] max-w-[92vw] h-full bg-[#0a1428] border-r border-[#333] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b border-[#1b2c4e] flex items-center gap-2 shrink-0">
               <button onClick={() => setShowFindPapers(false)} className="text-gray-300 hover:text-white"><ChevronLeft className="w-5 h-5" /></button>
               <h2 className="text-[15px] font-bold text-white">Find papers</h2>
             </div>
@@ -5158,7 +5158,7 @@ Required JSON structure:
                   onChange={(e) => setFpQuery(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); runFindPapers(); } }}
                   placeholder="Search 250M+ papers..."
-                  className="w-full bg-[#1f1f1f] border border-[#333] rounded-lg pl-9 pr-3 py-2.5 text-[13.5px] text-white outline-none focus:border-[#5b5fff]"
+                  className="w-full bg-[#1f1f1f] border border-[#333] rounded-lg pl-9 pr-3 py-2.5 text-[13.5px] text-white outline-none focus:border-[#2563eb]"
                 />
               </div>
               <div className="flex items-center justify-end gap-4 mt-3 relative">
@@ -5167,7 +5167,7 @@ Required JSON structure:
                   {fpSortOpen && (
                     <div className="absolute right-0 top-[120%] z-20 w-[150px] bg-[#1f1f1f] border border-[#333] rounded-lg shadow-2xl py-1">
                       {['Relevance','Most Recent','Oldest','Most Cited'].map(s => (
-                        <button key={s} onClick={() => { setFpSort(s); setFpSortOpen(false); if (fpSearched) runFindPapers(undefined, s); }} className={`w-full text-left px-3 py-2 text-[13px] hover:bg-[#2a2a2a] ${fpSort===s?'text-white bg-[#2a2a2a]':'text-gray-300'}`}>{s}</button>
+                        <button key={s} onClick={() => { setFpSort(s); setFpSortOpen(false); if (fpSearched) runFindPapers(undefined, s); }} className={`w-full text-left px-3 py-2 text-[13px] hover:bg-[#1b2c4e] ${fpSort===s?'text-white bg-[#1b2c4e]':'text-gray-300'}`}>{s}</button>
                       ))}
                     </div>
                   )}
@@ -5178,17 +5178,17 @@ Required JSON structure:
                     <div className="absolute right-0 top-[120%] z-20 w-[230px] bg-[#1f1f1f] border border-[#333] rounded-lg shadow-2xl p-3 flex flex-col gap-3">
                       <div>
                         <label className="text-[11px] font-bold text-gray-400 uppercase">Published from year</label>
-                        <input value={fpFromYear} onChange={(e) => setFpFromYear(e.target.value.replace(/[^0-9]/g,'').slice(0,4))} placeholder="e.g. 2018" className="w-full mt-1 bg-[#161616] border border-[#333] rounded-md px-2 py-1.5 text-[13px] text-white outline-none focus:border-[#5b5fff]" />
+                        <input value={fpFromYear} onChange={(e) => setFpFromYear(e.target.value.replace(/[^0-9]/g,'').slice(0,4))} placeholder="e.g. 2018" className="w-full mt-1 bg-[#0a1428] border border-[#333] rounded-md px-2 py-1.5 text-[13px] text-white outline-none focus:border-[#2563eb]" />
                       </div>
                       <div>
                         <label className="text-[11px] font-bold text-gray-400 uppercase">Min. citations</label>
-                        <input value={fpMinCited} onChange={(e) => setFpMinCited(e.target.value.replace(/[^0-9]/g,''))} placeholder="e.g. 50" className="w-full mt-1 bg-[#161616] border border-[#333] rounded-md px-2 py-1.5 text-[13px] text-white outline-none focus:border-[#5b5fff]" />
+                        <input value={fpMinCited} onChange={(e) => setFpMinCited(e.target.value.replace(/[^0-9]/g,''))} placeholder="e.g. 50" className="w-full mt-1 bg-[#0a1428] border border-[#333] rounded-md px-2 py-1.5 text-[13px] text-white outline-none focus:border-[#2563eb]" />
                       </div>
                       <label className="flex items-center gap-2 text-[13px] text-gray-200 cursor-pointer">
-                        <input type="checkbox" checked={fpOA} onChange={(e) => setFpOA(e.target.checked)} className="accent-[#5b5fff]" /> Open access only
+                        <input type="checkbox" checked={fpOA} onChange={(e) => setFpOA(e.target.checked)} className="accent-[#2563eb]" /> Open access only
                       </label>
                       <div className="flex gap-2">
-                        <button onClick={() => { setFpFilterOpen(false); if (fpSearched) runFindPapers(); }} className="flex-1 bg-[#5b5fff] hover:bg-[#6b6fff] text-white text-[12.5px] font-semibold rounded-md py-1.5">Apply</button>
+                        <button onClick={() => { setFpFilterOpen(false); if (fpSearched) runFindPapers(); }} className="flex-1 bg-[#2563eb] hover:bg-[#3b82f6] text-white text-[12.5px] font-semibold rounded-md py-1.5">Apply</button>
                         <button onClick={() => { setFpFromYear(''); setFpMinCited(''); setFpOA(false); }} className="px-3 text-[12.5px] text-gray-400 hover:text-white">Reset</button>
                       </div>
                     </div>
@@ -5200,7 +5200,7 @@ Required JSON structure:
               {!fpSearched && fpSuggestion && (
                 <div className="mb-3">
                   <div className="text-[12px] text-gray-500 mb-1.5 flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" /> Suggested from your document</div>
-                  <button onClick={() => { setFpQuery(fpSuggestion); runFindPapers(fpSuggestion); }} className="w-full flex items-center justify-between gap-2 bg-[#1f1f1f] border border-[#333] rounded-lg px-3 py-3 text-left hover:border-[#5b5fff]">
+                  <button onClick={() => { setFpQuery(fpSuggestion); runFindPapers(fpSuggestion); }} className="w-full flex items-center justify-between gap-2 bg-[#1f1f1f] border border-[#333] rounded-lg px-3 py-3 text-left hover:border-[#2563eb]">
                     <span className="text-[13.5px] text-white">{fpSuggestion}</span>
                     <ChevronRight className="w-4 h-4 text-gray-500 shrink-0" />
                   </button>
@@ -5210,7 +5210,7 @@ Required JSON structure:
               {!fpBusy && fpSearched && fpResults.length === 0 && <div className="text-center text-gray-500 text-[13px] py-6">No papers found. Try different keywords or relax the filters.</div>}
               <div className="flex flex-col gap-2">
                 {fpResults.map((p, i) => (
-                  <button key={i} onClick={() => window.open(p.url, '_blank', 'noopener,noreferrer')} className="w-full text-left bg-[#1f1f1f] border border-[#333] rounded-lg px-3 py-2.5 hover:border-[#5b5fff] group">
+                  <button key={i} onClick={() => window.open(p.url, '_blank', 'noopener,noreferrer')} className="w-full text-left bg-[#1f1f1f] border border-[#333] rounded-lg px-3 py-2.5 hover:border-[#2563eb] group">
                     <div className="flex items-start justify-between gap-2">
                       <span className="text-[13.5px] text-white font-semibold leading-snug">{p.title}</span>
                       <ExternalLink className="w-3.5 h-3.5 text-gray-500 shrink-0 mt-0.5 group-hover:text-white" />
@@ -5232,7 +5232,7 @@ Required JSON structure:
 
       {showPromptManager && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60" onClick={() => { setShowPromptManager(false); setPromptCreating(false); }}>
-          <div className="w-[520px] max-w-[92vw] bg-[#161616] border border-[#333] rounded-2xl shadow-2xl p-6" onClick={e => e.stopPropagation()}>
+          <div className="w-[520px] max-w-[92vw] bg-[#0a1428] border border-[#333] rounded-2xl shadow-2xl p-6" onClick={e => e.stopPropagation()}>
             {promptCreating ? (
               <>
                 <div className="flex items-center gap-2 mb-4">
@@ -5241,13 +5241,13 @@ Required JSON structure:
                   <button onClick={() => { setShowPromptManager(false); setPromptCreating(false); }} className="ml-auto text-gray-400 hover:text-white"><X className="w-5 h-5" /></button>
                 </div>
                 <label className="text-[12px] font-bold text-gray-300">Command</label>
-                <input value={promptCmd} onChange={e => { const val = e.target.value; setPromptCmd(val.startsWith('/') ? val : '/' + val.replace(/^\/+/, '')); }} className="w-full mt-1 mb-1 bg-[#1a1a1a] border border-[#333] rounded-lg px-3 py-2 text-[14px] text-white outline-none focus:border-[#5b5fff]" />
+                <input value={promptCmd} onChange={e => { const val = e.target.value; setPromptCmd(val.startsWith('/') ? val : '/' + val.replace(/^\/+/, '')); }} className="w-full mt-1 mb-1 bg-[#0c1830] border border-[#333] rounded-lg px-3 py-2 text-[14px] text-white outline-none focus:border-[#2563eb]" />
                 <p className="text-[11.5px] text-gray-500 mb-3">When saved, access the prompt by typing `/` in AI Chat</p>
                 <label className="text-[12px] font-bold text-gray-300">Prompt</label>
-                <textarea value={promptText} onChange={e => setPromptText(e.target.value)} rows={4} placeholder="Read the current file and provide a detailed summary..." className="w-full mt-1 bg-[#1a1a1a] border border-[#333] rounded-lg px-3 py-2 text-[14px] text-white outline-none focus:border-[#5b5fff] resize-none" />
+                <textarea value={promptText} onChange={e => setPromptText(e.target.value)} rows={4} placeholder="Read the current file and provide a detailed summary..." className="w-full mt-1 bg-[#0c1830] border border-[#333] rounded-lg px-3 py-2 text-[14px] text-white outline-none focus:border-[#2563eb] resize-none" />
                 <div className="flex items-center justify-end gap-2 mt-4">
                   <button onClick={() => setPromptCreating(false)} className="px-4 py-2 text-[13px] text-gray-300 hover:text-white">Cancel</button>
-                  <button onClick={savePromptFromForm} disabled={!promptText.trim() || promptCmd.trim().length < 2} className="px-5 py-2 bg-[#5b5fff] hover:bg-[#6b6fff] disabled:opacity-40 text-white rounded-lg text-[13px] font-bold">Submit</button>
+                  <button onClick={savePromptFromForm} disabled={!promptText.trim() || promptCmd.trim().length < 2} className="px-5 py-2 bg-[#2563eb] hover:bg-[#3b82f6] disabled:opacity-40 text-white rounded-lg text-[13px] font-bold">Submit</button>
                 </div>
               </>
             ) : savedPrompts.length === 0 ? (
@@ -5256,20 +5256,20 @@ Required JSON structure:
                 <div className="w-11 h-11 rounded-lg bg-[#222] border border-[#333] flex items-center justify-center mx-auto mb-3 mt-2"><SquarePen className="w-5 h-5 text-gray-300" /></div>
                 <h2 className="text-[17px] font-bold text-white">Create your first saved prompt</h2>
                 <p className="text-[13px] text-gray-400 mt-1 mb-5">Saved prompts appear in chat under the save icon and can be inserted quickly.</p>
-                <button onClick={() => { setPromptCmd('/'); setPromptText(''); setPromptCreating(true); }} className="w-full bg-[#5b5fff] hover:bg-[#6b6fff] text-white rounded-lg py-2.5 font-bold text-[14px]">Create Prompt</button>
+                <button onClick={() => { setPromptCmd('/'); setPromptText(''); setPromptCreating(true); }} className="w-full bg-[#2563eb] hover:bg-[#3b82f6] text-white rounded-lg py-2.5 font-bold text-[14px]">Create Prompt</button>
               </div>
             ) : (
               <>
                 <div className="flex items-center justify-between mb-4"><h2 className="text-[16px] font-bold text-white">Saved prompts</h2><button onClick={() => setShowPromptManager(false)} className="text-gray-400 hover:text-white"><X className="w-5 h-5" /></button></div>
                 <div className="flex flex-col gap-2 max-h-[50vh] overflow-y-auto">
                   {savedPrompts.map((p: any) => (
-                    <div key={p.id} className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-3 flex items-start justify-between gap-2">
+                    <div key={p.id} className="bg-[#0c1830] border border-[#1b2c4e] rounded-lg p-3 flex items-start justify-between gap-2">
                       <div className="min-w-0"><div className="text-[13px] font-bold text-white">{p.command}</div><div className="text-[12px] text-gray-400 break-words">{p.prompt}</div></div>
                       <button onClick={() => persistPrompts(savedPrompts.filter((x: any) => x.id !== p.id))} className="text-gray-500 hover:text-red-400 shrink-0"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   ))}
                 </div>
-                <button onClick={() => { setPromptCmd('/'); setPromptText(''); setPromptCreating(true); }} className="w-full mt-4 bg-[#5b5fff] hover:bg-[#6b6fff] text-white rounded-lg py-2.5 font-bold text-[14px]">Create Prompt</button>
+                <button onClick={() => { setPromptCmd('/'); setPromptText(''); setPromptCreating(true); }} className="w-full mt-4 bg-[#2563eb] hover:bg-[#3b82f6] text-white rounded-lg py-2.5 font-bold text-[14px]">Create Prompt</button>
               </>
             )}
           </div>
@@ -5278,21 +5278,21 @@ Required JSON structure:
 
       {showLibraryModal && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60" onClick={() => setShowLibraryModal(false)}>
-          <div className="w-[560px] max-w-[92vw] max-h-[80vh] bg-[#161616] border border-[#333] rounded-2xl shadow-2xl p-6 flex flex-col" onClick={e => e.stopPropagation()}>
+          <div className="w-[560px] max-w-[92vw] max-h-[80vh] bg-[#0a1428] border border-[#333] rounded-2xl shadow-2xl p-6 flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3"><h2 className="text-[16px] font-bold text-white flex items-center gap-2"><LibraryIcon className="w-4 h-4 text-[#7fa3ff]" /> Library</h2><button onClick={() => setShowLibraryModal(false)} className="text-gray-400 hover:text-white"><X className="w-5 h-5" /></button></div>
             <p className="text-[12.5px] text-gray-400 mb-3">Documents and saved sources here can be used in AI Chat by typing <span className="text-gray-200 font-bold">@</span>.</p>
-            <button onClick={() => aiChatFileRef.current?.click()} className="mb-3 self-start flex items-center gap-2 bg-[#5b5fff] hover:bg-[#6b6fff] text-white rounded-lg px-3 py-1.5 text-[13px] font-bold"><Upload className="w-4 h-4" /> Upload document</button>
+            <button onClick={() => aiChatFileRef.current?.click()} className="mb-3 self-start flex items-center gap-2 bg-[#2563eb] hover:bg-[#3b82f6] text-white rounded-lg px-3 py-1.5 text-[13px] font-bold"><Upload className="w-4 h-4" /> Upload document</button>
             <input ref={aiChatFileRef} type="file" accept=".pdf,.docx,.txt,.md" className="hidden" onChange={handleAiChatUpload} />
             <div className="flex-1 overflow-y-auto flex flex-col gap-2">
               {(aiLibraryDocs.length === 0 && savedCitations.length === 0) && <div className="text-[13px] text-gray-500 italic">Your library is empty. Upload a document, or use Save on any citation.</div>}
               {aiLibraryDocs.map((d: string) => (
-                <div key={d} className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-3 flex items-center justify-between gap-2">
+                <div key={d} className="bg-[#0c1830] border border-[#1b2c4e] rounded-lg p-3 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0"><FileText className="w-4 h-4 text-gray-400 shrink-0" /><span className="text-[13px] text-gray-100 truncate">{d}</span></div>
                   <button onClick={() => setAiLibraryDocs(prev => { const n = prev.filter(x => x !== d); try { localStorage.setItem('pinnovix_library_docs', JSON.stringify(n)); } catch {} return n; })} className="text-gray-500 hover:text-red-400 shrink-0"><Trash2 className="w-4 h-4" /></button>
                 </div>
               ))}
               {savedCitations.map((c: any, i: number) => (
-                <div key={'c' + i} className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-3">
+                <div key={'c' + i} className="bg-[#0c1830] border border-[#1b2c4e] rounded-lg p-3">
                   <div className="text-[13px] text-gray-100 font-semibold truncate">{c.title || 'Untitled source'}</div>
                   <div className="text-[11.5px] text-gray-400 truncate">{[c.authors ? String(c.authors).split(',')[0] : '', c.year, c.container].filter(Boolean).join(' \u00b7 ')}</div>
                 </div>
@@ -5312,8 +5312,8 @@ Required JSON structure:
       {/* Claim Confidence Settings Modal */}
       {showClaimConfidenceSettings && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-[600px] max-w-[92vw] bg-[#161616] border border-[#333] rounded-2xl shadow-2xl overflow-hidden flex flex-col relative animate-in fade-in zoom-in duration-200">
-            <div className="px-6 py-5 border-b border-[#2a2a2a] flex items-center justify-between">
+          <div className="w-[600px] max-w-[92vw] bg-[#0a1428] border border-[#333] rounded-2xl shadow-2xl overflow-hidden flex flex-col relative animate-in fade-in zoom-in duration-200">
+            <div className="px-6 py-5 border-b border-[#1b2c4e] flex items-center justify-between">
               <h2 className="text-xl font-bold text-white">Citation Health settings</h2>
               <button onClick={() => setShowClaimConfidenceSettings(false)} className="text-gray-400 hover:text-white transition-colors">
                 <X className="w-5 h-5" />
@@ -5334,7 +5334,7 @@ Required JSON structure:
                     <span className="text-[15px] font-bold text-white">Consider external sources</span>
                     <span className="text-[13px] text-gray-400">Pinnovix will consider sources from the web</span>
                   </div>
-                  <div onClick={() => setExternalSources(!externalSources)} className={`w-11 h-6 rounded-full flex items-center px-1 cursor-pointer transition-colors ${externalSources ? 'bg-[#5b5fff]' : 'bg-[#3d3d3d]'}`}>
+                  <div onClick={() => setExternalSources(!externalSources)} className={`w-11 h-6 rounded-full flex items-center px-1 cursor-pointer transition-colors ${externalSources ? 'bg-[#2563eb]' : 'bg-[#3d3d3d]'}`}>
                     <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${externalSources ? 'translate-x-[20px]' : 'translate-x-0'}`} />
                   </div>
                 </div>
@@ -5344,7 +5344,7 @@ Required JSON structure:
                     <span className="text-[15px] font-bold text-white">Consider library sources</span>
                     <span className="text-[13px] text-gray-400">Pinnovix will consider sources from your library</span>
                   </div>
-                  <div onClick={() => setLibrarySources(!librarySources)} className={`w-11 h-6 rounded-full flex items-center px-1 cursor-pointer transition-colors ${librarySources ? 'bg-[#5b5fff]' : 'bg-[#3d3d3d]'}`}>
+                  <div onClick={() => setLibrarySources(!librarySources)} className={`w-11 h-6 rounded-full flex items-center px-1 cursor-pointer transition-colors ${librarySources ? 'bg-[#2563eb]' : 'bg-[#3d3d3d]'}`}>
                     <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${librarySources ? 'translate-x-[20px]' : 'translate-x-0'}`} />
                   </div>
                 </div>
@@ -5354,14 +5354,14 @@ Required JSON structure:
                     <span className="text-[15px] font-bold text-white">Limit to a collection</span>
                     <span className="text-[13px] text-gray-400">Pinnovix will focus on sources from this collection</span>
                   </div>
-                  <div className="px-4 py-2.5 border border-[#333] rounded-lg text-[14px] font-bold text-gray-400 flex items-center justify-between gap-4 w-[240px] bg-[#1a1a1a] cursor-pointer hover:border-[#444]">
+                  <div className="px-4 py-2.5 border border-[#333] rounded-lg text-[14px] font-bold text-gray-400 flex items-center justify-between gap-4 w-[240px] bg-[#0c1830] cursor-pointer hover:border-[#444]">
                     <span>{limitCollection}</span>
                     <ChevronRight className="w-4 h-4 rotate-90 text-gray-500" />
                   </div>
                 </div>
               </div>
 
-              <div className="h-[1px] bg-[#2a2a2a] w-full my-1"></div>
+              <div className="h-[1px] bg-[#1b2c4e] w-full my-1"></div>
               
               <div className="flex flex-col gap-5">
                 <span className="text-[12px] font-bold text-gray-500 tracking-wider">CITATION FILTERS</span>
@@ -5369,37 +5369,37 @@ Required JSON structure:
                 <div className="flex items-center justify-between">
                   <span className="text-[15px] font-bold text-white">Publish year</span>
                   <div className="flex gap-1 items-center">
-                    <button onClick={() => setPublishYear('All')} className={`px-4 py-1.5 rounded-lg text-[13px] font-bold transition-colors ${publishYear === 'All' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333]'}`}>All</button>
-                    <button onClick={() => setPublishYear('Last 5 years')} className={`px-4 py-1.5 rounded-lg text-[13px] font-bold transition-colors ${publishYear === 'Last 5 years' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333]'}`}>Last 5 years</button>
-                    <button onClick={() => setPublishYear('Custom')} className={`px-4 py-1.5 rounded-lg text-[13px] font-bold transition-colors ${publishYear === 'Custom' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333]'}`}>Custom</button>
+                    <button onClick={() => setPublishYear('All')} className={`px-4 py-1.5 rounded-lg text-[13px] font-bold transition-colors ${publishYear === 'All' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#1b2c4e] text-gray-300 hover:bg-[#333]'}`}>All</button>
+                    <button onClick={() => setPublishYear('Last 5 years')} className={`px-4 py-1.5 rounded-lg text-[13px] font-bold transition-colors ${publishYear === 'Last 5 years' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#1b2c4e] text-gray-300 hover:bg-[#333]'}`}>Last 5 years</button>
+                    <button onClick={() => setPublishYear('Custom')} className={`px-4 py-1.5 rounded-lg text-[13px] font-bold transition-colors ${publishYear === 'Custom' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#1b2c4e] text-gray-300 hover:bg-[#333]'}`}>Custom</button>
                   </div>
                 </div>
 
                 <div className="flex items-center justify-between">
                   <span className="text-[15px] font-bold text-white">Impact Factor</span>
                   <div className="flex gap-1 items-center">
-                    <button onClick={() => setImpactFactor('All')} className={`px-4 py-1.5 rounded-lg text-[13px] font-bold transition-colors ${impactFactor === 'All' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333]'}`}>All</button>
-                    <button onClick={() => setImpactFactor('0.25+')} className={`px-4 py-1.5 rounded-lg text-[13px] font-bold transition-colors ${impactFactor === '0.25+' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333]'}`}>0.25+</button>
-                    <button onClick={() => setImpactFactor('3+')} className={`px-4 py-1.5 rounded-lg text-[13px] font-bold transition-colors ${impactFactor === '3+' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333]'}`}>3+</button>
-                    <button onClick={() => setImpactFactor('10+')} className={`px-4 py-1.5 rounded-lg text-[13px] font-bold transition-colors ${impactFactor === '10+' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333]'}`}>10+</button>
+                    <button onClick={() => setImpactFactor('All')} className={`px-4 py-1.5 rounded-lg text-[13px] font-bold transition-colors ${impactFactor === 'All' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#1b2c4e] text-gray-300 hover:bg-[#333]'}`}>All</button>
+                    <button onClick={() => setImpactFactor('0.25+')} className={`px-4 py-1.5 rounded-lg text-[13px] font-bold transition-colors ${impactFactor === '0.25+' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#1b2c4e] text-gray-300 hover:bg-[#333]'}`}>0.25+</button>
+                    <button onClick={() => setImpactFactor('3+')} className={`px-4 py-1.5 rounded-lg text-[13px] font-bold transition-colors ${impactFactor === '3+' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#1b2c4e] text-gray-300 hover:bg-[#333]'}`}>3+</button>
+                    <button onClick={() => setImpactFactor('10+')} className={`px-4 py-1.5 rounded-lg text-[13px] font-bold transition-colors ${impactFactor === '10+' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#1b2c4e] text-gray-300 hover:bg-[#333]'}`}>10+</button>
                   </div>
                 </div>
 
                 <div className="flex items-center justify-between">
                   <span className="text-[15px] font-bold text-white">Cited by</span>
                   <div className="flex gap-1 items-center">
-                    <button onClick={() => setCitedBy('All')} className={`px-4 py-1.5 rounded-lg text-[13px] font-bold transition-colors ${citedBy === 'All' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333]'}`}>All</button>
-                    <button onClick={() => setCitedBy('5+')} className={`px-4 py-1.5 rounded-lg text-[13px] font-bold transition-colors ${citedBy === '5+' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333]'}`}>5+</button>
-                    <button onClick={() => setCitedBy('20+')} className={`px-4 py-1.5 rounded-lg text-[13px] font-bold transition-colors ${citedBy === '20+' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333]'}`}>20+</button>
-                    <button onClick={() => setCitedBy('50+')} className={`px-4 py-1.5 rounded-lg text-[13px] font-bold transition-colors ${citedBy === '50+' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333]'}`}>50+</button>
+                    <button onClick={() => setCitedBy('All')} className={`px-4 py-1.5 rounded-lg text-[13px] font-bold transition-colors ${citedBy === 'All' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#1b2c4e] text-gray-300 hover:bg-[#333]'}`}>All</button>
+                    <button onClick={() => setCitedBy('5+')} className={`px-4 py-1.5 rounded-lg text-[13px] font-bold transition-colors ${citedBy === '5+' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#1b2c4e] text-gray-300 hover:bg-[#333]'}`}>5+</button>
+                    <button onClick={() => setCitedBy('20+')} className={`px-4 py-1.5 rounded-lg text-[13px] font-bold transition-colors ${citedBy === '20+' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#1b2c4e] text-gray-300 hover:bg-[#333]'}`}>20+</button>
+                    <button onClick={() => setCitedBy('50+')} className={`px-4 py-1.5 rounded-lg text-[13px] font-bold transition-colors ${citedBy === '50+' ? 'bg-[#293b6e] text-[#6d93e8]' : 'bg-[#1b2c4e] text-gray-300 hover:bg-[#333]'}`}>50+</button>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="px-6 py-4 border-t border-[#2a2a2a] flex items-center justify-end gap-3">
+            <div className="px-6 py-4 border-t border-[#1b2c4e] flex items-center justify-end gap-3">
               <button onClick={() => setShowClaimConfidenceSettings(false)} className="px-5 py-2.5 rounded-lg border border-[#444] text-white hover:bg-[#222] transition-colors font-bold text-[14px]">Cancel</button>
-              <button onClick={() => { setShowClaimConfidenceSettings(false); handleClaimConfidence(); }} className="bg-[#5b5fff] hover:bg-[#6b6fff] text-white px-5 py-2.5 rounded-lg font-bold text-[14px] transition-colors shadow-sm">Run review</button>
+              <button onClick={() => { setShowClaimConfidenceSettings(false); handleClaimConfidence(); }} className="bg-[#2563eb] hover:bg-[#3b82f6] text-white px-5 py-2.5 rounded-lg font-bold text-[14px] transition-colors shadow-sm">Run review</button>
             </div>
           </div>
         </div>
