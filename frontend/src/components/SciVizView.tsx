@@ -442,7 +442,7 @@ export function SciVizView({ onHome }: any) {
     </div>
   );
 
-  const workspace = (
+  const workspace = data ? (
     <div className="flex w-full h-full overflow-hidden">
       <div className="w-[300px] shrink-0 border-r border-border flex flex-col h-full">
         <div className="p-4 border-b border-border flex items-center justify-between">
@@ -490,7 +490,7 @@ export function SciVizView({ onHome }: any) {
         </div>
       </div>
     </div>
-  );
+  ) : null;
 
   return (
     <div className="flex w-full h-full bg-background text-foreground overflow-hidden">
