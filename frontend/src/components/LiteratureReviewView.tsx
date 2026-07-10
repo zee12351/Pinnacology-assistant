@@ -1099,9 +1099,9 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     <aside className={(navOpen ? 'w-[224px]' : 'w-[56px]') + ' shrink-0 border-r border-border flex flex-col bg-card/40 h-full'}>
       <div className="flex items-center justify-between px-3 h-12 border-b border-border shrink-0">
         {navOpen ? (
-          <div className="flex items-center gap-2 text-foreground min-w-0"><span className="w-5 h-5 bg-contain bg-no-repeat bg-center shrink-0" style={{ backgroundImage: 'url(/logo.svg)' }} /> <div className="flex flex-col leading-tight min-w-0"><span className="font-bold text-[12.5px] truncate">Literature Review</span><span className="text-[9.5px] text-muted-foreground">by Pinnovix</span></div></div>
+          <div className="flex items-center gap-2 text-foreground min-w-0"><span className="w-5 h-5 bg-contain bg-no-repeat bg-center shrink-0" style={{ backgroundImage: 'url(/logo.png)' }} /> <div className="flex flex-col leading-tight min-w-0"><span className="font-bold text-[12.5px] truncate">Literature Review</span><span className="text-[9.5px] text-muted-foreground">by Pinnovix</span></div></div>
         ) : (
-          <span className="w-5 h-5 bg-contain bg-no-repeat bg-center mx-auto" style={{ backgroundImage: 'url(/logo.svg)' }} />
+          <span className="w-5 h-5 bg-contain bg-no-repeat bg-center mx-auto" style={{ backgroundImage: 'url(/logo.png)' }} />
         )}
         <button onClick={() => setNavOpen((v) => !v)} title="Toggle sidebar" className="text-muted-foreground hover:text-foreground"><PanelLeft className="w-4 h-4" /></button>
       </div>

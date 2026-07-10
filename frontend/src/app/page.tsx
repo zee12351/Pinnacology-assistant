@@ -480,7 +480,7 @@ export default function HomePage() {
             <div className="p-4 flex flex-col gap-6">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="w-7 h-7 bg-contain bg-no-repeat bg-center shrink-0" style={{ backgroundImage: 'url(/logo.svg)' }} />
+                  <span className="w-7 h-7 bg-contain bg-no-repeat bg-center shrink-0" style={{ backgroundImage: 'url(/logo.png)' }} />
                   <span className="font-bold text-lg tracking-wide text-foreground">Pinnovix</span>
                 </div>
                 <div className="flex items-center gap-2">
