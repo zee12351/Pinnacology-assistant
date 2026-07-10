@@ -163,34 +163,46 @@ export function SciVizView({ onHome }: any) {
     setVizType('graphical'); setSlideIdx(0); setMermaidSvg(''); setMindmapSvg('');
   }
 
+  function mmClean(s: string): string {
+    return String(s || '').replace(/["\n\r]/g, ' ').replace(/[()\[\]{};|<>#]/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  function buildMermaid(kind: string): string {
+    const d = data || {};
+    if (kind === 'mindmap') {
+      let out = 'mindmap\n  root((' + (mmClean(d.title).slice(0, 32) || 'Research') + '))\n';
+      if (d.background) out += '    Background\n      ' + mmClean(d.background).slice(0, 40) + '\n';
+      if (d.methods) out += '    Methods\n      ' + mmClean(d.methods).slice(0, 40) + '\n';
+      out += '    Results\n';
+      (d.results || []).slice(0, 4).forEach((r: string) => { const t = mmClean(r).slice(0, 40); if (t) out += '      ' + t + '\n'; });
+      if (d.conclusion) out += '    Conclusion\n      ' + mmClean(d.conclusion).slice(0, 40) + '\n';
+      return out;
+    }
+    const bg = mmClean(d.background).slice(0, 46) || 'Background';
+    const me = mmClean(d.methods).slice(0, 46) || 'Methods';
+    const re = mmClean((d.results && d.results[0]) || '').slice(0, 46) || 'Key results';
+    const co = mmClean(d.conclusion).slice(0, 46) || 'Conclusion';
+    return 'flowchart TD\n  BG["Background: ' + bg + '"]\n  ME["Methods: ' + me + '"]\n  RE["Key result: ' + re + '"]\n  CO["Conclusion: ' + co + '"]\n  BG --> ME --> RE --> CO\n';
+  }
   async function ensureMermaid(kind: string) {
-    const have = kind === 'mindmap' ? mindmapSvg : mermaidSvg;
-    if (have || !srcText) return;
+    if (!data) return;
     setBusy(true); setPhase(kind === 'mindmap' ? 'Building mindmap...' : 'Building flowchart...');
     try {
-      const ask = kind === 'mindmap'
-        ? 'Create a Mermaid mindmap that summarises this research (root = topic; branches for Background, Methods, Key results, Conclusion, each with 1-3 leaf nodes). Return ONLY valid mermaid code starting with "mindmap", no code fences, no commentary.'
-        : 'Create a Mermaid "flowchart TD" that visualises this research pipeline (Background/Problem -> Methods/Approach -> Key Results -> Conclusion). Use short node labels. Return ONLY valid mermaid code starting with "flowchart TD", no code fences, no commentary.';
-      const raw = await callChat(ask + '\n\nResearch text:\n' + srcText.slice(0, 4000));
-      let code = stripFence(raw);
-      if (!code) { setBusy(false); setPhase(''); return; }
-      if (kind === 'mindmap' && !/^mindmap/i.test(code)) code = 'mindmap\n' + code;
-      if (kind === 'mermaid' && !/^flowchart|^graph/i.test(code)) code = 'flowchart TD\n' + code;
+      const code = buildMermaid(kind);
       await loadScript('https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js');
       const mm = (window as any).mermaid;
       mm.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' });
-      const { svg } = await mm.render('svmmd_' + Date.now(), code);
+      const { svg } = await mm.render('svmmd_' + kind + '_' + Date.now(), code);
       if (kind === 'mindmap') setMindmapSvg(svg); else setMermaidSvg(svg);
     } catch {
-      const msg = '<div style="color:#ef4444;padding:24px">Could not render the diagram. Try regenerating.</div>';
+      const msg = '<div style="color:#ef4444;padding:24px;font-size:13px">Could not render the diagram. Try a different visual type.</div>';
       if (kind === 'mindmap') setMindmapSvg(msg); else setMermaidSvg(msg);
     } finally { setBusy(false); setPhase(''); }
   }
 
   useEffect(() => {
     if (!data) return;
-    if (vizType === 'mermaid') ensureMermaid('mermaid');
-    if (vizType === 'mindmap') ensureMermaid('mindmap');
+    if (vizType === 'mermaid' && !mermaidSvg) ensureMermaid('mermaid');
+    if (vizType === 'mindmap' && !mindmapSvg) ensureMermaid('mindmap');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vizType, data]);
 
@@ -222,7 +234,7 @@ export function SciVizView({ onHome }: any) {
   ] : [];
 
   const graphical = data ? (
-    <div style={{ width: 900, background: '#ffffff', color: '#111827', borderRadius: 16, padding: 32, fontFamily: 'Inter, system-ui, sans-serif' }}>
+    <div style={{ width: 820, maxWidth: '100%', background: '#ffffff', color: '#111827', borderRadius: 16, padding: 32, fontFamily: 'Inter, system-ui, sans-serif' }}>
       <div style={{ borderLeft: '6px solid ' + IND, paddingLeft: 14, marginBottom: 6 }}>
         <div style={{ fontSize: 24, fontWeight: 800, lineHeight: 1.2 }}>{data.title}</div>
         {data.authors ? <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>{data.authors}</div> : null}
@@ -482,7 +494,7 @@ export function SciVizView({ onHome }: any) {
           ) : null}
           <button onClick={downloadPng} disabled={busy} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold bg-primary text-primary-foreground rounded-lg disabled:opacity-40"><Download className="w-3.5 h-3.5" /> Download PNG</button>
         </div>
-        <div className="flex-1 overflow-auto custom-scrollbar p-8 flex items-start justify-center">
+        <div className="flex-1 overflow-auto custom-scrollbar p-8 flex items-start justify-start md:justify-center">
           {busy && (vizType === 'mermaid' || vizType === 'mindmap') && !(vizType === 'mermaid' ? mermaidSvg : mindmapSvg) ? (
             <div className="flex items-center gap-2 text-muted-foreground text-[13px] mt-10"><Loader2 className="w-4 h-4 animate-spin" /> {phase}</div>
           ) : (

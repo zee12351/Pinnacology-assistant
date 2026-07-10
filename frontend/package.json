@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
+    "@supabase/supabase-js": "^2.45.0",
     "@tiptap/extension-color": "^3.26.0",
     "@tiptap/extension-image": "^3.26.1",
     "@tiptap/extension-link": "^3.26.0",

@@ -9,6 +9,8 @@ import { DefaultChatView } from '@/components/DefaultChatView';
 import { AcademicWritingView } from '@/components/AcademicWritingView';
 import { LiteratureReviewView } from '@/components/LiteratureReviewView';
 import { SciVizView } from '@/components/SciVizView';
+import { AuthModal } from '@/components/AuthModal';
+import { supabase } from '@/lib/supabaseClient';
 import { UploadModal } from '@/components/UploadModal';
 
 interface Message {
@@ -113,6 +115,29 @@ export default function HomePage() {
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
 
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
+  const [authUser, setAuthUser] = useState<any>(null);
+  const [authOpen, setAuthOpen] = useState(false);
+
+  useEffect(() => {
+    if (!supabase) return;
+    const syncLocal = (u: any) => {
+      if (!u) return;
+      try {
+        if (u.email) localStorage.setItem('pinnovix_email', u.email);
+        const nm = u.user_metadata && u.user_metadata.name;
+        if (nm) localStorage.setItem('pinnovix_name', nm);
+      } catch {}
+    };
+    supabase.auth.getSession().then(({ data }: any) => {
+      const u = (data && data.session && data.session.user) || null;
+      if (u) { setAuthUser(u); syncLocal(u); }
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e: any, session: any) => {
+      const u = (session && session.user) || null;
+      setAuthUser(u); syncLocal(u);
+    });
+    return () => { try { sub.subscription.unsubscribe(); } catch {} };
+  }, []);
   const [selectedPersona, setSelectedPersona] = useState('ACADEMIC WRITING');
   const [isPersonaDropdownOpen, setIsPersonaDropdownOpen] = useState(false);
   const [isPreferencesOpen, setIsPreferencesOpen] = useState(false);
@@ -502,9 +527,18 @@ export default function HomePage() {
               <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-sm transition-colors shadow-sm">
                 See Pricing
               </button>
-              <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-sm transition-colors shadow-sm">
-                Login / Sign Up
-              </button>
+              {authUser ? (
+                <div className="border-t border-border pt-2 mt-1">
+                  <div className="text-[12px] text-muted-foreground truncate px-1 mb-1">{(authUser.user_metadata && authUser.user_metadata.name) || authUser.email}</div>
+                  <button onClick={async () => { try { if (supabase) await supabase.auth.signOut(); } catch {} try { localStorage.removeItem('pinnovix_email'); localStorage.removeItem('pinnovix_name'); } catch {} setAuthUser(null); }} className="w-full border border-border text-foreground font-bold py-2 px-4 rounded-lg text-sm transition-colors hover:bg-muted">
+                    Log out
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setAuthOpen(true)} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-sm transition-colors shadow-sm">
+                  Login / Sign Up
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -700,12 +734,13 @@ export default function HomePage() {
         </div>
       )}
 
-      <UploadModal 
-        showUploadModal={showUploadModal} 
-        setShowUploadModal={setShowUploadModal} 
-        handleFileUpload={handleFileUpload} 
-        uploadingDoc={uploadingDoc} 
+      <UploadModal
+        showUploadModal={showUploadModal}
+        setShowUploadModal={setShowUploadModal}
+        handleFileUpload={handleFileUpload}
+        uploadingDoc={uploadingDoc}
       />
+      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} onAuthed={(u: any) => setAuthUser(u)} />
     </div>
   );
 }

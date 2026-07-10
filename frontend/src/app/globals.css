@@ -253,9 +253,8 @@ html.light body { background-color: #eef1f5; }
 /* ============================================================
    Premium polish · larger, comfortable text · motion
    ============================================================ */
-html { font-size: 16.5px; }
+html { font-size: 17px; }
 body {
-  zoom: 1.06;
   background-image:
     radial-gradient(1100px 560px at 100% -8%, rgba(37, 99, 235, 0.07), transparent 60%),
     radial-gradient(900px 500px at -8% 108%, rgba(56, 189, 248, 0.06), transparent 60%);
