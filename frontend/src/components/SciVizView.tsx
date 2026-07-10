@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { Image as ImageIcon, FileText, Presentation, BarChart3, GitBranch, Network, Upload, Sparkles, Download, Copy, Loader2, ArrowRight, ArrowLeft, Home, Plus, Clock, ChevronLeft, ChevronRight, RefreshCw, PanelLeft, X } from 'lucide-react';
+import { Image as ImageIcon, FileText, Presentation, BarChart3, GitBranch, Network, Upload, Sparkles, Download, Copy, Loader2, ArrowRight, ArrowLeft, Home, Plus, Clock, ChevronLeft, ChevronRight, RefreshCw, PanelLeft, X, ChevronDown } from 'lucide-react';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -76,7 +76,8 @@ const VIZ = [
   { id: 'mindmap', label: 'Mindmap', Icon: Network },
 ];
 
-const IND = '#4f46e5';
+const ACCENT_DEFAULT = '#2563eb';
+const ACCENT_SWATCHES = ['#2563eb', '#0ea5e9', '#4f46e5', '#0d9488', '#16a34a', '#db2777', '#ea580c', '#dc2626', '#7c3aed', '#0f172a'];
 
 export function SciVizView({ onHome }: any) {
   const [inputMode, setInputMode] = useState('paste');
@@ -92,8 +93,26 @@ export function SciVizView({ onHome }: any) {
   const [srcText, setSrcText] = useState('');
   const [recents, setRecents] = useState<any[]>([]);
   const [navOpen, setNavOpen] = useState(true);
+  const [accent, setAccent] = useState(ACCENT_DEFAULT);
+  const [editOpen, setEditOpen] = useState(false);
+  const [dlMenu, setDlMenu] = useState(false);
+  const dlBtnRef = useRef<HTMLButtonElement | null>(null);
+  const [dlPos, setDlPos] = useState({ top: 0, left: 0 });
   const fileRef = useRef<HTMLInputElement | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
+
+  function updateData(field: string, value: any) { setData((prev: any) => ({ ...(prev || {}), [field]: value })); }
+  function updateResult(i: number, value: string) { setData((prev: any) => ({ ...prev, results: (prev.results || []).map((r: string, j: number) => j === i ? value : r) })); }
+  function addResult() { setData((prev: any) => ({ ...prev, results: (prev.results || []).concat(['New finding']) })); }
+  function removeResult(i: number) { setData((prev: any) => ({ ...prev, results: (prev.results || []).filter((_: any, j: number) => j !== i) })); }
+
+  function fname(ext: string) { return (((data && data.title) || 'sciviz').slice(0, 40).replace(/[^a-z0-9]+/gi, '-') || 'sciviz') + '-' + vizType + '.' + ext; }
+  function doDownloadText(text: string, name: string, mime: string) {
+    const blob = new Blob([text], { type: mime });
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = href; a.download = name;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(href);
+  }
 
   useEffect(() => {
     try { const r = localStorage.getItem('pinnovix_sciviz_recents'); if (r) setRecents(JSON.parse(r)); } catch {}
@@ -206,16 +225,66 @@ export function SciVizView({ onHome }: any) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vizType, data]);
 
+  function toggleDlMenu() {
+    if (!dlMenu && dlBtnRef.current) { const r = dlBtnRef.current.getBoundingClientRect(); setDlPos({ top: r.bottom + 6, left: Math.max(8, r.right - 210) }); }
+    setDlMenu((v) => !v);
+  }
+  async function shot(): Promise<any> {
+    await loadScript('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js');
+    return (window as any).html2canvas(canvasRef.current, { backgroundColor: '#ffffff', scale: 2, useCORS: true });
+  }
   async function downloadPng() {
     if (!canvasRef.current) return;
-    setBusy(true); setPhase('Exporting image...');
+    setDlMenu(false); setBusy(true); setPhase('Exporting PNG...');
+    try { const canvas = await shot(); const a = document.createElement('a'); a.href = canvas.toDataURL('image/png'); a.download = fname('png'); a.click(); }
+    catch {} finally { setBusy(false); setPhase(''); }
+  }
+  async function downloadPdf() {
+    if (!canvasRef.current) return;
+    setDlMenu(false); setBusy(true); setPhase('Exporting PDF...');
     try {
-      await loadScript('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js');
-      const canvas = await (window as any).html2canvas(canvasRef.current, { backgroundColor: '#ffffff', scale: 2, useCORS: true });
-      const a = document.createElement('a');
-      a.href = canvas.toDataURL('image/png');
-      a.download = ((data && data.title) || 'sciviz').slice(0, 40).replace(/[^a-z0-9]+/gi, '-') + '-' + vizType + '.png';
-      a.click();
+      const canvas = await shot();
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+      const jsPDF = (window as any).jspdf.jsPDF;
+      const w = canvas.width / 2, h = canvas.height / 2;
+      const pdf = new jsPDF({ orientation: w >= h ? 'landscape' : 'portrait', unit: 'pt', format: [w, h] });
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, w, h);
+      pdf.save(fname('pdf'));
+    } catch {} finally { setBusy(false); setPhase(''); }
+  }
+  function downloadSvg() {
+    setDlMenu(false);
+    const svg = vizType === 'mindmap' ? mindmapSvg : mermaidSvg;
+    if (!svg) return;
+    doDownloadText(svg, fname('svg'), 'image/svg+xml');
+  }
+  async function copyImage() {
+    if (!canvasRef.current) return;
+    setDlMenu(false); setBusy(true); setPhase('Copying image...');
+    try {
+      const canvas = await shot();
+      await new Promise<void>((resolve) => canvas.toBlob(async (blob: any) => {
+        try { await (navigator as any).clipboard.write([new (window as any).ClipboardItem({ 'image/png': blob })]); setPhase('Copied to clipboard!'); setTimeout(() => setPhase(''), 1200); } catch { setPhase('Copy not supported here'); setTimeout(() => setPhase(''), 1500); }
+        resolve();
+      }, 'image/png'));
+    } catch {} finally { setBusy(false); }
+  }
+  async function downloadPptx() {
+    if (!data) return;
+    setDlMenu(false); setBusy(true); setPhase('Building PowerPoint...');
+    try {
+      await loadScript('https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js');
+      const PptxGenJS = (window as any).PptxGenJS;
+      const pptx = new PptxGenJS();
+      const ac = accent.replace('#', '');
+      let s = pptx.addSlide(); s.background = { color: ac };
+      s.addText(data.title || 'Research', { x: 0.5, y: 2.1, w: 9, h: 1.6, fontSize: 32, bold: true, color: 'FFFFFF' });
+      if (data.authors) s.addText(data.authors, { x: 0.5, y: 3.6, w: 9, h: 0.6, fontSize: 16, color: 'FFFFFF' });
+      const secs: any[] = [['Background', data.background], ['Methods', data.methods]];
+      secs.forEach((sec) => { if (!sec[1]) return; const sl = pptx.addSlide(); sl.addText(sec[0], { x: 0.5, y: 0.4, w: 9, h: 0.7, fontSize: 26, bold: true, color: ac }); sl.addText(String(sec[1]), { x: 0.5, y: 1.4, w: 9, h: 4, fontSize: 18, color: '333333' }); });
+      if ((data.results || []).length) { const sl = pptx.addSlide(); sl.addText('Key Results', { x: 0.5, y: 0.4, w: 9, h: 0.7, fontSize: 26, bold: true, color: ac }); sl.addText((data.results || []).map((r: string) => ({ text: r, options: { bullet: true, breakLine: true } })), { x: 0.5, y: 1.4, w: 9, h: 4.5, fontSize: 18, color: '333333' }); }
+      if (data.conclusion) { const sl = pptx.addSlide(); sl.addText('Conclusion', { x: 0.5, y: 0.4, w: 9, h: 0.7, fontSize: 26, bold: true, color: ac }); sl.addText(data.conclusion, { x: 0.5, y: 1.4, w: 9, h: 4, fontSize: 18, color: '333333' }); }
+      await pptx.writeFile({ fileName: fname('pptx') });
     } catch {} finally { setBusy(false); setPhase(''); }
   }
 
@@ -235,18 +304,18 @@ export function SciVizView({ onHome }: any) {
 
   const graphical = data ? (
     <div style={{ width: 820, maxWidth: '100%', background: '#ffffff', color: '#111827', borderRadius: 16, padding: 32, fontFamily: 'Inter, system-ui, sans-serif' }}>
-      <div style={{ borderLeft: '6px solid ' + IND, paddingLeft: 14, marginBottom: 6 }}>
+      <div style={{ borderLeft: '6px solid ' + accent, paddingLeft: 14, marginBottom: 6 }}>
         <div style={{ fontSize: 24, fontWeight: 800, lineHeight: 1.2 }}>{data.title}</div>
         {data.authors ? <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>{data.authors}</div> : null}
       </div>
       <div style={{ display: 'flex', alignItems: 'stretch', gap: 12, marginTop: 24 }}>
         {[{ t: 'Background', v: data.background }, { t: 'Methods', v: data.methods }, { t: 'Results', v: (data.results[0] || data.conclusion || '') }].map((c, i) => (
           <div key={i} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ flex: 1, background: i === 2 ? IND : '#eef2ff', color: i === 2 ? '#fff' : '#1e1b4b', borderRadius: 12, padding: 16, minHeight: 150 }}>
+            <div style={{ flex: 1, background: i === 2 ? accent : '#eef2ff', color: i === 2 ? '#fff' : '#1e1b4b', borderRadius: 12, padding: 16, minHeight: 150 }}>
               <div style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, opacity: 0.8 }}>{c.t}</div>
               <div style={{ fontSize: 14, marginTop: 8, lineHeight: 1.45 }}>{c.v || '—'}</div>
             </div>
-            {i < 2 ? <div style={{ color: IND, fontSize: 26, fontWeight: 800 }}>→</div> : null}
+            {i < 2 ? <div style={{ color: accent, fontSize: 26, fontWeight: 800 }}>→</div> : null}
           </div>
         ))}
       </div>
@@ -254,7 +323,7 @@ export function SciVizView({ onHome }: any) {
         <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
           {data.stats.map((st: any, i: number) => (
             <div key={i} style={{ flex: 1, textAlign: 'center', background: '#f9fafb', borderRadius: 12, padding: 14 }}>
-              <div style={{ fontSize: 26, fontWeight: 800, color: IND }}>{st.value}</div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: accent }}>{st.value}</div>
               <div style={{ fontSize: 11.5, color: '#6b7280', marginTop: 2 }}>{st.label}</div>
             </div>
           ))}
@@ -269,19 +338,19 @@ export function SciVizView({ onHome }: any) {
 
   const poster = data ? (
     <div style={{ width: 720, background: '#ffffff', color: '#111827', borderRadius: 12, overflow: 'hidden', fontFamily: 'Inter, system-ui, sans-serif', boxShadow: '0 1px 0 #e5e7eb' }}>
-      <div style={{ background: IND, color: '#fff', padding: '26px 28px' }}>
+      <div style={{ background: accent, color: '#fff', padding: '26px 28px' }}>
         <div style={{ fontSize: 26, fontWeight: 800, lineHeight: 1.15 }}>{data.title}</div>
         {data.authors ? <div style={{ fontSize: 13.5, opacity: 0.9, marginTop: 8 }}>{data.authors}</div> : null}
       </div>
       <div style={{ padding: 28, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 22 }}>
         {[{ t: 'Introduction', v: data.background }, { t: 'Methods', v: data.methods }].map((c, i) => (
           <div key={i}>
-            <div style={{ fontSize: 14, fontWeight: 800, color: IND, borderBottom: '2px solid #e5e7eb', paddingBottom: 6, marginBottom: 8 }}>{c.t}</div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: accent, borderBottom: '2px solid #e5e7eb', paddingBottom: 6, marginBottom: 8 }}>{c.t}</div>
             <div style={{ fontSize: 13.5, lineHeight: 1.5, color: '#374151' }}>{c.v || '—'}</div>
           </div>
         ))}
         <div style={{ gridColumn: '1 / -1' }}>
-          <div style={{ fontSize: 14, fontWeight: 800, color: IND, borderBottom: '2px solid #e5e7eb', paddingBottom: 6, marginBottom: 8 }}>Results</div>
+          <div style={{ fontSize: 14, fontWeight: 800, color: accent, borderBottom: '2px solid #e5e7eb', paddingBottom: 6, marginBottom: 8 }}>Results</div>
           <ul style={{ margin: 0, paddingLeft: 18 }}>
             {(data.results.length ? data.results : ['—']).map((r: string, i: number) => (
               <li key={i} style={{ fontSize: 13.5, lineHeight: 1.55, color: '#374151', marginBottom: 4 }}>{r}</li>
@@ -291,7 +360,7 @@ export function SciVizView({ onHome }: any) {
             <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
               {data.stats.map((st: any, i: number) => (
                 <div key={i} style={{ flex: 1, textAlign: 'center', background: '#eef2ff', borderRadius: 10, padding: 12 }}>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: IND }}>{st.value}</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: accent }}>{st.value}</div>
                   <div style={{ fontSize: 11, color: '#6b7280' }}>{st.label}</div>
                 </div>
               ))}
@@ -299,7 +368,7 @@ export function SciVizView({ onHome }: any) {
           ) : null}
         </div>
         <div style={{ gridColumn: '1 / -1' }}>
-          <div style={{ fontSize: 14, fontWeight: 800, color: IND, borderBottom: '2px solid #e5e7eb', paddingBottom: 6, marginBottom: 8 }}>Conclusion</div>
+          <div style={{ fontSize: 14, fontWeight: 800, color: accent, borderBottom: '2px solid #e5e7eb', paddingBottom: 6, marginBottom: 8 }}>Conclusion</div>
           <div style={{ fontSize: 13.5, lineHeight: 1.5, color: '#374151' }}>{data.conclusion || '—'}</div>
         </div>
       </div>
@@ -322,7 +391,7 @@ export function SciVizView({ onHome }: any) {
       {data.stats && data.stats.length ? (
         <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
           {data.stats.map((st: any, i: number) => (
-            <div key={i} style={{ flex: 1, textAlign: 'center', background: IND, color: '#fff', borderRadius: 12, padding: 14 }}>
+            <div key={i} style={{ flex: 1, textAlign: 'center', background: accent, color: '#fff', borderRadius: 12, padding: 14 }}>
               <div style={{ fontSize: 24, fontWeight: 800 }}>{st.value}</div>
               <div style={{ fontSize: 10.5, opacity: 0.9 }}>{st.label}</div>
             </div>
@@ -331,18 +400,18 @@ export function SciVizView({ onHome }: any) {
       ) : null}
       {[{ t: 'Background', v: data.background }, { t: 'Methods', v: data.methods }, { t: 'Conclusion', v: data.conclusion }].map((c, i) => (
         <div key={i} style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
-          <div style={{ width: 30, height: 30, borderRadius: 999, background: '#eef2ff', color: IND, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 13, flexShrink: 0 }}>{i + 1}</div>
+          <div style={{ width: 30, height: 30, borderRadius: 999, background: '#eef2ff', color: accent, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 13, flexShrink: 0 }}>{i + 1}</div>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 800, color: IND }}>{c.t}</div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: accent }}>{c.t}</div>
             <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.5 }}>{c.v || '—'}</div>
           </div>
         </div>
       ))}
       {data.results && data.results.length ? (
         <div style={{ marginTop: 8, background: '#f9fafb', borderRadius: 12, padding: 16 }}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: IND, marginBottom: 6 }}>Key findings</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: accent, marginBottom: 6 }}>Key findings</div>
           {data.results.map((r: string, i: number) => (
-            <div key={i} style={{ fontSize: 13, color: '#374151', lineHeight: 1.5, display: 'flex', gap: 8 }}><span style={{ color: IND }}>●</span> {r}</div>
+            <div key={i} style={{ fontSize: 13, color: '#374151', lineHeight: 1.5, display: 'flex', gap: 8 }}><span style={{ color: accent }}>●</span> {r}</div>
           ))}
         </div>
       ) : null}
@@ -352,7 +421,7 @@ export function SciVizView({ onHome }: any) {
   const slideCard = data ? (() => {
     const sl = slides[slideIdx] || slides[0];
     return (
-      <div style={{ width: 800, height: 450, background: sl.kind === 'title' ? IND : '#ffffff', color: sl.kind === 'title' ? '#fff' : '#111827', borderRadius: 14, padding: 44, fontFamily: 'Inter, system-ui, sans-serif', display: 'flex', flexDirection: 'column', justifyContent: sl.kind === 'title' ? 'center' : 'flex-start', boxShadow: '0 1px 0 #e5e7eb' }}>
+      <div style={{ width: 800, height: 450, background: sl.kind === 'title' ? accent : '#ffffff', color: sl.kind === 'title' ? '#fff' : '#111827', borderRadius: 14, padding: 44, fontFamily: 'Inter, system-ui, sans-serif', display: 'flex', flexDirection: 'column', justifyContent: sl.kind === 'title' ? 'center' : 'flex-start', boxShadow: '0 1px 0 #e5e7eb' }}>
         {sl.kind === 'title' ? (
           <>
             <div style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.15 }}>{sl.h}</div>
@@ -360,8 +429,8 @@ export function SciVizView({ onHome }: any) {
           </>
         ) : (
           <>
-            <div style={{ fontSize: 15, fontWeight: 800, color: IND, textTransform: 'uppercase', letterSpacing: 0.5 }}>{sl.h}</div>
-            <div style={{ width: 60, height: 4, background: IND, borderRadius: 999, margin: '12px 0 20px' }} />
+            <div style={{ fontSize: 15, fontWeight: 800, color: accent, textTransform: 'uppercase', letterSpacing: 0.5 }}>{sl.h}</div>
+            <div style={{ width: 60, height: 4, background: accent, borderRadius: 999, margin: '12px 0 20px' }} />
             {sl.kind === 'list' ? (
               <ul style={{ margin: 0, paddingLeft: 22 }}>
                 {(data.results.length ? data.results : ['—']).map((r: string, i: number) => (
@@ -469,8 +538,32 @@ export function SciVizView({ onHome }: any) {
           ))}
           <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide px-2 mb-1 mt-4">Extracted</div>
           {data.keywords && data.keywords.length ? (
-            <div className="flex flex-wrap gap-1.5 px-2">
+            <div className="flex flex-wrap gap-1.5 px-2 mb-2">
               {data.keywords.map((k: string, i: number) => <span key={i} className="text-[11px] bg-muted rounded-full px-2 py-0.5">{k}</span>)}
+            </div>
+          ) : null}
+          <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide px-2 mb-1 mt-3 flex items-center justify-between">
+            <span>Edit &amp; recolour</span>
+            <button onClick={() => setEditOpen((v) => !v)} className="text-primary font-semibold text-[11px]">{editOpen ? 'Done' : 'Edit'}</button>
+          </div>
+          {editOpen ? (
+            <div className="flex flex-col gap-2 px-2 pb-2">
+              <div className="flex flex-wrap gap-1.5">
+                {ACCENT_SWATCHES.map((c) => <button key={c} onClick={() => setAccent(c)} title={c} className={'w-6 h-6 rounded-full border-2 ' + (accent === c ? 'border-foreground' : 'border-transparent')} style={{ background: c }} />)}
+              </div>
+              <input value={data.title || ''} onChange={(e) => updateData('title', e.target.value)} placeholder="Title" className="w-full bg-muted/40 border border-border rounded-md px-2 py-1.5 text-[12.5px] outline-none focus:border-primary" />
+              <input value={data.authors || ''} onChange={(e) => updateData('authors', e.target.value)} placeholder="Authors" className="w-full bg-muted/40 border border-border rounded-md px-2 py-1.5 text-[12.5px] outline-none focus:border-primary" />
+              <textarea value={data.background || ''} onChange={(e) => updateData('background', e.target.value)} placeholder="Background" rows={2} className="w-full bg-muted/40 border border-border rounded-md px-2 py-1.5 text-[12.5px] outline-none focus:border-primary resize-none" />
+              <textarea value={data.methods || ''} onChange={(e) => updateData('methods', e.target.value)} placeholder="Methods" rows={2} className="w-full bg-muted/40 border border-border rounded-md px-2 py-1.5 text-[12.5px] outline-none focus:border-primary resize-none" />
+              <textarea value={data.conclusion || ''} onChange={(e) => updateData('conclusion', e.target.value)} placeholder="Conclusion" rows={2} className="w-full bg-muted/40 border border-border rounded-md px-2 py-1.5 text-[12.5px] outline-none focus:border-primary resize-none" />
+              <div className="text-[11px] font-bold text-muted-foreground uppercase">Key findings</div>
+              {(data.results || []).map((r: string, i: number) => (
+                <div key={i} className="flex items-center gap-1">
+                  <input value={r} onChange={(e) => updateResult(i, e.target.value)} className="flex-1 bg-muted/40 border border-border rounded-md px-2 py-1.5 text-[12.5px] outline-none focus:border-primary" />
+                  <button onClick={() => removeResult(i)} className="text-muted-foreground hover:text-red-500 shrink-0"><X className="w-3.5 h-3.5" /></button>
+                </div>
+              ))}
+              <button onClick={addResult} className="text-primary text-[12px] font-semibold text-left flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> Add finding</button>
             </div>
           ) : null}
         </div>
@@ -492,7 +585,7 @@ export function SciVizView({ onHome }: any) {
               <button onClick={copyMermaid} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold border border-border rounded-lg hover:bg-muted"><Copy className="w-3.5 h-3.5" /> Copy SVG</button>
             </>
           ) : null}
-          <button onClick={downloadPng} disabled={busy} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold bg-primary text-primary-foreground rounded-lg disabled:opacity-40"><Download className="w-3.5 h-3.5" /> Download PNG</button>
+          <button ref={dlBtnRef} onClick={toggleDlMenu} disabled={busy} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold bg-primary text-primary-foreground rounded-lg disabled:opacity-40"><Download className="w-3.5 h-3.5" /> Export <ChevronDown className="w-3 h-3" /></button>
         </div>
         <div className="flex-1 overflow-auto custom-scrollbar p-8 flex items-start justify-start md:justify-center">
           {busy && (vizType === 'mermaid' || vizType === 'mindmap') && !(vizType === 'mermaid' ? mermaidSvg : mindmapSvg) ? (
@@ -505,10 +598,24 @@ export function SciVizView({ onHome }: any) {
     </div>
   ) : null;
 
+  const dlMenuEl = dlMenu ? (
+    <>
+      <div className="fixed inset-0 z-[80]" onClick={() => setDlMenu(false)} />
+      <div className="fixed z-[81] w-[210px] bg-card border border-border rounded-xl shadow-2xl p-1.5" style={{ top: dlPos.top, left: dlPos.left }}>
+        <button onClick={downloadPng} className="w-full text-left px-3 py-2 rounded-lg text-[13.5px] hover:bg-muted flex items-center gap-2"><ImageIcon className="w-4 h-4 text-muted-foreground" /> PNG image</button>
+        <button onClick={downloadPdf} className="w-full text-left px-3 py-2 rounded-lg text-[13.5px] hover:bg-muted flex items-center gap-2"><FileText className="w-4 h-4 text-muted-foreground" /> PDF document</button>
+        {(vizType === 'mermaid' || vizType === 'mindmap') ? <button onClick={downloadSvg} className="w-full text-left px-3 py-2 rounded-lg text-[13.5px] hover:bg-muted flex items-center gap-2"><GitBranch className="w-4 h-4 text-muted-foreground" /> SVG (vector)</button> : null}
+        {vizType === 'slides' ? <button onClick={downloadPptx} className="w-full text-left px-3 py-2 rounded-lg text-[13.5px] hover:bg-muted flex items-center gap-2"><Presentation className="w-4 h-4 text-muted-foreground" /> PowerPoint (.pptx)</button> : null}
+        <button onClick={copyImage} className="w-full text-left px-3 py-2 rounded-lg text-[13.5px] hover:bg-muted flex items-center gap-2"><Copy className="w-4 h-4 text-muted-foreground" /> Copy image</button>
+      </div>
+    </>
+  ) : null;
+
   return (
     <div className="flex w-full h-full bg-background text-foreground overflow-hidden">
       {leftNav}
       <div className="flex-1 min-w-0 h-full overflow-hidden">{data ? workspace : startScreen}</div>
+      {dlMenuEl}
     </div>
   );
 }
