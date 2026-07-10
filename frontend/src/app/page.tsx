@@ -10,7 +10,7 @@ import { AcademicWritingView } from '@/components/AcademicWritingView';
 import { LiteratureReviewView } from '@/components/LiteratureReviewView';
 import { SciVizView } from '@/components/SciVizView';
 import { AuthModal } from '@/components/AuthModal';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase, authConfigured } from '@/lib/supabaseClient';
 import { UploadModal } from '@/components/UploadModal';
 
 interface Message {
@@ -528,14 +528,20 @@ export default function HomePage() {
                 See Pricing
               </button>
               {authUser ? (
-                <div className="border-t border-border pt-2 mt-1">
-                  <div className="text-[12px] text-muted-foreground truncate px-1 mb-1">{(authUser.user_metadata && authUser.user_metadata.name) || authUser.email}</div>
-                  <button onClick={async () => { try { if (supabase) await supabase.auth.signOut(); } catch {} try { localStorage.removeItem('pinnovix_email'); localStorage.removeItem('pinnovix_name'); } catch {} setAuthUser(null); }} className="w-full border border-border text-foreground font-bold py-2 px-4 rounded-lg text-sm transition-colors hover:bg-muted">
+                <div className="rounded-xl border border-border bg-card/70 p-3">
+                  <div className="flex items-center gap-2.5 mb-3">
+                    <span className="w-9 h-9 rounded-full bg-gradient-to-br from-sky-400 to-blue-600 text-white flex items-center justify-center font-bold text-[15px] shrink-0 shadow-sm">{String((authUser.user_metadata && authUser.user_metadata.name) || authUser.email || 'U').slice(0, 1).toUpperCase()}</span>
+                    <div className="min-w-0">
+                      <div className="text-[14px] font-bold text-foreground truncate">{(authUser.user_metadata && authUser.user_metadata.name) || (authUser.email ? authUser.email.split('@')[0] : 'User')}</div>
+                      <div className="text-[11.5px] text-muted-foreground truncate">{authUser.email}</div>
+                    </div>
+                  </div>
+                  <button onClick={async () => { try { if (supabase) await supabase.auth.signOut(); } catch {} try { localStorage.removeItem('pinnovix_email'); localStorage.removeItem('pinnovix_name'); } catch {} setAuthUser(null); }} className="w-full flex items-center justify-center gap-2 border border-border text-foreground font-semibold py-2 rounded-lg text-[13px] hover:bg-muted transition-colors">
                     Log out
                   </button>
                 </div>
               ) : (
-                <button onClick={() => setAuthOpen(true)} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-sm transition-colors shadow-sm">
+                <button onClick={() => setAuthOpen(true)} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-4 rounded-lg text-[15px] transition-colors shadow-sm">
                   Login / Sign Up
                 </button>
               )}
@@ -577,6 +583,8 @@ export default function HomePage() {
                 selectedPersona={selectedPersona}
                 onSelectPersona={setSelectedPersona}
                 onActivate={(id: string) => {
+                  if (authConfigured && !authUser) { setAuthOpen(true); return; }
+                  setSelectedPersona(id);
                   const urlSlug = id.toLowerCase().replace(/\s+/g, '-');
                   window.history.pushState(null, '', `/home/${urlSlug}`); setMessages([]); setDocumentContent(''); setStructuredPapers([]); setAiResponse(''); setCurrentChatId(null); setQuery('');
                   setIsChatActive(true);

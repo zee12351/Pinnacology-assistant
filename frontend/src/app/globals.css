@@ -301,6 +301,22 @@ button:not(:disabled):active { transform: translateY(1px); }
 .pnx-card { transition: transform .22s cubic-bezier(.22,.61,.36,1), box-shadow .22s ease, border-color .22s ease; }
 .pnx-card:hover { transform: translateY(-4px); box-shadow: 0 14px 40px -12px rgba(37, 99, 235, 0.28); }
 
+/* App-wide readable text: bump the fixed pixel sizes (font-size only, so nothing
+   changes width/height — layout reflows instead of overflowing). */
+.text-\[10px\]   { font-size: 11.5px !important; }
+.text-\[10\.5px\]{ font-size: 12px !important; }
+.text-\[11px\]   { font-size: 12.5px !important; }
+.text-\[11\.5px\]{ font-size: 13px !important; }
+.text-\[12px\]   { font-size: 13.5px !important; }
+.text-\[12\.5px\]{ font-size: 14px !important; }
+.text-\[13px\]   { font-size: 14.5px !important; }
+.text-\[13\.5px\]{ font-size: 15px !important; }
+.text-\[14px\]   { font-size: 15.5px !important; }
+.text-\[14\.5px\]{ font-size: 16px !important; }
+.text-\[15px\]   { font-size: 16.5px !important; }
+.text-\[16px\]   { font-size: 17.5px !important; }
+.text-\[17px\]   { font-size: 18.5px !important; }
+
 /* AI Chat markdown bubbles (jenni-style structured answers) */
 .ai-md h1, .ai-md h2, .ai-md h3, .ai-md h4 { font-weight: 700; margin: 0.5em 0 0.25em; line-height: 1.3; }
 .ai-md h1 { font-size: 15px; }

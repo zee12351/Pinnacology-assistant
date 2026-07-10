@@ -23,7 +23,6 @@ export function PersonaGrid({ selectedPersona, onSelectPersona, onActivate }: an
             <button
               key={persona.id}
               onClick={() => {
-                onSelectPersona(persona.id);
                 onActivate(persona.id);
               }}
               style={{ animationDelay: `${i * 0.07}s` }}
