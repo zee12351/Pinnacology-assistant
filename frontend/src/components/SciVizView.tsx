@@ -9,7 +9,7 @@ async function callChat(message: string): Promise<string> {
     const res = await fetch(API + '/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: message, agent_type: 'research', use_rag: false, persona: 'SCIVIZ' }),
+      body: JSON.stringify({ message: message, agent_type: 'review', use_rag: false, persona: 'SCIVIZ' }),
     });
     const reader = res.body ? res.body.getReader() : null;
     const dec = new TextDecoder();
@@ -154,8 +154,8 @@ export function SciVizView({ onHome }: any) {
     setData(null); setMermaidSvg(''); setMindmapSvg(''); setSlideIdx(0);
     setSrcText(text);
     try {
-      const shape = '{"title": "paper title", "authors": "author list or empty", "background": "1-2 sentence background/problem", "methods": "1-2 sentence methods", "results": ["3-5 short key findings"], "conclusion": "1-2 sentence conclusion", "keywords": ["4-6 keywords"], "stats": [{"label": "short label", "value": "a number or percent"}]}';
-      const prompt = 'Extract the key content of the research text below into JSON for building visuals. Keep each field concise and presentation-ready. Include 2-4 stats only if real numbers appear in the text (else empty array). Return ONLY valid JSON in this shape: ' + shape + '\n\nResearch text:\n' + text.slice(0, 6000);
+      const shape = '{"title": "a concise, specific title for this document", "authors": "authors or source if stated, else empty string", "background": "1-2 sentences on the context, problem or purpose", "methods": "1-2 sentences on the approach, process or methodology", "results": ["3-6 specific key points, findings or steps, each with concrete detail or numbers where present"], "conclusion": "1-2 sentence bottom-line takeaway", "keywords": ["4-8 key terms from the text"], "stats": [{"label": "short label", "value": "a number or percent that appears in the text"}]}';
+      const prompt = 'You are turning a document into presentation visuals. Read the DOCUMENT below and extract its key content into JSON. Rules: use ONLY information found in the text and do not invent anything; keep the exact numbers, names and specifics; make each field concrete and presentation-ready (not generic). If the document is NOT a research paper (e.g. a report, playbook, guide or notes), adapt sensibly: background = purpose/context, methods = process/approach, results = the main points or steps, conclusion = the key takeaway. Only include "stats" when real numbers appear in the text; otherwise return an empty array. Return ONLY valid JSON, no markdown fences, in exactly this shape:\n' + shape + '\n\nDOCUMENT:\n' + text.slice(0, 7000);
       const raw = await callChat(prompt);
       const parsed = extractJSON(raw) || {};
       const d = {
