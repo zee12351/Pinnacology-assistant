@@ -18,17 +18,23 @@ function abstractFromIndex(inv: any): string {
   }
 }
 
-async function callChat(message: string, useRag: boolean = false, persona: string = 'LITERATURE REVIEW'): Promise<string> {
+async function callChatOnce(message: string, useRag: boolean, persona: string): Promise<{ text: string; error: string }> {
   try {
     const res = await fetch(API + '/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: message, agent_type: 'review', use_rag: useRag, persona: persona }),
     });
+    if (!res.ok) {
+      let detail = '';
+      try { detail = await res.text(); } catch {}
+      return { text: '', error: 'Server error ' + res.status + (detail ? ': ' + detail.slice(0, 200) : '') };
+    }
     const reader = res.body ? res.body.getReader() : null;
     const dec = new TextDecoder();
     let buffer = '';
     let full = '';
+    let err = '';
     while (reader) {
       const chunk = await reader.read();
       if (chunk.done) break;
@@ -42,16 +48,31 @@ async function callChat(message: string, useRag: boolean = false, persona: strin
           try {
             const j = JSON.parse(d);
             if (j.type === 'token') full += j.content;
+            else if (j.error) err = j.error;
           } catch {
             // ignore
           }
         }
       }
     }
-    return full;
-  } catch {
-    return '';
+    return { text: full, error: full ? '' : err };
+  } catch (e: any) {
+    return { text: '', error: (e && e.message) ? e.message : 'Network error' };
   }
+}
+
+async function callChat(message: string, useRag: boolean = false, persona: string = 'LITERATURE REVIEW'): Promise<string> {
+  let r = await callChatOnce(message, useRag, persona);
+  // Retry once on empty/error — the backend (Render free tier) can cold-start
+  // and drop the first request after idling.
+  if (!r.text) {
+    await new Promise((res) => setTimeout(res, 1500));
+    const r2 = await callChatOnce(message, useRag, persona);
+    if (r2.text) return r2.text;
+    r = r2.error ? r2 : r;
+  }
+  if (r.text) return r.text;
+  return r.error ? ('⚠️ ' + r.error) : '';
 }
 
 function extractJSON(text: string): any {

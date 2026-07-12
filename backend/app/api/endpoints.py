@@ -52,21 +52,42 @@ async def chat(request: ChatRequest):
             try:
                 if request.agent_type == "review":
                     from app.agents.workflow import get_model
+
+                    def _review_text(content):
+                        if isinstance(content, str):
+                            return content
+                        if isinstance(content, list):
+                            return "".join(part.get("text", "") for part in content if isinstance(part, dict) and "text" in part)
+                        return ""
+
                     model = get_model()
                     if not model:
                         yield f"data: {json.dumps({'error': 'GEMINI_API_KEY not set'})}\n\n"
                         return
-                    async for chunk in model.astream([HumanMessage(content=request.message)]):
-                        if hasattr(chunk, 'content') and chunk.content:
-                            content = chunk.content
-                            text_to_yield = ""
-                            if isinstance(content, str):
-                                text_to_yield = content
-                            elif isinstance(content, list):
-                                text_parts = [part.get("text", "") for part in content if isinstance(part, dict) and "text" in part]
-                                text_to_yield = "".join(text_parts)
+                    review_emitted = False
+                    try:
+                        async for chunk in model.astream([HumanMessage(content=request.message)]):
+                            if hasattr(chunk, 'content') and chunk.content:
+                                text_to_yield = _review_text(chunk.content)
+                                if text_to_yield:
+                                    review_emitted = True
+                                    yield f"data: {json.dumps({'type': 'token', 'content': text_to_yield})}\n\n"
+                    except Exception as stream_err:
+                        print(f"review stream error: {stream_err}")
+                    # Fallback: some model/langchain combos don't emit streaming
+                    # content. Do one non-streaming call so the user still gets an answer.
+                    if not review_emitted:
+                        try:
+                            result = await model.ainvoke([HumanMessage(content=request.message)])
+                            text_to_yield = _review_text(getattr(result, "content", ""))
                             if text_to_yield:
+                                review_emitted = True
                                 yield f"data: {json.dumps({'type': 'token', 'content': text_to_yield})}\n\n"
+                        except Exception as inv_err:
+                            yield f"data: {json.dumps({'error': 'Model call failed: ' + str(inv_err)})}\n\n"
+                            return
+                    if not review_emitted:
+                        yield f"data: {json.dumps({'error': 'The model returned an empty response. Please try again.'})}\n\n"
                     return
 
                 def _extract_text(content):
