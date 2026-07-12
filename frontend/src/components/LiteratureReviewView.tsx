@@ -23,7 +23,7 @@ async function callChat(message: string, useRag: boolean = false, persona: strin
     const res = await fetch(API + '/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: message, agent_type: 'research', use_rag: useRag, persona: persona }),
+      body: JSON.stringify({ message: message, agent_type: 'review', use_rag: useRag, persona: persona }),
     });
     const reader = res.body ? res.body.getReader() : null;
     const dec = new TextDecoder();
@@ -686,6 +686,11 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setSettingsOpen(false);
   }
   function buildSharePayload() {
+    if (mode === 'agent' && agentChat.length) {
+      const firstUser = agentChat.find((m: any) => m.role === 'user');
+      const lastAns = [...agentChat].reverse().find((m: any) => m.role === 'assistant' && m.text);
+      return { question: (firstUser && firstUser.text) || 'Research agent', title: (firstUser && firstUser.text) || 'Research agent', kind: 'find', synthesis: (lastAns && lastAns.text) || '', papers: (lastAns && lastAns.sources) || [], columns: [] };
+    }
     if (report) return { question: report.question, title: report.title, kind: 'report', synthesis: report.abstract || '', papers: report.screened || [], columns: [] };
     return { question: question, kind: 'find', papers: view(), synthesis: synthesis, columns: columns };
   }
@@ -1936,12 +1941,20 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     </div>
   );
 
+  function downloadAgentText(m: any) {
+    const srcs = (m.sources || []).map((s: any, i: number) => (i + 1) + '. ' + s.title + ' - ' + s.authorStr + ' (' + s.year + '). ' + (s.url || '')).join('\n');
+    const txt = (m.text || '') + (srcs ? '\n\nReferences:\n' + srcs : '');
+    doDownload(txt, 'research-agent-answer.txt', 'text/plain');
+  }
   const agentView = (
     <div className="flex flex-col h-full">
       <div className="px-4 py-3 border-b border-border flex items-center gap-3 shrink-0">
         {modeDropdown}
         <span className="text-[12.5px] text-muted-foreground">Research agent</span>
-        <button onClick={startNew} className="ml-auto text-[12.5px] text-primary font-semibold flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> New</button>
+        <div className="ml-auto flex items-center gap-2">
+          {agentChat.length ? <button onClick={() => setShareOpen(true)} className="text-[12.5px] font-semibold flex items-center gap-1 border border-border rounded-lg px-2.5 py-1 hover:bg-muted"><Share2 className="w-3.5 h-3.5" /> Share</button> : null}
+          <button onClick={startNew} className="text-[12.5px] text-primary font-semibold flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> New</button>
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto custom-scrollbar p-6 flex flex-col gap-4 max-w-3xl w-full mx-auto">
         {agentChat.map((m, i) => (
@@ -1958,6 +1971,13 @@ export function LiteratureReviewView({ messages, onHome }: any) {
               ) : null}
               {m.text ? (
                 <div className="bg-muted/50 border border-border rounded-2xl px-4 py-2.5 text-[13.5px] prose prose-sm dark:prose-invert max-w-none"><ReactMarkdown components={{ a: (props: any) => <a {...props} target="_blank" rel="noreferrer" className="text-primary font-semibold no-underline hover:underline" /> }}>{m.text}</ReactMarkdown></div>
+              ) : null}
+              {m.text && !m.busy ? (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[12px] border border-border rounded-lg px-3 py-1.5 flex items-center gap-1.5"><BookOpen className="w-3.5 h-3.5" /> {(m.sources || []).length} cited sources</span>
+                  <button onClick={() => { try { navigator.clipboard.writeText(m.text || ''); } catch {} }} title="Copy answer" className="w-8 h-8 rounded-lg border border-border flex items-center justify-center hover:bg-muted"><Copy className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => downloadAgentText(m)} title="Download answer + references" className="w-8 h-8 rounded-lg border border-border flex items-center justify-center hover:bg-muted"><Download className="w-3.5 h-3.5" /></button>
+                </div>
               ) : null}
               {m.sources && m.sources.length ? (
                 <div className="flex flex-col gap-1.5">
