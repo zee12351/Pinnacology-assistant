@@ -572,7 +572,21 @@ export default function HomePage() {
             <SciVizView onHome={() => { setSelectedPersona('ACADEMIC WRITING'); setIsChatActive(false); window.history.pushState(null, '', '/home'); }} />
           </div>
         ) : !isChatActive ? (
-          <div className="flex-1 min-h-0 flex flex-col items-center justify-start md:justify-center p-6 h-full overflow-y-auto custom-scrollbar relative">
+          <div className="flex-1 min-h-0 flex flex-col items-center justify-start md:justify-center p-6 pt-16 md:pt-6 h-full overflow-y-auto custom-scrollbar relative">
+            <div className="md:hidden absolute top-0 left-0 right-0 flex items-center justify-between px-4 h-14 z-20 bg-background/80 backdrop-blur-sm border-b border-border">
+              <div className="flex items-center gap-2">
+                <span className="w-7 h-7 bg-contain bg-no-repeat bg-center shrink-0" style={{ backgroundImage: 'url(/logo.png)' }} />
+                <span className="font-bold text-lg tracking-wide">Pinnovix</span>
+              </div>
+              {authUser ? (
+                <div className="flex items-center gap-2">
+                  <span className="w-8 h-8 rounded-full bg-gradient-to-br from-sky-400 to-blue-600 text-white flex items-center justify-center font-bold text-[14px] shrink-0">{String((authUser.user_metadata && authUser.user_metadata.name) || authUser.email || 'U').slice(0, 1).toUpperCase()}</span>
+                  <button onClick={async () => { try { if (supabase) await supabase.auth.signOut(); } catch {} try { localStorage.removeItem('pinnovix_email'); localStorage.removeItem('pinnovix_name'); } catch {} setAuthUser(null); }} className="text-[13px] font-semibold border border-border rounded-lg px-2.5 py-1.5 hover:bg-muted">Log out</button>
+                </div>
+              ) : (
+                <button onClick={() => setAuthOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-3.5 py-1.5 rounded-lg text-[14px]">Login</button>
+              )}
+            </div>
             <div className="pnx-orbs" aria-hidden="true">
               <div className="pnx-orb pnx-orb-1" />
               <div className="pnx-orb pnx-orb-2" />
@@ -641,8 +655,8 @@ export default function HomePage() {
 
       {/* Preferences Modal */}
       {isPreferencesOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-[500px] bg-[#151515] rounded-xl border border-[#333] shadow-2xl flex flex-col overflow-hidden text-white font-sans">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-[500px] max-h-[90vh] overflow-y-auto bg-[#151515] rounded-xl border border-[#333] shadow-2xl flex flex-col text-white font-sans">
             {/* Header */}
             <div className="px-6 py-4 flex justify-between items-center border-b border-[#2a2a2a]">
               <h2 className="text-lg font-bold">Preferences</h2>

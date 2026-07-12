@@ -4535,7 +4535,7 @@ Required JSON structure:
               </div>
 
               {/* 2 Columns */}
-              <div className="flex gap-6 h-[280px]">
+              <div className="flex flex-col sm:flex-row gap-6 h-[280px] sm:h-[280px]">
                 {/* Left Col: Styles */}
                 <div className="flex-1 flex flex-col min-w-0">
                   <h3 className="text-[11px] font-bold text-gray-500 mb-3 tracking-wider uppercase">ALL STYLES</h3>

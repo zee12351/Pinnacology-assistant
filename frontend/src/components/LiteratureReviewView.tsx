@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles, ArrowRight, ArrowUp, ArrowLeft, FileText, Table2, BookOpen, Copy, SlidersHorizontal, Bookmark, Clock, Library as LibraryIcon, Bell, Upload, FolderPlus, Trash2, PanelLeft, MessageSquare, ChevronDown, Check, ListChecks, Tag, Home, Share2, Settings, LogOut, ChevronsUpDown, FolderInput } from 'lucide-react';
+import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles, ArrowRight, ArrowUp, ArrowLeft, FileText, Table2, BookOpen, Copy, SlidersHorizontal, Bookmark, Clock, Library as LibraryIcon, Bell, Upload, FolderPlus, Trash2, PanelLeft, MessageSquare, ChevronDown, Check, ListChecks, Tag, Home, Share2, Settings, LogOut, ChevronsUpDown, FolderInput, Menu } from 'lucide-react';
 
 // Literature Review workspace (Elicit-style)
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -386,6 +386,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   // Left-nav state
   const [navView, setNavView] = useState('search');
   const [navOpen, setNavOpen] = useState(true);
+  const [mobileNav, setMobileNav] = useState(false);
   const [recents, setRecents] = useState([] as any[]);
   const [collections, setCollections] = useState([] as any[]);
   const [libDocs, setLibDocs] = useState([] as any[]);
@@ -1101,33 +1102,34 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   );
 
   const leftNav = (
-    <aside className={(navOpen ? 'w-[224px]' : 'w-[56px]') + ' shrink-0 border-r border-border flex flex-col bg-card/40 h-full'}>
+    <aside className={'shrink-0 border-r border-border flex flex-col bg-card/40 h-full fixed md:static inset-y-0 left-0 z-[60] w-[224px] transition-transform duration-200 md:translate-x-0 ' + (mobileNav ? 'translate-x-0 ' : '-translate-x-full ') + (navOpen ? 'md:w-[224px]' : 'md:w-[56px]')}>
       <div className="flex items-center justify-between px-3 h-12 border-b border-border shrink-0">
-        {navOpen ? (
+        {(navOpen || mobileNav) ? (
           <div className="flex items-center gap-2 text-foreground min-w-0"><span className="w-5 h-5 bg-contain bg-no-repeat bg-center shrink-0" style={{ backgroundImage: 'url(/logo.png)' }} /> <div className="flex flex-col leading-tight min-w-0"><span className="font-bold text-[12.5px] truncate">Literature Review</span><span className="text-[9.5px] text-muted-foreground">by Pinnovix</span></div></div>
         ) : (
           <span className="w-5 h-5 bg-contain bg-no-repeat bg-center mx-auto" style={{ backgroundImage: 'url(/logo.png)' }} />
         )}
-        <button onClick={() => setNavOpen((v) => !v)} title="Toggle sidebar" className="text-muted-foreground hover:text-foreground"><PanelLeft className="w-4 h-4" /></button>
+        <button onClick={() => setMobileNav(false)} title="Close menu" className="md:hidden text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+        <button onClick={() => setNavOpen((v) => !v)} title="Toggle sidebar" className="hidden md:block text-muted-foreground hover:text-foreground"><PanelLeft className="w-4 h-4" /></button>
       </div>
       <nav className="p-2 flex flex-col gap-0.5 shrink-0">
         {navItems.map((it) => {
           const active = navView === it.id;
           return (
-            <button key={it.id} onClick={() => { if (it.id === 'home') { if (onHome) onHome(); } else if (it.id === 'new') startNew(); else setNavView(it.id); }} title={it.label}
+            <button key={it.id} onClick={() => { setMobileNav(false); if (it.id === 'home') { if (onHome) onHome(); } else if (it.id === 'new') startNew(); else setNavView(it.id); }} title={it.label}
               className={(active ? 'bg-muted text-foreground font-semibold ' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground ') + 'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13.5px] transition-colors'}>
-              <it.Icon className="w-4 h-4 shrink-0" /> {navOpen ? <span>{it.label}</span> : null}
+              <it.Icon className="w-4 h-4 shrink-0" /> {(navOpen || mobileNav) ? <span>{it.label}</span> : null}
             </button>
           );
         })}
       </nav>
-      {navOpen ? (
+      {(navOpen || mobileNav) ? (
         <div className="flex-1 overflow-y-auto custom-scrollbar px-2 mt-1 min-h-0">
           <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wide px-2 mb-1">Recents</div>
           {recents.length === 0 ? (
             <div className="px-2 text-[12px] text-muted-foreground italic">No recent searches.</div>
           ) : recents.slice(0, 20).map((r) => (
-            <button key={r.id} onClick={() => openRecent(r)} className="w-full text-left flex items-center gap-2 rounded-lg px-2 py-1.5 text-[12.5px] text-foreground/80 hover:bg-muted/60 hover:text-foreground truncate">
+            <button key={r.id} onClick={() => { setMobileNav(false); openRecent(r); }} className="w-full text-left flex items-center gap-2 rounded-lg px-2 py-1.5 text-[12.5px] text-foreground/80 hover:bg-muted/60 hover:text-foreground truncate">
               {r.type === 'Research report' ? <FileText className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> : r.type === 'Chat' ? <MessageSquare className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> : <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
               <span className="truncate">{r.question}</span>
             </button>
@@ -1137,7 +1139,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       {onHome ? (
         <div className="p-2 border-t border-border shrink-0">
           <button onClick={onHome} className="w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] text-muted-foreground hover:bg-muted/60 hover:text-foreground">
-            <ArrowLeft className="w-4 h-4 shrink-0" /> {navOpen ? <span>Personas</span> : null}
+            <ArrowLeft className="w-4 h-4 shrink-0" /> {(navOpen || mobileNav) ? <span>Personas</span> : null}
           </button>
         </div>
       ) : null}
@@ -1157,8 +1159,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         )}
         <button onClick={() => setAcctMenu((v) => !v)} className="w-full flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-muted/60">
           <span className="w-7 h-7 rounded-full bg-primary/15 text-primary flex items-center justify-center text-[12px] font-bold shrink-0">{(userName || userEmail || 'G').slice(0, 1).toUpperCase()}</span>
-          {navOpen ? <span className="flex-1 text-left text-[12.5px] truncate">{userEmail || 'Guest'}</span> : null}
-          {navOpen ? <ChevronsUpDown className="w-4 h-4 text-muted-foreground shrink-0" /> : null}
+          {(navOpen || mobileNav) ? <span className="flex-1 text-left text-[12.5px] truncate">{userEmail || 'Guest'}</span> : null}
+          {(navOpen || mobileNav) ? <ChevronsUpDown className="w-4 h-4 text-muted-foreground shrink-0" /> : null}
         </button>
       </div>
     </aside>
@@ -1302,7 +1304,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const libraryPage = (
     <div className="h-full flex overflow-hidden">
       <input ref={fileRef} type="file" multiple className="hidden" onChange={onUploadFiles} />
-      <div className="w-[220px] shrink-0 border-r border-border p-3 overflow-y-auto custom-scrollbar">
+      <div className="hidden md:block w-[220px] shrink-0 border-r border-border p-3 overflow-y-auto custom-scrollbar">
         <div className="text-[12px] font-bold text-muted-foreground mb-1">Library</div>
         <button onClick={() => setActiveCol('all')} className={(activeCol === 'all' ? 'bg-muted font-semibold ' : 'hover:bg-muted/60 ') + 'w-full text-left rounded-lg px-3 py-2 text-[13.5px]'}>All</button>
         <button onClick={() => setActiveCol('trash')} className={(activeCol === 'trash' ? 'bg-muted font-semibold ' : 'hover:bg-muted/60 ') + 'w-full text-left rounded-lg px-3 py-2 text-[13.5px]'}>Recently deleted</button>
@@ -1586,8 +1588,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     { k: 'generate', label: 'Generate report', sub: '', action: 'save' },
   ] : [];
   const reportView = (
-    <div className="flex h-full overflow-hidden">
-      <div className="flex-1 flex flex-col min-w-0">
+    <div className="flex flex-col md:flex-row h-full overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0">
         <div className="px-6 py-3 border-b border-border shrink-0 flex items-center justify-between">{modeDropdown}<button onClick={() => setShareOpen(true)} className="text-[12.5px] font-semibold flex items-center gap-1 border border-border rounded-lg px-2.5 py-1 hover:bg-muted"><Share2 className="w-3.5 h-3.5" /> Share</button></div>
         <div className="flex-1 overflow-y-auto custom-scrollbar px-10 py-8 max-w-3xl mx-auto w-full">
           <div className="text-[12.5px] text-muted-foreground">{new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}</div>
@@ -1611,7 +1613,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
           ) : null}
         </div>
       </div>
-      <div className="w-[340px] shrink-0 border-l border-border flex flex-col h-full">
+      <div className="w-full md:w-[340px] shrink-0 border-t md:border-t-0 md:border-l border-border flex flex-col h-auto md:h-full max-h-[50vh] md:max-h-none">
         <div className="p-5 border-b border-border shrink-0">
           <div className="text-[15px] font-bold mb-3">Report</div>
           <div className="text-[12px] font-bold text-muted-foreground uppercase mb-2">Status</div>
@@ -1659,8 +1661,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
 
   // ---- FIND RESULTS SPLIT VIEW ----
   const resultsView = (
-    <div className="flex w-full h-full overflow-hidden">
-      <div className="w-[38%] min-w-[320px] flex flex-col border-r border-border h-full">
+    <div className="flex flex-col md:flex-row w-full h-full overflow-hidden">
+      <div className="w-full md:w-[38%] md:min-w-[320px] flex flex-col border-b md:border-b-0 md:border-r border-border h-auto md:h-full max-h-[45vh] md:max-h-none shrink-0">
         <div className="flex-1 overflow-y-auto p-6 custom-scrollbar flex flex-col gap-4">
           <div className="flex items-center justify-between">
             {modeDropdown}
@@ -1737,7 +1739,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         ) : null}
       </div>
 
-      <div className="flex-1 bg-card flex flex-col h-full overflow-hidden">
+      <div className="flex-1 min-h-0 bg-card flex flex-col md:h-full overflow-hidden">
         <div className="p-3 border-b border-border flex items-center gap-2 flex-wrap shrink-0">
           <div className="relative flex-1 min-w-[160px]">
             <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -2189,9 +2191,17 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   ) : null;
 
   return (
-    <div className="flex w-full h-full bg-background text-foreground overflow-hidden">
+    <div className="flex w-full h-full bg-background text-foreground overflow-hidden relative">
+      {mobileNav ? <div className="md:hidden fixed inset-0 bg-black/50 z-[55]" onClick={() => setMobileNav(false)} /> : null}
       {leftNav}
-      <div className="flex-1 min-w-0 h-full overflow-hidden">{main}</div>
+      <div className="flex-1 min-w-0 h-full overflow-hidden flex flex-col">
+        <div className="md:hidden flex items-center gap-2.5 px-3 h-12 border-b border-border shrink-0 bg-card">
+          <button onClick={() => setMobileNav(true)} className="text-muted-foreground hover:text-foreground p-1 -ml-1"><Menu className="w-5 h-5" /></button>
+          <span className="w-5 h-5 bg-contain bg-no-repeat bg-center shrink-0" style={{ backgroundImage: 'url(/logo.png)' }} />
+          <span className="font-bold text-[13px]">Literature Review</span>
+        </div>
+        <div className="flex-1 min-h-0 overflow-hidden">{main}</div>
+      </div>
       {sourceModal}
       {uploadModalEl}
       {shareModalEl}
