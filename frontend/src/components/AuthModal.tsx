@@ -39,8 +39,16 @@ export function AuthModal({ open, onClose, onAuthed }: any) {
         else { setInfo('Account created. Check your email to confirm, then sign in.'); setMode('signin'); }
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-        if (error) setError(error.message);
-        else finishAuth(data.user);
+        if (error) {
+          const msg = (error.message || '').toLowerCase();
+          if (msg.indexOf('invalid login') !== -1 || msg.indexOf('credentials') !== -1) {
+            setError("We couldn't sign you in. If you're new, create an account with Sign up first — otherwise check your password.");
+          } else if (msg.indexOf('confirm') !== -1) {
+            setError('Please confirm your email address first (check your inbox), then sign in.');
+          } else {
+            setError(error.message);
+          }
+        } else finishAuth(data.user);
       }
     } catch (e: any) {
       setError((e && e.message) || 'Something went wrong.');
@@ -52,7 +60,11 @@ export function AuthModal({ open, onClose, onAuthed }: any) {
   async function google() {
     if (!supabase) { setError('Sign-in is not configured yet.'); return; }
     try {
-      await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined } });
+      // Always return to the canonical site URL (set NEXT_PUBLIC_SITE_URL to your
+      // production domain in Vercel) so OAuth never lands back on a protected
+      // preview deployment URL.
+      const site = (process.env.NEXT_PUBLIC_SITE_URL || (typeof window !== 'undefined' ? window.location.origin : '')) || undefined;
+      await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: site } });
     } catch (e: any) {
       setError((e && e.message) || 'Google sign-in failed.');
     }

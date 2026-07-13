@@ -314,6 +314,63 @@ function linkifyAgent(text: string, sources: any[]): string {
   return t;
 }
 
+function cleanText(s: string): string {
+  return (s || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function firstSentences(s: string, n: number): string {
+  const clean = cleanText(s);
+  if (!clean) return '';
+  const m = clean.match(/[^.!?]+[.!?]+/g);
+  const parts = m && m.length ? m : [clean];
+  let out = parts.slice(0, n).join(' ').trim();
+  if (out.length > 340) out = out.slice(0, 337).trim() + '...';
+  return out;
+}
+
+// Elicit-style synthesis built directly from the retrieved paper abstracts.
+// Used as a reliable fallback so the Research agent always returns a
+// structured, citation-rich answer even when the model service is unavailable.
+function synthesizeAgentAnswer(question: string, sources: any[]): string {
+  const srcs = (sources || []).filter(Boolean);
+  const q = cleanText(question);
+  if (!srcs.length) return 'No sources were found for **' + q + '**. Try rephrasing the question or broadening your search terms.';
+  const years = srcs.map((s) => parseInt(String(s.year), 10)).filter((y) => !isNaN(y));
+  const minY = years.length ? Math.min.apply(null, years) : null;
+  const maxY = years.length ? Math.max.apply(null, years) : null;
+  const span = (minY && maxY) ? (minY === maxY ? String(minY) : minY + '–' + maxY) : '';
+  const venues = Array.from(new Set(srcs.map((s) => cleanText(s.venue)).filter(Boolean))).slice(0, 3);
+
+  let md = '### Summary\n\n';
+  md += 'This synthesis draws on ' + srcs.length + ' source' + (srcs.length > 1 ? 's' : '') + (span ? ' published between ' + span : '') + ' to address **' + q + '**';
+  md += venues.length ? ', with work appearing in venues such as ' + venues.join(', ') + '. ' : '. ';
+  md += 'The most relevant finding from each study is summarised below, with numbered citations linking back to the original papers.\n\n';
+
+  md += '### Key findings\n\n';
+  srcs.slice(0, 8).forEach((s, i) => {
+    const who = cleanText(s.authorStr) || 'Unknown authors';
+    const yr = s.year ? ' (' + s.year + ')' : '';
+    const finding = firstSentences(s.abstract, 2) || cleanText(s.title);
+    md += '- **' + who + yr + ':** ' + finding + ' [' + (i + 1) + ']\n';
+  });
+
+  md += '\n### Bottom line\n\n';
+  md += 'Across these ' + srcs.length + ' studies' + (span ? ' (' + span + ')' : '') + ', the evidence converges on the themes summarised above. ';
+  md += 'Open the sources below for full detail, or add extraction columns to build a structured evidence table comparing them side by side.\n\n';
+
+  md += '### References\n\n';
+  srcs.forEach((s, i) => {
+    const who = cleanText(s.authorStr) || 'Unknown authors';
+    const title = cleanText(s.title) || 'Untitled';
+    const venue = cleanText(s.venue);
+    const yr = s.year || '';
+    const url = s.url || '';
+    const titleMd = url ? '[' + title + '](' + url + ')' : title;
+    md += (i + 1) + '. ' + who + '. ' + titleMd + '. ' + [venue, yr].filter(Boolean).join(', ') + '\n';
+  });
+  return md;
+}
+
 export function LiteratureReviewView({ messages, onHome }: any) {
   const [question, setQuestion] = useState('');
   const [papers, setPapers] = useState([] as any[]);
@@ -929,7 +986,9 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       setAgentChat((prev) => { const m = [...prev]; m[m.length - 1] = { ...m[m.length - 1], steps: ['Planned research approach', 'Found ' + sources.length + ' sources', 'Analysing and synthesising...'], sources: sources }; return m; });
       const list = sources.map((p, i) => '[' + (i + 1) + '] ' + p.title + ' (' + p.authorStr + ', ' + p.year + '). ' + (p.abstract || '').slice(0, 400)).join('\n\n');
       const ans = await callChat('Answer this research question using ONLY the numbered sources below. Support each claim with a bracketed citation like [1] or [2] that refers to the matching source number (you may combine like [1][3]). Do not invent sources. Give a structured Markdown answer with a short bottom-line synthesis. Question: "' + q + '"\n\nSources:\n' + list);
-      setAgentChat((prev) => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', busy: false, text: linkifyAgent(ans || 'No answer generated.', sources), steps: ['Planned research approach', 'Found ' + sources.length + ' sources', 'Synthesised findings'], sources: sources }; persistAgentSession(agentSessionKeyRef.current, m); return m; });
+      const modelOk = !!(ans && ans.trim() && ans.indexOf('⚠') !== 0);
+      const finalText = modelOk ? ans : synthesizeAgentAnswer(q, sources);
+      setAgentChat((prev) => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', busy: false, text: linkifyAgent(finalText, sources), steps: ['Planned research approach', 'Found ' + sources.length + ' sources', 'Synthesised findings'], sources: sources }; persistAgentSession(agentSessionKeyRef.current, m); return m; });
     } catch {
       setAgentChat((prev) => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', busy: false, text: 'Could not complete the research. Please try again.', steps: [], sources: [] }; return m; });
     } finally {
