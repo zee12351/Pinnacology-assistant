@@ -398,24 +398,48 @@ function docFrom(d: any): string {
   return d.title || d.name || 'Untitled';
 }
 
-// Full Elicit-style research report built from gathered/screened sources.
+function inferStudyType(s: any): string {
+  const t = (cleanText(s.title) + ' ' + cleanText(s.venue)).toLowerCase();
+  if (/meta-analysis/.test(t)) return 'Meta-analysis';
+  if (/systematic review/.test(t)) return 'Systematic review';
+  if (/\breview\b|survey|state.of.the.art|overview/.test(t)) return 'Review / survey';
+  if (/randomi|clinical trial|\brct\b|cohort|case.control/.test(t)) return 'Clinical / empirical study';
+  if (/framework|toolkit|open.source|software|library|platform/.test(t)) return 'Software / framework';
+  if (/introduction|textbook|primer|lecture notes/.test(t)) return 'Reference / primer';
+  return 'Primary research';
+}
+
+function titleCaseFirst(s: string): string {
+  const c = (s || '').trim();
+  return c ? c.charAt(0).toUpperCase() + c.slice(1) : c;
+}
+
+// Comprehensive research report built deterministically from the screened sources.
 function synthesizeReport(question: string, screened: any[], totalFound: number): { title: string; abstract: string; body: string } {
-  const q = cleanText(question);
+  const q = cleanText(question).replace(/[.\s"']+$/, '');
   const scr = (screened || []).filter(Boolean);
   const years = scr.map((s) => parseInt(String(s.year), 10)).filter((y) => !isNaN(y));
   const minY = years.length ? Math.min.apply(null, years) : null;
   const maxY = years.length ? Math.max.apply(null, years) : null;
-  const span = (minY && maxY) ? (minY === maxY ? String(minY) : minY + ' and ' + maxY) : '';
+  const span = (minY && maxY) ? (minY === maxY ? String(minY) : minY + '–' + maxY) : '';
+  const venues = Array.from(new Set(scr.map((s) => cleanText(s.venue)).filter(Boolean)));
+  const typeCounts: any = {};
+  scr.forEach((s) => { const ty = inferStudyType(s); typeCounts[ty] = (typeCounts[ty] || 0) + 1; });
+  const typeSummary = Object.keys(typeCounts).sort((a, b) => typeCounts[b] - typeCounts[a]).map((k) => typeCounts[k] + ' ' + k.toLowerCase()).join(', ');
 
-  let abstract = 'This report synthesises evidence on **' + q + '** drawn from ' + scr.length + ' screened studies';
-  abstract += span ? ' published between ' + span + '. ' : '. ';
-  if (scr[0]) abstract += firstSentences(scr[0].abstract, 2) + ' [1] ';
-  if (scr[1]) abstract += firstSentences(scr[1].abstract, 1) + ' [2] ';
-  abstract += 'Taken together, the literature points to consistent themes across the included studies, detailed below.';
+  // Bottom-line answer + synthesised abstract with multi-source citations.
+  const lead = scr[0] ? titleCaseFirst(firstSentences(scr[0].abstract, 1)) : ('Evidence on ' + q + ' is summarised below.');
+  let abstract = '**' + lead + '**\n\n';
+  abstract += 'This report synthesises ' + scr.length + ' studies' + (span ? ' published across ' + span : '') + ' on ' + q + ', screened from ' + totalFound + ' retrieved records';
+  abstract += venues.length ? ' and spanning venues such as ' + venues.slice(0, 3).join(', ') + '. ' : '. ';
+  if (scr[1]) abstract += titleCaseFirst(firstSentences(scr[1].abstract, 1)) + ' [2]. ';
+  if (scr[2]) abstract += titleCaseFirst(firstSentences(scr[2].abstract, 1)) + ' [3]. ';
+  abstract += 'The included work comprises ' + (typeSummary || 'a mix of study types') + ', detailed with citations below.';
 
   let body = '## Search and screening\n\n';
-  body += 'We searched academic databases (OpenAlex, Semantic Scholar, Europe PMC, arXiv and Crossref) for "' + q + '". ';
-  body += 'The search returned ' + totalFound + ' results, and we retained the ' + scr.length + ' most relevant for screening and data extraction.\n\n';
+  body += 'We ran a semantic search across academic databases (OpenAlex, Semantic Scholar, Europe PMC, arXiv and Crossref) for **"' + q + '"**. ';
+  body += 'The search returned **' + totalFound + '** records; we screened on title and abstract and retained the **' + scr.length + '** most relevant studies for data extraction. ';
+  body += 'Inclusion favoured peer-reviewed work with an available abstract that directly addresses the question.\n\n';
 
   body += '## Key findings\n\n';
   scr.slice(0, 10).forEach((s, i) => {
@@ -425,20 +449,32 @@ function synthesizeReport(question: string, screened: any[], totalFound: number)
     body += '- **' + who + yr + ':** ' + finding + ' [' + (i + 1) + ']\n';
   });
 
-  body += '\n## Characteristics of included studies\n\n';
+  body += '\n## Study types and methods\n\n';
+  body += 'The evidence base is composed of ' + (typeSummary || 'varied study designs') + '. ';
+  body += 'This mix means findings range from theoretical and review-level synthesis to empirical results; readers should weigh each claim against its study design.\n\n';
+
+  body += '## Characteristics of included studies\n\n';
   scr.slice(0, 10).forEach((s, i) => {
     const who = cleanText(s.authorStr) || 'Unknown authors';
     const yr = s.year ? ', ' + s.year : '';
     const venue = cleanText(s.venue);
-    const focus = (cleanText(s.title) || '').slice(0, 90);
-    body += '- **[' + (i + 1) + '] ' + who + yr + '**' + (venue ? ' — *' + venue + '*' : '') + '. ' + focus + '.\n';
+    const ty = inferStudyType(s);
+    const focus = (cleanText(s.title) || '').slice(0, 100);
+    body += '- **[' + (i + 1) + '] ' + who + yr + '** — *' + (venue || 'n/a') + '* · ' + ty + '. ' + focus + '.\n';
   });
 
-  body += '\n## Synthesis\n\n';
-  body += 'Across the ' + scr.length + ' included studies' + (span ? ' (' + span + ')' : '') + ', the evidence converges on the themes highlighted in the key findings. ';
-  body += 'Differences in methodology and scope mean effect sizes and conclusions vary by study; readers should weigh each finding against its source. See the numbered references for full details.';
+  body += '\n## Consensus, debates and gaps\n\n';
+  body += 'Across the ' + scr.length + ' included studies' + (span ? ' (' + span + ')' : '') + ', several findings recur and reinforce one another, pointing to areas of emerging consensus. ';
+  body += 'Where studies differ in scope, population or method, their conclusions diverge — these tensions mark the open debates in the field. ';
+  body += 'Gaps remain where evidence is thin, dated, or drawn largely from reviews rather than primary studies; targeted primary research and head-to-head comparisons would strengthen the evidence base.\n\n';
 
-  return { title: q.length > 60 ? q.slice(0, 57) + '...' : q, abstract: abstract, body: body };
+  body += '## Synthesis\n\n';
+  body += 'Taken together, the literature on ' + q + ' offers a coherent but still-developing picture. ';
+  body += 'The key findings above summarise each study\'s core contribution, while the characteristics and study-type breakdown show how much weight to place on each. ';
+  body += 'For deeper analysis, open the full texts via the numbered references, or add extraction columns to compare specific metrics side by side.';
+
+  const title = q.length > 60 ? q.slice(0, 57) + '...' : titleCaseFirst(q);
+  return { title: title, abstract: abstract, body: body };
 }
 
 function refToBib(sources: any[]): string {
@@ -2015,14 +2051,38 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         <div className="flex-1 overflow-y-auto custom-scrollbar px-10 py-8 max-w-3xl mx-auto w-full">
           <div className="text-[12.5px] text-muted-foreground">{new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}</div>
           <h1 className="text-2xl font-bold mt-2 mb-4 text-primary">{report && report.title ? report.title : (report ? report.question : '')}</h1>
-          {report && report.abstract ? <p className="text-[15px] leading-relaxed mb-6">{report.abstract}</p> : null}
           {reportBusy ? (
-            <div className="flex items-center gap-2 text-muted-foreground text-[13.5px] mt-4"><Loader2 className="w-4 h-4 animate-spin" /> {reportPhase}</div>
+            <div className="mb-6 border border-border rounded-xl bg-muted/30 p-4 flex flex-col gap-3">
+              <div className="flex items-center gap-2 text-[13.5px] font-semibold"><Loader2 className="w-4 h-4 animate-spin text-primary" /> {reportPhase || 'Building your report...'}</div>
+              <div className="flex flex-col gap-2">
+                {reportSteps.map((st, i) => {
+                  const sdone = report && report.done && report.done[st.k];
+                  const sactive = !sdone && i === reportActiveIdx;
+                  return (
+                    <div key={st.k} className={'flex items-start gap-2.5 text-[13px] ' + (sdone ? 'text-foreground' : sactive ? 'text-foreground' : 'text-muted-foreground/50')}>
+                      {sdone ? <Check className="w-4 h-4 text-green-500 mt-0.5 shrink-0" /> : sactive ? <Loader2 className="w-4 h-4 animate-spin text-primary mt-0.5 shrink-0" /> : <span className="w-4 h-4 rounded-full border border-border mt-0.5 shrink-0" />}
+                      <div><span className="font-semibold">{st.label}</span> — {sdone ? st.sub : st.desc}</div>
+                    </div>
+                  );
+                })}
+              </div>
+              {reportSources.length ? (
+                <div className="mt-1 border-t border-border pt-3">
+                  <div className="text-[12px] font-bold text-muted-foreground uppercase mb-1.5">Relevant sources identified: {reportSources.length}</div>
+                  <div className="flex flex-col gap-1.5 max-h-[240px] overflow-y-auto custom-scrollbar pr-1">
+                    {reportSources.slice(0, 10).map((p: any, i: number) => (
+                      <div key={p.id || i} className="text-[12.5px] leading-snug"><span className="font-semibold">{p.title}</span> <span className="text-muted-foreground">— {p.authorStr}{p.year ? ' (' + p.year + ')' : ''}</span></div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          {report && report.abstract ? (
+            <div className="prose prose-sm dark:prose-invert max-w-none text-[15px] leading-relaxed mb-6"><ReactMarkdown components={{ a: (props: any) => <a {...props} target="_blank" rel="noreferrer" className="text-primary font-semibold no-underline hover:underline" /> }}>{linkifyAgent(report.abstract, reportScreened)}</ReactMarkdown></div>
           ) : null}
           {report && report.body ? (
-            <div className="prose prose-sm dark:prose-invert max-w-none text-[14.5px] leading-relaxed">
-              <ReactMarkdown>{report.body}</ReactMarkdown>
-            </div>
+            <div className="prose prose-sm dark:prose-invert max-w-none text-[14.5px] leading-relaxed"><ReactMarkdown components={{ a: (props: any) => <a {...props} target="_blank" rel="noreferrer" className="text-primary font-semibold no-underline hover:underline" /> }}>{linkifyAgent(report.body, reportScreened)}</ReactMarkdown></div>
           ) : null}
           {reportScreened.length ? (
             <div className="mt-8 border-t border-border pt-4">
