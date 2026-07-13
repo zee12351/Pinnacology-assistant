@@ -64,7 +64,7 @@ export function AuthModal({ open, onClose, onAuthed }: any) {
       // production domain in Vercel) so OAuth never lands back on a protected
       // preview deployment URL.
       const site = (process.env.NEXT_PUBLIC_SITE_URL || (typeof window !== 'undefined' ? window.location.origin : '')) || undefined;
-      await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: site } });
+      await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: site, queryParams: { prompt: 'select_account' } } });
     } catch (e: any) {
       setError((e && e.message) || 'Google sign-in failed.');
     }
