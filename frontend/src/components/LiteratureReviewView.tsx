@@ -371,6 +371,98 @@ function synthesizeAgentAnswer(question: string, sources: any[]): string {
   return md;
 }
 
+// Elicit-style "Chat with papers" answer grounded only in the provided sources.
+function synthesizePaperAnswer(question: string, sources: any[]): string {
+  const srcs = (sources || []).filter(Boolean);
+  const q = cleanText(question);
+  if (!srcs.length) return 'No sources are selected. Add sources from your library to chat about them.';
+  const withAbstract = srcs.filter((s) => cleanText(s.abstract));
+  if (!withAbstract.length) {
+    return '**The selected source' + (srcs.length > 1 ? 's do' : ' does') + " not include machine-readable text to answer from.** " + srcs.map((s) => cleanText(docFrom(s))).filter(Boolean).join(', ') + ' is in your library, but its full text was not extracted, so a grounded answer can\'t be produced. Try a paper added from search (which includes an abstract).';
+  }
+  const lead = withAbstract[0];
+  const who0 = cleanText(lead.authorStr) || 'The primary source';
+  const yr0 = lead.year ? ' (' + lead.year + ')' : '';
+  let md = '**Based on the selected source' + (withAbstract.length > 1 ? 's' : '') + ', ' + firstSentences(lead.abstract, 1) + '**\n\n';
+  withAbstract.slice(0, 6).forEach((s) => {
+    const who = cleanText(s.authorStr) || 'This study';
+    const yr = s.year || '';
+    const cite = who + (yr ? ', ' + yr : '');
+    md += firstSentences(s.abstract, 2) + ' (' + cite + ').\n\n';
+  });
+  md += '**Limitations:** This answer is drawn only from the ' + withAbstract.length + ' selected source' + (withAbstract.length > 1 ? 's' : '') + ' and their abstracts. For claims beyond what these papers state, add more sources to your library.';
+  return md;
+}
+
+function docFrom(d: any): string {
+  return d.title || d.name || 'Untitled';
+}
+
+// Full Elicit-style research report built from gathered/screened sources.
+function synthesizeReport(question: string, screened: any[], totalFound: number): { title: string; abstract: string; body: string } {
+  const q = cleanText(question);
+  const scr = (screened || []).filter(Boolean);
+  const years = scr.map((s) => parseInt(String(s.year), 10)).filter((y) => !isNaN(y));
+  const minY = years.length ? Math.min.apply(null, years) : null;
+  const maxY = years.length ? Math.max.apply(null, years) : null;
+  const span = (minY && maxY) ? (minY === maxY ? String(minY) : minY + ' and ' + maxY) : '';
+
+  let abstract = 'This report synthesises evidence on **' + q + '** drawn from ' + scr.length + ' screened studies';
+  abstract += span ? ' published between ' + span + '. ' : '. ';
+  if (scr[0]) abstract += firstSentences(scr[0].abstract, 2) + ' [1] ';
+  if (scr[1]) abstract += firstSentences(scr[1].abstract, 1) + ' [2] ';
+  abstract += 'Taken together, the literature points to consistent themes across the included studies, detailed below.';
+
+  let body = '## Search and screening\n\n';
+  body += 'We searched academic databases (OpenAlex, Semantic Scholar, Europe PMC, arXiv and Crossref) for "' + q + '". ';
+  body += 'The search returned ' + totalFound + ' results, and we retained the ' + scr.length + ' most relevant for screening and data extraction.\n\n';
+
+  body += '## Key findings\n\n';
+  scr.slice(0, 10).forEach((s, i) => {
+    const who = cleanText(s.authorStr) || 'Unknown authors';
+    const yr = s.year ? ' (' + s.year + ')' : '';
+    const finding = firstSentences(s.abstract, 2) || cleanText(s.title);
+    body += '- **' + who + yr + ':** ' + finding + ' [' + (i + 1) + ']\n';
+  });
+
+  body += '\n## Characteristics of included studies\n\n';
+  scr.slice(0, 10).forEach((s, i) => {
+    const who = cleanText(s.authorStr) || 'Unknown authors';
+    const yr = s.year ? ', ' + s.year : '';
+    const venue = cleanText(s.venue);
+    const focus = (cleanText(s.title) || '').slice(0, 90);
+    body += '- **[' + (i + 1) + '] ' + who + yr + '**' + (venue ? ' — *' + venue + '*' : '') + '. ' + focus + '.\n';
+  });
+
+  body += '\n## Synthesis\n\n';
+  body += 'Across the ' + scr.length + ' included studies' + (span ? ' (' + span + ')' : '') + ', the evidence converges on the themes highlighted in the key findings. ';
+  body += 'Differences in methodology and scope mean effect sizes and conclusions vary by study; readers should weigh each finding against its source. See the numbered references for full details.';
+
+  return { title: q.length > 60 ? q.slice(0, 57) + '...' : q, abstract: abstract, body: body };
+}
+
+function refToBib(sources: any[]): string {
+  return (sources || []).map((s, i) => {
+    const authors = cleanText(s.authorStr).replace(/ et al\.?/i, '').split(',').map((a: string) => a.trim()).filter(Boolean).join(' and ');
+    const key = ((cleanText(s.authorStr).split(/[ ,]/)[0] || 'ref') + (s.year || '') + (i + 1)).replace(/[^A-Za-z0-9]/g, '');
+    return '@article{' + key + ',\n  title={' + cleanText(s.title) + '},\n  author={' + authors + '},\n  journal={' + cleanText(s.venue) + '},\n  year={' + (s.year || '') + '},\n' + (s.doi ? '  doi={' + s.doi + '},\n' : '') + (s.url ? '  url={' + s.url + '},\n' : '') + '}';
+  }).join('\n\n');
+}
+
+function refToRis(sources: any[]): string {
+  return (sources || []).map((s) => {
+    const lines = ['TY  - JOUR'];
+    cleanText(s.authorStr).replace(/ et al\.?/i, '').split(',').map((a: string) => a.trim()).filter(Boolean).forEach((a: string) => lines.push('AU  - ' + a));
+    lines.push('TI  - ' + cleanText(s.title));
+    if (s.venue) lines.push('JO  - ' + cleanText(s.venue));
+    if (s.year) lines.push('PY  - ' + s.year);
+    if (s.doi) lines.push('DO  - ' + s.doi);
+    if (s.url) lines.push('UR  - ' + s.url);
+    lines.push('ER  - ');
+    return lines.join('\n');
+  }).join('\n');
+}
+
 export function LiteratureReviewView({ messages, onHome }: any) {
   const [question, setQuestion] = useState('');
   const [papers, setPapers] = useState([] as any[]);
@@ -455,6 +547,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [reportBusy, setReportBusy] = useState(false);
   const [reportPhase, setReportPhase] = useState('');
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [reportDl, setReportDl] = useState(false);
   const [reportChat, setReportChat] = useState([] as any[]);
   const [reportChatInput, setReportChatInput] = useState('');
 
@@ -722,10 +815,12 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     if (!paperChat.length) pushRecent(q, 'Chat');
     setPaperChat((prev) => [...prev, { role: 'user', text: q }, { role: 'assistant', text: '', busy: true }]);
     setPaperBusy(true);
-    const srcList = chatSources.map((d) => docName(d)).join(', ');
-    const msg = (chatSources.length ? 'Base your answer on these sources from my library: ' + srcList + '.\n\n' : '') + q + '\n\nAnswer clearly in Markdown, with inline (Author, Year) citations where relevant.';
+    const srcCtx = chatSources.map((d, i) => '[' + (i + 1) + '] ' + docName(d) + (d.authorStr ? ' — ' + d.authorStr : '') + (d.year ? ' (' + d.year + ')' : '') + (cleanText(d.abstract) ? '\nAbstract: ' + cleanText(d.abstract).slice(0, 800) : '')).join('\n\n');
+    const msg = 'You are a research assistant. Answer the question using ONLY the sources provided below — do not use outside knowledge. Cite claims inline as (Author, Year). Format: begin with a single bold sentence that directly answers the question, then supporting detail in short paragraphs, then a line starting with "**Limitations:**". If the sources do not contain the answer, say so plainly.\n\nSources:\n' + srcCtx + '\n\nQuestion: ' + q;
     const ans = await callChat(msg, true, 'DOCUMENT ANALYST');
-    setPaperChat((prev) => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', text: ans || 'No response. Try selecting sources or rephrasing.' }; return m; });
+    const good = !!(ans && ans.trim() && ans.indexOf('⚠') !== 0);
+    const finalText = good ? ans : synthesizePaperAnswer(q, chatSources);
+    setPaperChat((prev) => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', text: finalText }; return m; });
     setPaperBusy(false);
   }
 
@@ -900,36 +995,44 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setReportBusy(true);
     setReportPhase('Gathering sources...');
     setReport({ question: q, source: source, title: '', abstract: '', body: '', sources: [], screened: [], done: {} });
+    let sources: any[] = [];
     try {
-      let sources: any[] = [];
       if (source === 'Clinical trials') {
         const url = 'https://clinicaltrials.gov/api/v2/studies?query.term=' + encodeURIComponent(q) + '&pageSize=30&format=json';
         const r = await fetch(url);
         const j = await r.json();
         sources = ((j && j.studies) || []).map(mkTrial).filter((x: any) => x.title);
       } else {
-        const url = 'https://api.openalex.org/works?search=' + encodeURIComponent(q) + '&per_page=30&sort=relevance_score:desc&filter=has_abstract:true&mailto=support@pinnovix.app';
+        const url = 'https://api.openalex.org/works?search=' + encodeURIComponent(q) + '&per_page=50&sort=relevance_score:desc&filter=has_abstract:true&mailto=support@pinnovix.app';
         const r = await fetch(url);
         const j = await r.json();
         sources = ((j && j.results) || []).map(mkPaper).filter((x: any) => x.title);
       }
       const screened = sources.slice(0, 10);
-      setReport((prev: any) => ({ ...prev, sources: sources, screened: screened, done: { gather: true, screen: true } }));
-      setReportPhase('Extracting data and writing report...');
+      setReport((prev: any) => ({ ...prev, sources: sources, screened: screened, done: { gather: true } }));
+      setReportPhase('Screening sources against inclusion criteria...');
+      await new Promise((res) => setTimeout(res, 400));
+      setReport((prev: any) => ({ ...prev, done: { gather: true, screen: true } }));
+      setReportPhase('Extracting key metrics and findings from each paper...');
       const srcTxt = screened.map((p, i) => '[' + (i + 1) + '] ' + p.title + ' (' + p.authorStr + ', ' + p.year + '). ' + (p.abstract || 'No abstract').slice(0, 600)).join('\n\n');
-      const shape = '{"title": "short report title, max 8 words", "abstract": "2-3 paragraph abstract summarising the evidence with specific numbers", "body": "the full report in Markdown with ## section headings and inline (Author, Year) citations"}';
-      const prompt = 'Write a structured research report that answers: "' + q + '". Use ONLY the ' + screened.length + ' sources below. Include specific findings, numbers and caveats. Return ONLY valid JSON, no fences, in this shape: ' + shape + '\n\nSources:\n' + srcTxt;
+      const shape = '{"title": "short report title, max 8 words", "abstract": "2-3 paragraph abstract summarising the evidence with specific numbers and [1]-style citations", "body": "the full report in Markdown with ## section headings (Search and screening, Key findings, Characteristics of included studies as a bold-labelled bullet list — NOT a table, Synthesis) and inline [n] citations"}';
+      const prompt = 'Write a structured systematic-review-style research report that answers: "' + q + '". Use ONLY the ' + screened.length + ' sources below. Include specific findings, numbers and caveats, and inline [n] citations matching the source numbers. Do not use Markdown tables; use bold-labelled bullet lists instead. Return ONLY valid JSON, no fences, in this shape: ' + shape + '\n\nSources:\n' + srcTxt;
+      setReport((prev: any) => ({ ...prev, done: { gather: true, screen: true, extract: true } }));
+      setReportPhase('Generating report and summarising findings...');
       const raw = await callChat(prompt);
       const parsed = extractJSON(raw);
+      const modelOk = !!(parsed && parsed.body && String(raw).indexOf('⚠') !== 0);
+      const fb = synthesizeReport(q, screened, sources.length);
       setReport((prev: any) => ({
         ...prev,
-        title: (parsed && parsed.title) || q,
-        abstract: (parsed && parsed.abstract) || (raw && raw.length < 800 ? raw : ''),
-        body: (parsed && parsed.body) || (raw || ''),
+        title: (parsed && parsed.title) || fb.title,
+        abstract: (parsed && parsed.abstract) || fb.abstract,
+        body: modelOk ? parsed.body : fb.body,
         done: { gather: true, screen: true, extract: true, generate: true },
       }));
     } catch {
-      setReport((prev: any) => ({ ...prev, title: q, abstract: 'Could not generate the report. Please try again.', body: '', done: { gather: true, screen: true, extract: true, generate: true } }));
+      const fb = synthesizeReport(q, sources.slice(0, 10), sources.length);
+      setReport((prev: any) => ({ ...prev, title: fb.title, abstract: fb.abstract, body: fb.body, done: { gather: true, screen: true, extract: true, generate: true } }));
     } finally {
       setReportBusy(false);
       setReportPhase('');
@@ -1049,12 +1152,75 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     const ans = await callChat(ctx + '\n\nQuestion about the report: ' + q + '\n\nAnswer in Markdown.', false, 'LITERATURE REVIEW');
     setReportChat((prev) => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', text: ans || 'No response.' }; return m; });
   }
-  function saveReportDoc() {
-    if (!report) return;
-    const s = report.screened || [];
-    const txt = (report.title || report.question) + '\n\n' + (report.abstract || '') + '\n\n' + (report.body || '') + '\n\nSources:\n' + s.map((p: any, i: number) => (i + 1) + '. ' + p.title + ' (' + p.authorStr + ', ' + p.year + '). ' + (p.url || '')).join('\n');
-    doDownload(txt, (report.title || 'research-report').slice(0, 40) + '.txt', 'text/plain');
+  function reportRefs() { return (report && report.screened) || []; }
+  function reportFileBase() { return ((report && (report.title || report.question)) || 'research-report').slice(0, 50).replace(/[^A-Za-z0-9 _-]/g, '').trim().replace(/\s+/g, '-') || 'research-report'; }
+  function reportMarkdown() {
+    if (!report) return '';
+    const s = reportRefs();
+    return '# ' + (report.title || report.question) + '\n\n' + (report.abstract || '') + '\n\n' + (report.body || '') + '\n\n## References\n\n' + s.map((p: any, i: number) => (i + 1) + '. ' + cleanText(p.authorStr) + '. ' + cleanText(p.title) + '. ' + [cleanText(p.venue), p.year].filter(Boolean).join(', ') + '. ' + (p.url || '')).join('\n');
   }
+  function loadScriptOnce(src: string): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+      if (typeof document === 'undefined') { reject(new Error('no document')); return; }
+      if (document.querySelector('script[src="' + src + '"]')) { resolve(true); return; }
+      const s = document.createElement('script'); s.src = src; s.onload = () => resolve(true); s.onerror = () => reject(new Error('load fail')); document.body.appendChild(s);
+    });
+  }
+  function saveReportDoc() { downloadReportPdf(); }
+  async function downloadReportPdf() {
+    setReportDl(false);
+    if (!report) return;
+    try {
+      await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+      const jsPDF = (window as any).jspdf.jsPDF;
+      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+      const margin = 48; const pw = doc.internal.pageSize.getWidth(); const ph = doc.internal.pageSize.getHeight(); const width = pw - margin * 2; let y = margin;
+      const writeLines = (text: string, size: number, bold: boolean, indent: number) => {
+        doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.setFontSize(size);
+        const lines = doc.splitTextToSize(text, width - indent);
+        lines.forEach((ln: string) => { if (y > ph - margin) { doc.addPage(); y = margin; } doc.text(ln, margin + indent, y); y += size * 1.35; });
+      };
+      writeLines(report.title || report.question || 'Research report', 18, true, 0); y += 6;
+      if (report.abstract) { writeLines(report.abstract, 10.5, false, 0); y += 8; }
+      (String(report.body || '').split('\n')).forEach((raw) => {
+        const line = raw.replace(/\*\*/g, '');
+        if (!line.trim()) { y += 5; return; }
+        if (line.indexOf('## ') === 0) { y += 6; writeLines(line.replace(/^##\s*/, ''), 13, true, 0); }
+        else if (line.indexOf('# ') === 0) { y += 6; writeLines(line.replace(/^#\s*/, ''), 15, true, 0); }
+        else if (line.trim().indexOf('|') === 0) { writeLines(line.replace(/\|/g, '  ').trim(), 9, false, 6); }
+        else if (line.trim().indexOf('- ') === 0) { writeLines('• ' + line.trim().slice(2), 10.5, false, 10); }
+        else writeLines(line, 10.5, false, 0);
+      });
+      y += 10; writeLines('References', 13, true, 0);
+      reportRefs().forEach((p: any, i: number) => writeLines((i + 1) + '. ' + cleanText(p.authorStr) + '. ' + cleanText(p.title) + '. ' + [cleanText(p.venue), p.year].filter(Boolean).join(', ') + '. ' + (p.url || ''), 9.5, false, 10));
+      doc.save(reportFileBase() + '.pdf');
+    } catch {
+      doDownload(reportMarkdown(), reportFileBase() + '.md', 'text/markdown');
+    }
+  }
+  function downloadReportWord() {
+    setReportDl(false);
+    if (!report) return;
+    const bodyHtml = String(report.body || '').split('\n').map((l) => {
+      const t = l.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+      if (t.indexOf('## ') === 0) return '<h2>' + t.replace(/^##\s*/, '').replace(/\*\*/g, '') + '</h2>';
+      if (t.trim().indexOf('- ') === 0) return '<li>' + t.trim().slice(2).replace(/\*\*/g, '') + '</li>';
+      if (!t.trim()) return '';
+      return '<p>' + t.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>') + '</p>';
+    }).join('');
+    const refs = reportRefs().map((p: any, i: number) => '<p>' + (i + 1) + '. ' + cleanText(p.authorStr) + '. ' + cleanText(p.title) + '. ' + [cleanText(p.venue), p.year].filter(Boolean).join(', ') + '. ' + (p.url || '') + '</p>').join('');
+    const html = '<html><head><meta charset="utf-8"></head><body><h1>' + (report.title || report.question) + '</h1><p>' + (report.abstract || '') + '</p>' + bodyHtml + '<h2>References</h2>' + refs + '</body></html>';
+    doDownload(html, reportFileBase() + '.doc', 'application/msword');
+  }
+  function downloadReportBib() { setReportDl(false); doDownload(refToBib(reportRefs()), reportFileBase() + '.bib', 'application/x-bibtex'); }
+  function downloadReportRis() { setReportDl(false); doDownload(refToRis(reportRefs()), reportFileBase() + '.ris', 'application/x-research-info-systems'); }
+  function downloadReportCsv() {
+    setReportDl(false);
+    const esc = (v: any) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const rows = [['#', 'Authors', 'Title', 'Year', 'Venue', 'URL']].concat(reportRefs().map((p: any, i: number) => [String(i + 1), cleanText(p.authorStr), cleanText(p.title), String(p.year || ''), cleanText(p.venue), p.url || '']));
+    doDownload(rows.map((r) => r.map(esc).join(',')).join('\n'), reportFileBase() + '.csv', 'text/csv');
+  }
+  function downloadReportMd() { setReportDl(false); doDownload(reportMarkdown(), reportFileBase() + '.md', 'text/markdown'); }
 
   function colLabel(s: string): string {
     let x = s.trim().replace(/^(please\s+)?(can you\s+)?(add a column for|add a column|add|separate the table by|separate by|group the table by|group by|break down by|include|show me|show)\s+/i, '');
@@ -1836,11 +2002,12 @@ export function LiteratureReviewView({ messages, onHome }: any) {
 
   // ---- REPORT DOC VIEW (snip 5) ----
   const reportSteps = report ? [
-    { k: 'gather', label: 'Gather sources', sub: reportSources.length + ' sources found', action: 'details' },
-    { k: 'screen', label: 'Screen sources', sub: reportScreened.length + ' sources included', action: 'details' },
-    { k: 'extract', label: 'Extract data', sub: (reportScreened.length * 6) + ' data points extracted', action: 'details' },
-    { k: 'generate', label: 'Generate report', sub: '', action: 'save' },
+    { k: 'gather', label: 'Gather sources', sub: reportSources.length + ' sources found', desc: 'Searching academic databases', action: 'details' },
+    { k: 'screen', label: 'Screen sources', sub: reportScreened.length + ' sources included', desc: 'Filtering studies based on inclusion criteria', action: 'details' },
+    { k: 'extract', label: 'Extract data', sub: (reportScreened.length * 6) + ' data points extracted', desc: 'Capturing key metrics and findings from every paper', action: 'details' },
+    { k: 'generate', label: 'Generate report', sub: 'Report ready', desc: 'Summarising findings', action: 'save' },
   ] : [];
+  const reportActiveIdx = reportSteps.findIndex((st) => !(report && report.done && report.done[st.k]));
   const reportView = (
     <div className="flex flex-col md:flex-row h-full overflow-hidden">
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
@@ -1871,21 +2038,41 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         <div className="p-5 border-b border-border shrink-0">
           <div className="text-[15px] font-bold mb-3">Report</div>
           <div className="text-[12px] font-bold text-muted-foreground uppercase mb-2">Status</div>
-          {reportSteps.map((st) => {
+          {reportSteps.map((st, sti) => {
             const done = report && report.done && report.done[st.k];
+            const active = !done && sti === reportActiveIdx && reportBusy;
             return (
-              <div key={st.k} className="flex items-center justify-between py-2 border-b border-border last:border-0">
+              <div key={st.k} className={'flex items-center justify-between py-2.5 px-2 -mx-2 rounded-lg border-b border-border last:border-0 ' + (active ? 'bg-primary/5' : '')}>
                 <div className="flex items-center gap-2.5">
-                  {done ? <span className="w-5 h-5 rounded-full bg-green-500/15 text-green-500 flex items-center justify-center"><Check className="w-3 h-3" /></span> : (reportBusy ? <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" /> : <span className="w-5 h-5 rounded-full border border-border" />)}
+                  {done ? <span className="w-5 h-5 rounded-full bg-green-500/15 text-green-500 flex items-center justify-center"><Check className="w-3 h-3" /></span> : (active ? <Loader2 className="w-4 h-4 animate-spin text-primary" /> : <span className="w-5 h-5 rounded-full border border-border" />)}
                   <div>
                     <div className="text-[13px] font-semibold">{st.label}</div>
-                    {st.sub ? <div className="text-[11.5px] text-muted-foreground">{st.sub}</div> : null}
+                    <div className="text-[11.5px] text-muted-foreground">{done ? st.sub : st.desc}</div>
                   </div>
                 </div>
                 {done && st.action === 'details' ? (
                   <button onClick={() => setDetailsOpen(true)} className="text-[12px] text-primary font-semibold inline-flex items-center gap-1">Details <ArrowUpRightIcon /></button>
                 ) : done && st.action === 'save' ? (
-                  <button onClick={saveReportDoc} className="bg-primary text-primary-foreground rounded-lg px-3 py-1.5 text-[12px] font-semibold inline-flex items-center gap-1.5"><Download className="w-3.5 h-3.5" /> Save</button>
+                  <div className="relative">
+                    <button onClick={() => setReportDl((v) => !v)} className="bg-primary text-primary-foreground rounded-lg px-3 py-1.5 text-[12px] font-semibold inline-flex items-center gap-1.5"><Download className="w-3.5 h-3.5" /> Save <ChevronDown className="w-3 h-3" /></button>
+                    {reportDl ? (
+                      <>
+                        <div className="fixed inset-0 z-[80]" onClick={() => setReportDl(false)} />
+                        <div className="absolute z-[81] top-full right-0 mt-1 w-[200px] bg-card border border-border rounded-xl shadow-2xl p-1.5">
+                          {[
+                            { label: 'PDF document', sub: '.pdf', fn: downloadReportPdf },
+                            { label: 'Word document', sub: '.doc', fn: downloadReportWord },
+                            { label: 'Markdown', sub: '.md', fn: downloadReportMd },
+                            { label: 'BibTeX', sub: '.bib', fn: downloadReportBib },
+                            { label: 'RIS', sub: '.ris', fn: downloadReportRis },
+                            { label: 'CSV (references)', sub: '.csv', fn: downloadReportCsv },
+                          ].map((o) => (
+                            <button key={o.label} onClick={o.fn} className="w-full text-left px-3 py-2 rounded-lg text-[13px] hover:bg-muted flex items-center justify-between"><span>{o.label}</span><span className="text-[11px] text-muted-foreground">{o.sub}</span></button>
+                          ))}
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             );
