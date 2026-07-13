@@ -1,0 +1,120 @@
+diff --git a/frontend/src/components/AcademicWritingView.tsx b/frontend/src/components/AcademicWritingView.tsx
+index a706166..a8c853f 100644
+--- a/frontend/src/components/AcademicWritingView.tsx
++++ b/frontend/src/components/AcademicWritingView.tsx
+@@ -317,22 +317,53 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
+     };
+   };
+ 
+-  const lookupOne = async (segment: string, doi?: string | null) => {
++  const parseCitationSegment = (seg: string) => {
++    const yearM = seg.match(/\b(19|20)\d{2}[a-z]?\b/);
++    const year = yearM ? yearM[0].replace(/[a-z]$/, '') : '';
++    // author phrase = text before the year / first comma; strip brackets, "et al", initials
++    let author = seg.replace(/[()\[\]]/g, ' ');
++    author = author.split(/\b(?:19|20)\d{2}/)[0];
++    author = author.split(/[,;&]/)[0];
++    author = author.replace(/\bet al\.?/i, '').replace(/[^A-Za-z\s'-]/g, ' ').replace(/\s+/g, ' ').trim();
++    // keep the last token as a likely surname if multi-word org names get long
++    const surname = author.split(' ').filter(Boolean).slice(-1)[0] || author;
++    return { author: author || surname, surname, year };
++  };
++
++  const lookupOne = async (segment: string, doi?: string | null, context?: string) => {
+     const sel = 'title,author,published,container-title,is-referenced-by-count,abstract,URL,type,DOI';
+     try {
+-      let it: any = null;
+       if (doi) {
+         const r = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi)}?select=${sel}`);
+         const j = await r.json();
+-        it = j?.message || null;
+-      } else {
+-        const q = segment.replace(/[()\[\]]/g, ' ').replace(/\s+/g, ' ').trim();
+-        const res = await fetch(`https://api.crossref.org/works?rows=1&select=${sel}&query.bibliographic=${encodeURIComponent(q)}`);
+-        const json = await res.json();
+-        it = json?.message?.items?.[0];
++        const it = j?.message || null;
++        if (!it) return { none: true, raw: segment };
++        const meta: any = buildMeta(it);
++        meta.isOA = await fetchOA(meta.doi);
++        return meta;
+       }
+-      if (!it) return { none: true, raw: segment };
+-      const meta: any = buildMeta(it);
++      const { author, surname, year } = parseCitationSegment(segment);
++      const ctx = (context || '').replace(/\([^()]*\)/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 240);
++      const bib = [ctx, author].filter(Boolean).join(' ').trim() || segment;
++      let url = `https://api.crossref.org/works?rows=5&select=${sel}&query.bibliographic=${encodeURIComponent(bib)}`;
++      if (author) url += `&query.author=${encodeURIComponent(author)}`;
++      if (year) url += `&filter=from-pub-date:${year}-01-01,until-pub-date:${year}-12-31`;
++      const res = await fetch(url);
++      const json = await res.json();
++      const items: any[] = json?.message?.items || [];
++      if (!items.length) return { none: true, raw: segment };
++      // score: prefer author-surname match + exact year + higher citation count
++      const score = (it: any) => {
++        let sc = 0;
++        const fams = (it.author || []).map((a: any) => (a.family || a.name || '').toLowerCase());
++        if (surname && fams.some((f: string) => f.includes(surname.toLowerCase()) || surname.toLowerCase().includes(f))) sc += 5;
++        const y = String(it.published?.['date-parts']?.[0]?.[0] || '');
++        if (year && y === year) sc += 4;
++        sc += Math.min((it['is-referenced-by-count'] || 0) / 500, 2);
++        return sc;
++      };
++      const best = items.slice().sort((a, b) => score(b) - score(a))[0];
++      const meta: any = buildMeta(best);
+       meta.isOA = await fetchOA(meta.doi);
+       return meta;
+     } catch {
+@@ -341,13 +372,13 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
+   };
+ 
+   // Fetch one card per reference inside the citation (split on ";"). opts: { refs?, singleDoi? }
+-  const fetchCitationCards = async (rawText: string, opts?: { refs?: any[]; singleDoi?: string | null }) => {
++  const fetchCitationCards = async (rawText: string, opts?: { refs?: any[]; singleDoi?: string | null; context?: string }) => {
+     setCiteExpanded(false);
+     if (opts?.refs && opts.refs.length) {
+       setCitationMeta({ loading: false, items: opts.refs.map((r: any) => ({ ...r, authors: Array.isArray(r.authors) ? r.authors.map((a: any) => [a.given, a.family].filter(Boolean).join(' ')).join(', ') : r.authors, authorsList: Array.isArray(r.authors) ? r.authors : undefined })) });
+       return;
+     }
+-    const cacheKey = (opts?.singleDoi ? 'doi:' + opts.singleDoi : 'cards:' + rawText).trim();
++    const cacheKey = (opts?.singleDoi ? 'doi:' + opts.singleDoi : 'cards:' + rawText + '|' + (opts?.context || '').slice(0, 60)).trim();
+     if (citeCacheRef.current[cacheKey] !== undefined) {
+       setCitationMeta({ loading: false, items: citeCacheRef.current[cacheKey] });
+       return;
+@@ -361,7 +392,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
+         const inner = rawText.replace(/^\s*\(/, '').replace(/\)\s*$/, '').trim();
+         const segments = inner.split(';').map(x => x.trim()).filter(Boolean).slice(0, 4);
+         const list = segments.length ? segments : [rawText];
+-        items = await Promise.all(list.map(seg => lookupOne(seg)));
++        items = await Promise.all(list.map(seg => lookupOne(seg, null, opts?.context)));
+       }
+       citeCacheRef.current[cacheKey] = items;
+       setCitationMeta({ loading: false, items });
+@@ -395,7 +426,9 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
+       } else if (storedDoi) {
+         fetchCitationCards(text, { singleDoi: storedDoi });
+       } else {
+-        fetchCitationCards(text);
++        const block = (el.closest('p, li, h1, h2, h3, h4, blockquote') as HTMLElement | null);
++        const context = block ? block.innerText : text;
++        fetchCitationCards(text, { context });
+       }
+     }
+   };
+@@ -1935,12 +1968,11 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
+                      <h4 className="text-[14px] font-bold text-gray-200">Chat with AI</h4>
+                      <p className="text-[12px] text-gray-500 leading-relaxed">Discover papers, brainstorm ideas or write a draft</p>
+                   </div>
+-                  <label className="rounded-xl bg-[#222] p-4 flex flex-col gap-2 hover:bg-[#2a2a2a] transition-colors cursor-pointer border border-[#2a2a2a] relative">
+-                     <input type="file" accept=".docx,.pdf,.md,.txt" onChange={handleDocumentImport} disabled={uploadingDoc} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10" />
++                  <button type="button" onClick={() => setShowUploadModal(true)} className="text-left rounded-xl bg-[#222] p-4 flex flex-col gap-2 hover:bg-[#2a2a2a] transition-colors cursor-pointer border border-[#2a2a2a] relative">
+                      <Upload className="w-5 h-5 text-gray-300" />
+                      <h4 className="text-[14px] font-bold text-gray-200">Upload Sources</h4>
+-                     <p className="text-[12px] text-gray-500 leading-relaxed">Upload PDFs to chat with, cite from or provide context to AI</p>
+-                  </label>
++                     <p className="text-[12px] text-gray-500 leading-relaxed">Upload PDFs, or import from Zotero, Mendeley or by DOI/PMID/arXiv</p>
++                  </button>
+                 </div>
+               </div>
+             </div>

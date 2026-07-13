@@ -1,0 +1,465 @@
+From 2ad388ec097d71f0c5594a0e4482cb085d6d70ce Mon Sep 17 00:00:00 2001
+From: x <a@b.c>
+Date: Thu, 18 Jun 2026 21:14:22 +0000
+Subject: [PATCH] feat: rich citation hover - multi-ref cards, OPEN ACCESS
+ (Unpaywall), Accept/Refine
+
+---
+ .../src/components/AcademicWritingView.tsx    | 354 +++++++++++-------
+ 1 file changed, 220 insertions(+), 134 deletions(-)
+
+diff --git a/frontend/src/components/AcademicWritingView.tsx b/frontend/src/components/AcademicWritingView.tsx
+index f37b2c2..a706166 100644
+--- a/frontend/src/components/AcademicWritingView.tsx
++++ b/frontend/src/components/AcademicWritingView.tsx
+@@ -36,6 +36,7 @@ const CitationMark = Mark.create({
+       year: citeAttr('year'),
+       container: citeAttr('container'),
+       citedBy: citeAttr('citedby'),
++      refs: citeAttr('refs'),
+     };
+   },
+   parseHTML() { return [{ tag: 'span[data-citation]' }] },
+@@ -169,7 +170,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
+   const [uploadTab, setUploadTab] = useState('Upload PDFs');
+   const [activeReviewTab, setActiveReviewTab] = useState<string | null>(null);
+   const [citationPopup, setCitationPopup] = useState({ visible: false, x: 0, y: 0, text: '' });
+-  const [citationMeta, setCitationMeta] = useState<{ loading: boolean; data: any | null }>({ loading: false, data: null });
++  const [citationMeta, setCitationMeta] = useState<{ loading: boolean; items: any[] }>({ loading: false, items: [] });
+   const [citeExpanded, setCiteExpanded] = useState(false);
+   const imageInputRef = useRef<HTMLInputElement>(null);
+   const [autocompleteOn, setAutocompleteOn] = useState(true);
+@@ -184,6 +185,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
+   const [citeSearching, setCiteSearching] = useState(false);
+   const [citations, setCitations] = useState<any[]>([]);
+   const citeCacheRef = useRef<Record<string, any>>({});
++  const oaCacheRef = useRef<Record<string, boolean | null>>({});
+   const lastCiteRef = useRef<string>('');
+   const hideCiteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+   const [isReviewing, setIsReviewing] = useState(false);
+@@ -279,57 +281,92 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
+     }, 220);
+   };
+ 
+-  const fetchCitationMeta = async (rawText: string, doi?: string | null) => {
+-    const key = (doi ? 'doi:' + doi : rawText).trim();
+-    if (!key) return;
+-    setCiteExpanded(false);
+-    if (citeCacheRef.current[key] !== undefined) {
+-      setCitationMeta({ loading: false, data: citeCacheRef.current[key] });
+-      return;
+-    }
+-    if (!doi) setCitationMeta({ loading: true, data: null });
++  const fetchOA = async (doi?: string | null): Promise<boolean | null> => {
++    if (!doi) return null;
++    if (oaCacheRef.current[doi] !== undefined) return oaCacheRef.current[doi];
++    try {
++      const r = await fetch(`https://api.unpaywall.org/v2/${encodeURIComponent(doi)}?email=info@pinnovix.app`);
++      if (!r.ok) { oaCacheRef.current[doi] = null; return null; }
++      const j = await r.json();
++      const isOA = !!j.is_oa;
++      oaCacheRef.current[doi] = isOA;
++      return isOA;
++    } catch { oaCacheRef.current[doi] = null; return null; }
++  };
++
++  const buildMeta = (it: any) => {
++    const authorsList = (it.author || []).map((a: any) => ({ family: a.family || a.name || '', given: a.given || '' }));
++    const authors = authorsList.map((a: any) => [a.given, a.family].filter(Boolean).join(' ')).filter(Boolean).slice(0, 8).join(', ');
++    const year = String(it.published?.['date-parts']?.[0]?.[0] || '');
++    let abstract = it.abstract ? String(it.abstract).replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim() : '';
++    let truncated = false;
++    if (abstract.length > 320) { abstract = abstract.slice(0, 320).trim(); truncated = true; }
++    return {
++      doi: it.DOI || '',
++      title: Array.isArray(it.title) ? it.title[0] : (it.title || ''),
++      authors,
++      authorsList,
++      year,
++      container: Array.isArray(it['container-title']) ? it['container-title'][0] : (it['container-title'] || ''),
++      citedBy: typeof it['is-referenced-by-count'] === 'number' ? it['is-referenced-by-count'] : null,
++      abstract,
++      truncated,
++      url: it.URL || (it.DOI ? `https://doi.org/${it.DOI}` : ''),
++      type: (it.type || 'article').replace(/-/g, ' '),
++      isOA: null as boolean | null,
++    };
++  };
++
++  const lookupOne = async (segment: string, doi?: string | null) => {
++    const sel = 'title,author,published,container-title,is-referenced-by-count,abstract,URL,type,DOI';
+     try {
+       let it: any = null;
+       if (doi) {
+-        const r = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi)}?select=title,author,published,container-title,is-referenced-by-count,abstract,URL,type`);
++        const r = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi)}?select=${sel}`);
+         const j = await r.json();
+         it = j?.message || null;
+       } else {
+-        const q = rawText.replace(/[()\[\]]/g, ' ').replace(/\s+/g, ' ').trim();
+-        const res = await fetch(
+-          `https://api.crossref.org/works?rows=1&select=title,author,published,container-title,is-referenced-by-count,abstract,URL,type&query.bibliographic=${encodeURIComponent(q)}`
+-        );
++        const q = segment.replace(/[()\[\]]/g, ' ').replace(/\s+/g, ' ').trim();
++        const res = await fetch(`https://api.crossref.org/works?rows=1&select=${sel}&query.bibliographic=${encodeURIComponent(q)}`);
+         const json = await res.json();
+         it = json?.message?.items?.[0];
+       }
+-      let data: any = null;
+-      if (it) {
+-        const authors = (it.author || [])
+-          .slice(0, 6)
+-          .map((a: any) => [a.given, a.family].filter(Boolean).join(' '))
+-          .filter(Boolean)
+-          .join(', ');
+-        const year = it.published?.['date-parts']?.[0]?.[0];
+-        let abstract = it.abstract ? String(it.abstract).replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim() : '';
+-        let truncated = false;
+-        if (abstract.length > 320) { abstract = abstract.slice(0, 320).trim(); truncated = true; }
+-        data = {
+-          title: Array.isArray(it.title) ? it.title[0] : it.title,
+-          authors,
+-          year,
+-          container: Array.isArray(it['container-title']) ? it['container-title'][0] : it['container-title'],
+-          citedBy: typeof it['is-referenced-by-count'] === 'number' ? it['is-referenced-by-count'] : null,
+-          abstract,
+-          truncated,
+-          url: it.URL,
+-          type: (it.type || 'article').replace(/-/g, ' '),
+-        };
++      if (!it) return { none: true, raw: segment };
++      const meta: any = buildMeta(it);
++      meta.isOA = await fetchOA(meta.doi);
++      return meta;
++    } catch {
++      return { none: true, raw: segment };
++    }
++  };
++
++  // Fetch one card per reference inside the citation (split on ";"). opts: { refs?, singleDoi? }
++  const fetchCitationCards = async (rawText: string, opts?: { refs?: any[]; singleDoi?: string | null }) => {
++    setCiteExpanded(false);
++    if (opts?.refs && opts.refs.length) {
++      setCitationMeta({ loading: false, items: opts.refs.map((r: any) => ({ ...r, authors: Array.isArray(r.authors) ? r.authors.map((a: any) => [a.given, a.family].filter(Boolean).join(' ')).join(', ') : r.authors, authorsList: Array.isArray(r.authors) ? r.authors : undefined })) });
++      return;
++    }
++    const cacheKey = (opts?.singleDoi ? 'doi:' + opts.singleDoi : 'cards:' + rawText).trim();
++    if (citeCacheRef.current[cacheKey] !== undefined) {
++      setCitationMeta({ loading: false, items: citeCacheRef.current[cacheKey] });
++      return;
++    }
++    setCitationMeta({ loading: true, items: [] });
++    try {
++      let items: any[];
++      if (opts?.singleDoi) {
++        items = [await lookupOne(rawText, opts.singleDoi)];
++      } else {
++        const inner = rawText.replace(/^\s*\(/, '').replace(/\)\s*$/, '').trim();
++        const segments = inner.split(';').map(x => x.trim()).filter(Boolean).slice(0, 4);
++        const list = segments.length ? segments : [rawText];
++        items = await Promise.all(list.map(seg => lookupOne(seg)));
+       }
+-      citeCacheRef.current[key] = data;
+-      setCitationMeta({ loading: false, data });
+-    } catch (err) {
+-      citeCacheRef.current[key] = null;
+-      setCitationMeta({ loading: false, data: null });
++      citeCacheRef.current[cacheKey] = items;
++      setCitationMeta({ loading: false, items });
++    } catch {
++      setCitationMeta({ loading: false, items: [] });
+     }
+   };
+ 
+@@ -350,29 +387,15 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
+     );
+     if (lastCiteRef.current !== text) {
+       lastCiteRef.current = text;
+-      // Prefer metadata stored on the citation itself (set when inserted via search)
+-      const storedTitle = el.getAttribute('data-title');
++      const refsAttr = el.getAttribute('data-refs');
+       const storedDoi = el.getAttribute('data-doi');
+-      if (storedTitle || storedDoi) {
+-        const authors = citeAuthorList(el.getAttribute('data-authors'));
+-        const citedByRaw = el.getAttribute('data-citedby');
+-        setCitationMeta({
+-          loading: false,
+-          data: {
+-            title: storedTitle || text,
+-            authors: authors.map(a => [a.given, a.family].filter(Boolean).join(' ')).join(', '),
+-            year: el.getAttribute('data-year') || '',
+-            container: el.getAttribute('data-container') || '',
+-            citedBy: citedByRaw ? parseInt(citedByRaw, 10) : null,
+-            abstract: '',
+-            truncated: false,
+-            url: storedDoi ? `https://doi.org/${storedDoi}` : '',
+-            type: 'article',
+-          },
+-        });
+-        if (storedDoi) fetchCitationMeta(text, storedDoi);
++      if (refsAttr) {
++        try { fetchCitationCards(text, { refs: JSON.parse(refsAttr) }); }
++        catch { fetchCitationCards(text); }
++      } else if (storedDoi) {
++        fetchCitationCards(text, { singleDoi: storedDoi });
+       } else {
+-        fetchCitationMeta(text);
++        fetchCitationCards(text);
+       }
+     }
+   };
+@@ -442,8 +465,8 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
+     e.target.value = '';
+   };
+ 
+-  const handleCiteSearch = async () => {
+-    const q = citeQuery.trim();
++  const handleCiteSearch = async (qOverride?: string) => {
++    const q = (qOverride !== undefined ? qOverride : citeQuery).trim();
+     if (!q) return;
+     setCiteSearching(true);
+     setCiteResults([]);
+@@ -498,10 +521,22 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
+         node.marks.forEach((m: any) => {
+           if (m.type.name === 'citation') {
+             const a = m.attrs || {};
+-            const key = a.doi || (node.text || '').trim();
+-            if (key && !seen.has(key)) {
+-              seen.add(key);
+-              found.push({ ...a, intext: node.text });
++            let refsArr: any[] | null = null;
++            if (a.refs) { try { refsArr = JSON.parse(a.refs); } catch { refsArr = null; } }
++            if (refsArr && refsArr.length) {
++              refsArr.forEach((r: any) => {
++                const key = r.doi || (r.title || '').trim();
++                if (key && !seen.has(key)) {
++                  seen.add(key);
++                  found.push({ ...r, authors: Array.isArray(r.authors) ? JSON.stringify(r.authors) : r.authors, intext: node.text });
++                }
++              });
++            } else {
++              const key = a.doi || (node.text || '').trim();
++              if (key && !seen.has(key)) {
++                seen.add(key);
++                found.push({ ...a, intext: node.text });
++              }
+             }
+           }
+         });
+@@ -544,6 +579,54 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
+     detectTimerRef.current = setTimeout(() => detectCitationsRef.current?.(), 500);
+   };
+ 
++  // Attach matched metadata (incl. DOI) to the hovered citation so cards + bibliography stay accurate.
++  const acceptCitationMeta = (intext: string, items: any[]) => {
++    if (!editor || !editor.schema?.marks?.citation) return;
++    const meaningful = (items || []).filter((i: any) => i && !i.none);
++    if (!meaningful.length) { setCitationPopup(prev => ({ ...prev, visible: false })); return; }
++    const refs = meaningful.map((m: any) => ({
++      doi: m.doi || '',
++      title: m.title || '',
++      authors: m.authorsList || [],
++      year: m.year || '',
++      container: m.container || '',
++      citedBy: m.citedBy != null ? m.citedBy : null,
++    }));
++    const citationType = editor.schema.marks.citation;
++    let target: any = null;
++    editor.state.doc.descendants((node: any, pos: number) => {
++      if (target) return false;
++      if (node.isText && node.text && citationType.isInSet(node.marks) && node.text.trim() === intext.trim()) {
++        target = { from: pos, to: pos + node.nodeSize };
++      }
++      return true;
++    });
++    if (!target) { setCitationPopup(prev => ({ ...prev, visible: false })); return; }
++    const first = refs[0];
++    const attrs = {
++      doi: first.doi || null,
++      title: first.title || null,
++      authors: first.authors && first.authors.length ? JSON.stringify(first.authors) : null,
++      year: first.year || null,
++      container: first.container || null,
++      citedBy: first.citedBy != null ? String(first.citedBy) : null,
++      refs: JSON.stringify(refs),
++    };
++    const tr = editor.state.tr.addMark(target.from, target.to, citationType.create(attrs));
++    editor.view.dispatch(tr);
++    collectCitations(editor);
++    setCitationPopup(prev => ({ ...prev, visible: false }));
++    lastCiteRef.current = '';
++  };
++
++  const refineCitation = (intext: string) => {
++    const q = intext.replace(/^\s*\(/, '').replace(/\)\s*$/, '').trim();
++    setCitationPopup(prev => ({ ...prev, visible: false }));
++    setCiteQuery(q);
++    setShowCiteSearch(true);
++    setTimeout(() => handleCiteSearch(q), 50);
++  };
++
+   const insertBibliography = () => {
+     if (!editor || !citations.length) return;
+     const items = citations.map((c, i) => formatReference(c, citationStyle, i + 1));
+@@ -1909,82 +1992,85 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
+                 )}
+               </div>
+               
+-              {/* Citation Popup (hover) */}
++              {/* Citation Popup (hover) - one card per reference */}
+               {citationPopup.visible && (
+                 <div 
+                   className="fixed z-[60] bg-[#252525] border border-[#333] rounded-xl shadow-2xl w-[440px] flex flex-col overflow-hidden"
+                   style={{
+-                    top: Math.min(citationPopup.y + 8, (typeof window !== 'undefined' ? window.innerHeight : 800) - 380),
++                    top: Math.min(citationPopup.y + 8, (typeof window !== 'undefined' ? window.innerHeight : 800) - 420),
+                     left: Math.max(12, Math.min(citationPopup.x, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 460)),
+                   }}
+                   onClick={(e) => e.stopPropagation()}
+                   onMouseEnter={cancelHideCitation}
+                   onMouseLeave={scheduleHideCitation}
+                 >
+-                   <div className="px-4 py-3 border-b border-[#333] flex items-center justify-between">
+-                      <div className="flex items-center gap-2 text-gray-400 text-[12px] font-bold tracking-wide uppercase">
+-                        {citationMeta.data?.type || 'Citation'}
++                  <div className="max-h-[52vh] overflow-y-auto custom-scrollbar divide-y divide-[#333]">
++                    {citationMeta.loading ? (
++                      <div className="flex items-center gap-2 text-gray-400 text-[13px] p-4">
++                        <Loader2 className="w-4 h-4 animate-spin" /> Looking up citation…
+                       </div>
+-                      {citationMeta.data?.citedBy != null && (
+-                        <div className="bg-[#333] rounded px-2 py-0.5 text-gray-300 text-[11px] font-bold">CITED BY {citationMeta.data.citedBy}</div>
+-                      )}
+-                   </div>
+-                   <div className="p-4 flex flex-col gap-2">
+-                      {citationMeta.loading ? (
+-                        <div className="flex items-center gap-2 text-gray-400 text-[13px] py-2">
+-                          <Loader2 className="w-4 h-4 animate-spin" /> Looking up citation…
+-                        </div>
+-                      ) : citationMeta.data ? (
+-                        <>
+-                          <h3 className="text-[15px] font-bold text-white leading-snug">
+-                            {citationMeta.data.title || citationPopup.text}
+-                          </h3>
+-                          {citationMeta.data.authors && (
+-                            <p className="text-[13px] text-gray-400">{citationMeta.data.authors}</p>
+-                          )}
+-                          {citationMeta.data.container && (
+-                            <p className="text-[13px] text-[#10b981]">
+-                              {citationMeta.data.container}
+-                              {citationMeta.data.year && <span className="text-gray-500"> • {citationMeta.data.year}</span>}
+-                            </p>
+-                          )}
+-                          {citationMeta.data.abstract && (
+-                            <div className="mt-1 bg-[#333]/50 rounded-lg p-3 text-[13px] text-gray-300 leading-relaxed border-l-2 border-[#5b5fff] max-h-44 overflow-y-auto">
+-                              {citeExpanded || !citationMeta.data.truncated
+-                                ? citationMeta.data.abstract
+-                                : <>{citationMeta.data.abstract}… <button onClick={() => setCiteExpanded(true)} className="text-white font-bold hover:underline">See more</button></>}
+-                            </div>
+-                          )}
+-                        </>
+-                      ) : (
+-                        <>
+-                          <h3 className="text-[15px] font-bold text-white leading-snug">{citationPopup.text}</h3>
+-                          <p className="text-[13px] text-gray-500">No additional metadata found for this citation. It may be unpublished or formatted differently.</p>
+-                        </>
+-                      )}
+-                   </div>
+-                   <div className="px-4 py-3 bg-[#1e1e1e] border-t border-[#333] flex items-center justify-between">
+-                      <div className="flex items-center gap-2">
+-                        {citationMeta.data?.url && (
+-                          <a href={citationMeta.data.url} target="_blank" rel="noreferrer"
+-                             className="bg-[#5b5fff] hover:bg-[#6b6fff] text-white px-3 py-1.5 rounded-lg text-[13px] font-bold flex items-center gap-1.5 transition-colors">
+-                            View source <ChevronRight className="w-3.5 h-3.5" />
+-                          </a>
+-                        )}
+-                        <button
+-                          onClick={() => {
+-                            const d = citationMeta.data;
+-                            const ref = d
+-                              ? [d.authors, d.year ? `(${d.year}).` : '', d.title ? `${d.title}.` : '', d.container ? `${d.container}.` : '']
+-                                  .filter(Boolean).join(' ')
+-                              : citationPopup.text;
+-                            navigator.clipboard?.writeText(ref);
+-                          }}
+-                          className="border border-[#444] hover:bg-[#2a2a2a] text-white px-3 py-1.5 rounded-lg text-[13px] font-bold flex items-center gap-1.5 transition-colors">
+-                          <Feather className="w-3.5 h-3.5" /> Copy reference
+-                        </button>
++                    ) : citationMeta.items.length === 0 ? (
++                      <div className="p-4">
++                        <h3 className="text-[15px] font-bold text-white leading-snug">{citationPopup.text}</h3>
++                        <p className="text-[13px] text-gray-500 mt-1">No additional metadata found. Use “Refine” to search and attach the correct source.</p>
+                       </div>
+-                   </div>
++                    ) : (
++                      citationMeta.items.map((it: any, idx: number) => (
++                        it && it.none ? (
++                          <div key={idx} className="p-4">
++                            <h3 className="text-[14px] font-bold text-white leading-snug">{it.raw}</h3>
++                            <p className="text-[12px] text-gray-500 mt-1">No match found for this reference.</p>
++                          </div>
++                        ) : (
++                          <div key={idx} className="p-4 flex flex-col gap-1.5">
++                            <div className="flex items-center justify-between gap-2">
++                              <span className="text-gray-400 text-[11px] font-bold tracking-wide uppercase">{it.type || 'Article'}</span>
++                              <div className="flex items-center gap-1.5">
++                                {it.citedBy != null && <span className="bg-[#333] rounded px-2 py-0.5 text-gray-300 text-[10px] font-bold">CITED BY {it.citedBy}</span>}
++                                {it.isOA === true && <span className="bg-[#10b981]/20 text-[#34d399] rounded px-2 py-0.5 text-[10px] font-bold">OPEN ACCESS</span>}
++                              </div>
++                            </div>
++                            <h3 className="text-[14px] font-bold text-white leading-snug">{it.title || citationPopup.text}</h3>
++                            {it.authors && <p className="text-[12px] text-gray-400">{it.authors}</p>}
++                            {it.container && (
++                              <p className="text-[12px] text-[#10b981]">{it.container}{it.year && <span className="text-gray-500"> • {it.year}</span>}</p>
++                            )}
++                            {it.abstract && (
++                              <div className="mt-1 bg-[#333]/50 rounded-lg p-2.5 text-[12px] text-gray-300 leading-relaxed border-l-2 border-[#5b5fff]">
++                                {citeExpanded || !it.truncated
++                                  ? it.abstract
++                                  : <>{it.abstract}… <button onClick={() => setCiteExpanded(true)} className="text-white font-bold hover:underline">See more</button></>}
++                              </div>
++                            )}
++                            {it.url && (
++                              <a href={it.url} target="_blank" rel="noreferrer" className="mt-1 flex items-center gap-1 text-[12px] font-bold text-[#7fa3ff] hover:text-white w-fit">
++                                <ChevronUp className="w-3.5 h-3.5 rotate-45" /> Open source
++                              </a>
++                            )}
++                          </div>
++                        )
++                      ))
++                    )}
++                  </div>
++                  <div className="px-4 py-3 bg-[#1e1e1e] border-t border-[#333] flex items-center justify-between">
++                    <div className="flex items-center gap-2">
++                      <button
++                        onClick={() => acceptCitationMeta(citationPopup.text, citationMeta.items)}
++                        disabled={citationMeta.loading || !citationMeta.items.some((i: any) => i && !i.none)}
++                        className="bg-[#5b5fff] hover:bg-[#6b6fff] disabled:opacity-40 text-white px-4 py-1.5 rounded-lg text-[13px] font-bold flex items-center gap-1.5 transition-colors">
++                        Accept <ChevronRight className="w-3.5 h-3.5" />
++                      </button>
++                      <button
++                        onClick={() => refineCitation(citationPopup.text)}
++                        className="border border-[#444] hover:bg-[#2a2a2a] text-white px-3 py-1.5 rounded-lg text-[13px] font-bold flex items-center gap-1.5 transition-colors">
++                        <Sparkles className="w-3.5 h-3.5" /> Refine suggestion
++                      </button>
++                    </div>
++                    <div className="flex items-center gap-2 text-gray-400">
++                      <button onClick={() => acceptCitationMeta(citationPopup.text, citationMeta.items)} title="Looks right" className="hover:text-white"><ThumbsUp className="w-4 h-4" /></button>
++                      <button onClick={() => setCitationPopup(prev => ({ ...prev, visible: false }))} title="Dismiss" className="hover:text-white"><ThumbsDown className="w-4 h-4" /></button>
++                    </div>
++                  </div>
+                 </div>
+               )}
+             </div>
+@@ -2570,7 +2656,7 @@ Required JSON structure:
+                   placeholder="Search by title, author, keywords or paste a DOI…"
+                   className="flex-1 bg-[#1a1a1a] border border-[#333] rounded-lg px-4 py-2.5 text-white text-[14px] outline-none focus:border-[#5b5fff] transition-colors"
+                 />
+-                <button onClick={handleCiteSearch} disabled={citeSearching || !citeQuery.trim()} className="bg-[#5b5fff] hover:bg-[#6b6fff] disabled:opacity-50 text-white px-4 py-2.5 rounded-lg font-bold text-[14px] flex items-center gap-2 transition-colors">
++                <button onClick={() => handleCiteSearch()} disabled={citeSearching || !citeQuery.trim()} className="bg-[#5b5fff] hover:bg-[#6b6fff] disabled:opacity-50 text-white px-4 py-2.5 rounded-lg font-bold text-[14px] flex items-center gap-2 transition-colors">
+                   {citeSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />} Search
+                 </button>
+               </div>
+-- 
+2.34.1
+

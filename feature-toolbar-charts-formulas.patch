@@ -1,0 +1,83 @@
+From 59886a5612172073ed6cfcd253315ccd8d5fba73 Mon Sep 17 00:00:00 2001
+From: x <a@b.c>
+Date: Thu, 18 Jun 2026 14:56:49 +0000
+Subject: [PATCH] feat: wire toolbar chart/equation/inline-math buttons
+ (QuickChart + CodeCogs)
+
+---
+ .../src/components/AcademicWritingView.tsx    | 52 +++++++++++++++++--
+ 1 file changed, 49 insertions(+), 3 deletions(-)
+
+diff --git a/frontend/src/components/AcademicWritingView.tsx b/frontend/src/components/AcademicWritingView.tsx
+index 4b5f951..a849d1c 100644
+--- a/frontend/src/components/AcademicWritingView.tsx
++++ b/frontend/src/components/AcademicWritingView.tsx
+@@ -213,6 +213,52 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
+     scheduleHideCitation();
+   };
+ 
++  const handleInsertEquation = (inline = false) => {
++    if (!editor) return;
++    const latex = window.prompt(
++      inline
++        ? 'Enter inline math in LaTeX (e.g. x^2 + y^2 = r^2):'
++        : 'Enter an equation in LaTeX (e.g. E = mc^2  or  \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}):'
++    );
++    if (!latex || !latex.trim()) return;
++    const dpi = inline ? 110 : 150;
++    const expr = `\\dpi{${dpi}}\\bg{white} ${latex.trim()}`;
++    const src = `https://latex.codecogs.com/png.image?${encodeURIComponent(expr)}`;
++    editor.chain().focus().setImage({ src, alt: latex.trim() }).run();
++  };
++
++  const handleInsertChart = () => {
++    if (!editor) return;
++    const typeRaw = (window.prompt('Chart type — bar, line, pie, or doughnut:', 'bar') || '').trim().toLowerCase();
++    if (!typeRaw) return;
++    const type = ['bar', 'line', 'pie', 'doughnut'].includes(typeRaw) ? typeRaw : 'bar';
++    const labelsRaw = window.prompt('Labels separated by commas (e.g. 2021, 2022, 2023):');
++    if (!labelsRaw || !labelsRaw.trim()) return;
++    const valuesRaw = window.prompt('Values separated by commas (e.g. 10, 25, 40):');
++    if (!valuesRaw || !valuesRaw.trim()) return;
++    const labels = labelsRaw.split(',').map(l => l.trim()).filter(Boolean);
++    const data = valuesRaw.split(',').map(v => parseFloat(v.trim())).filter(n => !isNaN(n));
++    if (!data.length) { alert('No valid numeric values provided.'); return; }
++    const palette = ['#5b5fff', '#10b981', '#f59e0b', '#ef4444', '#6d93e8', '#a855f7', '#14b8a6', '#ec4899'];
++    const isCircular = type === 'pie' || type === 'doughnut';
++    const config = {
++      type,
++      data: {
++        labels,
++        datasets: [{
++          label: 'Data',
++          data,
++          backgroundColor: isCircular ? palette : '#5b5fff',
++          borderColor: '#5b5fff',
++          fill: type !== 'line',
++        }],
++      },
++      options: { plugins: { legend: { display: isCircular } } },
++    };
++    const src = `https://quickchart.io/chart?w=520&h=320&bkg=white&c=${encodeURIComponent(JSON.stringify(config))}`;
++    editor.chain().focus().setImage({ src, alt: `${type} chart` }).run();
++  };
++
+   const handleEditRequest = async () => {
+     if (!editInput.trim()) return;
+     const instruction = editInput;
+@@ -1144,9 +1190,9 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
+              </div>
+              <div className="flex items-center gap-3 border-r border-[#333] pr-4">
+                 <button onClick={() => { const url = window.prompt('Enter image URL'); if (url) editor?.chain().focus().setImage({ src: url }).run(); }} className="hover:text-white transition-colors" title="Insert image">🖼️</button>
+-                <span className="opacity-40 cursor-default" title="Charts (coming soon)">📊</span>
+-                <span className="opacity-40 cursor-default" title="Variables (coming soon)">[x]</span>
+-                <span className="opacity-40 cursor-default" title="Formula (coming soon)">∑</span>
++                <button onClick={handleInsertChart} className="hover:text-white transition-colors" title="Insert chart (bar / line / pie / doughnut)">📊</button>
++                <button onClick={() => handleInsertEquation(true)} className="hover:text-white transition-colors" title="Insert inline math (LaTeX)">[x]</button>
++                <button onClick={() => handleInsertEquation(false)} className="hover:text-white transition-colors" title="Insert equation (LaTeX)">∑</button>
+              </div>
+              <div className="flex items-center gap-2 ml-auto">
+                 <Check className="w-3 h-3" />
+-- 
+2.34.1
+

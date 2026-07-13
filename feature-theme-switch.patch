@@ -1,0 +1,180 @@
+From dea3200a718e5c402d42929dc0f9eada9b074bc9 Mon Sep 17 00:00:00 2001
+From: x <a@b.c>
+Date: Thu, 18 Jun 2026 14:42:40 +0000
+Subject: [PATCH] feat: light/dark theme switch in Preferences + remove dev
+ menu items
+
+---
+ frontend/src/app/globals.css                  | 71 +++++++++++++++++++
+ frontend/src/app/layout.tsx                   |  2 +-
+ .../src/components/AcademicWritingView.tsx    | 48 +++++++------
+ 3 files changed, 100 insertions(+), 21 deletions(-)
+
+diff --git a/frontend/src/app/globals.css b/frontend/src/app/globals.css
+index 066a34c..71bdc18 100644
+--- a/frontend/src/app/globals.css
++++ b/frontend/src/app/globals.css
+@@ -143,3 +143,74 @@
+     color: black !important;
+   }
+ }
++
++/* =====================================================================
++   LIGHT THEME OVERRIDES
++   The app's chrome is built with hardcoded dark hex utilities. next-themes
++   adds `.light` on <html> when the Light theme is chosen. Here we remap the
++   NEUTRAL dark surfaces / borders / text to a light palette. Brand accent
++   colors (purples/blues/red) are intentionally left untouched so colored
++   buttons keep white text. The white document paper (bg-white/text-black) is
++   also left untouched so documents look identical in both themes.
++   ===================================================================== */
++
++/* ---- Neutral background surfaces (dark -> light) ---- */
++html.light .bg-\[\#0a0a0a\],
++html.light .bg-\[\#111\],
++html.light .bg-\[\#111111\] { background-color: #f6f7f9 !important; }
++html.light .bg-\[\#151515\],
++html.light .bg-\[\#161616\] { background-color: #f0f2f5 !important; }
++html.light .bg-\[\#1a1a1a\],
++html.light .bg-\[\#1e1e1e\],
++html.light .bg-\[\#252525\] { background-color: #ffffff !important; }
++html.light .bg-\[\#222\] { background-color: #eef0f3 !important; }
++html.light .bg-\[\#2a2a2a\],
++html.light .bg-\[\#2d2d2d\] { background-color: #e8ebef !important; }
++html.light .bg-\[\#333\] { background-color: #e1e5ea !important; }
++html.light .bg-\[\#3d3d3d\] { background-color: #d6dae0 !important; }
++html.light .bg-\[\#4d4d4d\] { background-color: #cbd0d7 !important; }
++html.light .bg-\[\#555\] { background-color: #c1c7cf !important; }
++
++/* ---- Dark-blue neutral panels -> pale blue tints ---- */
++html.light .bg-\[\#1b1c3a\],
++html.light .bg-\[\#292a4a\] { background-color: #ebedf8 !important; }
++html.light .bg-\[\#293b6e\],
++html.light .bg-\[\#344a8a\] { background-color: #e3eafb !important; }
++
++/* ---- Borders (dark -> light) ---- */
++html.light .border-\[\#222\] { border-color: #e5e7eb !important; }
++html.light .border-\[\#2a2a2a\] { border-color: #e2e5e9 !important; }
++html.light .border-\[\#333\] { border-color: #d9dde2 !important; }
++html.light .border-\[\#3d3d3d\] { border-color: #d0d4da !important; }
++html.light .border-\[\#444\] { border-color: #cbd0d6 !important; }
++html.light .border-\[\#555\] { border-color: #bcc2ca !important; }
++html.light .border-\[\#3b3c6a\],
++html.light .border-\[\#2a2b4a\] { border-color: #c9d2ea !important; }
++
++/* ---- Text: dark-theme assumes light text; flip neutrals to dark ---- */
++html.light .text-white { color: #111827 !important; }
++html.light .text-gray-100,
++html.light .text-gray-200 { color: #1f2937 !important; }
++html.light .text-gray-300 { color: #374151 !important; }
++html.light .text-gray-400 { color: #4b5563 !important; }
++html.light .text-gray-500 { color: #6b7280 !important; }
++html.light .text-\[\#888\] { color: #6b7280 !important; }
++/* link / accent text: darken for contrast on light */
++html.light .text-\[\#6d93e8\] { color: #2f5bd0 !important; }
++html.light .text-\[\#7d84ff\] { color: #4046d6 !important; }
++html.light .text-\[\#7fa3ff\] { color: #3f6fd6 !important; }
++
++/* ---- Brand surfaces stay as-is: force their text/icons white ---- */
++html.light :is(
++  .bg-\[\#5b5fff\], .bg-\[\#6b6fff\], .bg-\[\#5259c9\], .bg-\[\#464eb8\],
++  .bg-\[\#6d93e8\], .bg-\[\#2b579a\], .bg-\[\#9b0000\]
++),
++html.light :is(
++  .bg-\[\#5b5fff\], .bg-\[\#6b6fff\], .bg-\[\#5259c9\], .bg-\[\#464eb8\],
++  .bg-\[\#6d93e8\], .bg-\[\#2b579a\], .bg-\[\#9b0000\]
++) * {
++  color: #ffffff !important;
++}
++
++/* page backdrop */
++html.light body { background-color: #f6f7f9; }
+diff --git a/frontend/src/app/layout.tsx b/frontend/src/app/layout.tsx
+index e754ff5..912e2c4 100644
+--- a/frontend/src/app/layout.tsx
++++ b/frontend/src/app/layout.tsx
+@@ -18,7 +18,7 @@ export default function RootLayout({
+       <body className="font-sans antialiased bg-background text-foreground min-h-screen selection:bg-blue-500/30">
+         <ThemeProvider
+           attribute="class"
+-          defaultTheme="system"
++          defaultTheme="dark"
+           enableSystem
+           disableTransitionOnChange
+         >
+diff --git a/frontend/src/components/AcademicWritingView.tsx b/frontend/src/components/AcademicWritingView.tsx
+index 0421901..4b5f951 100644
+--- a/frontend/src/components/AcademicWritingView.tsx
++++ b/frontend/src/components/AcademicWritingView.tsx
+@@ -1,5 +1,6 @@
+ import React, { useState, useEffect, useRef } from 'react';
+-import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Upload, X, Search, Check, Star, Users, ListChecks, Play, SlidersHorizontal, ChevronsRight, ChevronsLeft, Type, Home, Settings2, Download, ThumbsUp, ThumbsDown, Info, ChevronDown, GraduationCap, FlaskConical, Feather, CheckCircle2, ChevronLeft, RotateCcw, Loader2, Sparkles, Trash2 } from 'lucide-react';
++import { useTheme } from 'next-themes';
++import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Upload, X, Search, Check, Star, Users, ListChecks, Play, SlidersHorizontal, ChevronsRight, ChevronsLeft, Type, Home, Settings2, Download, ThumbsUp, ThumbsDown, Info, ChevronDown, GraduationCap, FlaskConical, Feather, CheckCircle2, ChevronLeft, RotateCcw, Loader2, Sparkles, Trash2, Moon, Sun } from 'lucide-react';
+ import { useEditor, EditorContent } from '@tiptap/react';
+ import StarterKit from '@tiptap/starter-kit';
+ import Image from '@tiptap/extension-image';
+@@ -859,6 +860,10 @@ Text to review: "${editor?.getText() || documentContent}"`, {
+   // Settings & User Dropup States
+   const [showSettingsModal, setShowSettingsModal] = useState(false);
+   const [userMenuOpen, setUserMenuOpen] = useState(false);
++  const { theme, setTheme, resolvedTheme } = useTheme();
++  const [themeMounted, setThemeMounted] = useState(false);
++  useEffect(() => { setThemeMounted(true); }, []);
++  const currentTheme = theme === 'system' ? resolvedTheme : theme;
+ 
+   const activeChat = chatHistory.find(c => c.id === activeChatId);
+   const projectName = activeChat ? activeChat.title : '';
+@@ -1030,27 +1035,30 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
+             {userMenuOpen && (
+               <div className="absolute bottom-full left-0 mb-2 w-full bg-[#111] border border-[#222] rounded-xl shadow-[0_0_20px_rgba(0,0,0,0.5)] overflow-hidden z-50 py-1">
+                 <div className="flex flex-col">
+-                  
+-                  <div className="px-4 py-2.5 flex items-center justify-between group cursor-pointer hover:bg-[#1a1a1a]">
+-                    <span className="text-[13px] font-medium text-gray-200">Route</span>
+-                    <span className="text-[13px] text-gray-500">Static</span>
+-                  </div>
+-                  
+-                  <div className="px-4 py-2.5 flex items-center justify-between group cursor-pointer hover:bg-[#1a1a1a]">
+-                    <span className="text-[13px] font-medium text-gray-200">Bundler</span>
+-                    <span className="text-[13px] text-gray-500">Turbopack</span>
+-                  </div>
+-                  
+-                  <div className="px-4 py-2.5 flex items-center justify-between group cursor-pointer hover:bg-[#1a1a1a]">
+-                    <span className="text-[13px] font-medium text-gray-200">Route Info</span>
+-                    <ChevronRight className="w-4 h-4 text-gray-500" />
++
++                  <div className="px-4 py-2.5 flex items-center justify-between">
++                    <span className="text-[13px] font-bold text-[#7fa3ff]">Preferences</span>
++                    <Settings2 className="w-4 h-4 text-gray-500" />
+                   </div>
+-                  
++
+                   <div className="h-[1px] bg-[#222] my-1"></div>
+-                  
+-                  <div className="px-4 py-2.5 flex items-center justify-between group cursor-pointer hover:bg-[#1a1a1a]">
+-                    <span className="text-[13px] font-medium text-[#7fa3ff]">Preferences</span>
+-                    <Settings2 className="w-4 h-4 text-gray-500" />
++
++                  <div className="px-4 py-3">
++                    <div className="text-[12px] font-medium text-gray-400 mb-2">Theme</div>
++                    <div className="flex gap-2">
++                      <button
++                        onClick={(e) => { e.stopPropagation(); setTheme('dark'); }}
++                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[13px] font-bold border transition-colors ${themeMounted && currentTheme === 'dark' ? 'bg-[#5b5fff] border-[#5b5fff] text-white' : 'border-[#333] text-gray-300 hover:bg-[#1a1a1a]'}`}
++                      >
++                        <Moon className="w-4 h-4" /> Dark
++                      </button>
++                      <button
++                        onClick={(e) => { e.stopPropagation(); setTheme('light'); }}
++                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[13px] font-bold border transition-colors ${themeMounted && currentTheme === 'light' ? 'bg-[#5b5fff] border-[#5b5fff] text-white' : 'border-[#333] text-gray-300 hover:bg-[#1a1a1a]'}`}
++                      >
++                        <Sun className="w-4 h-4" /> Light
++                      </button>
++                    </div>
+                   </div>
+ 
+                 </div>
+-- 
+2.34.1
+

@@ -1,0 +1,289 @@
+From 9a19f4bf28b88de21abace57c005d046961a794c Mon Sep 17 00:00:00 2001
+From: x <a@b.c>
+Date: Thu, 18 Jun 2026 17:50:23 +0000
+Subject: [PATCH] feat: AI ghost-text autocomplete (Tab to accept) +
+ /api/library prefix fix
+
+---
+ backend/app/api/endpoints.py                  |  35 +++++
+ frontend/src/app/globals.css                  |   9 ++
+ .../src/components/AcademicWritingView.tsx    | 134 +++++++++++++++++-
+ frontend/src/components/UploadModal.tsx       |   6 +-
+ 4 files changed, 174 insertions(+), 10 deletions(-)
+
+diff --git a/backend/app/api/endpoints.py b/backend/app/api/endpoints.py
+index 38fbdd5..cf82a3a 100644
+--- a/backend/app/api/endpoints.py
++++ b/backend/app/api/endpoints.py
+@@ -280,3 +280,38 @@ async def sync_mendeley(request: MendeleyRequest):
+         return {"message": "Successfully synced 1 items from Mendeley"}
+     except Exception as e:
+         raise HTTPException(status_code=500, detail=str(e))
++
++
++class AutocompleteRequest(BaseModel):
++    text: str
++
++@router.post("/autocomplete")
++async def autocomplete(request: AutocompleteRequest):
++    text = (request.text or "").strip()
++    if not text:
++        return {"completion": ""}
++    try:
++        from app.agents.workflow import get_model
++        model = get_model()
++        if not model:
++            return {"completion": ""}
++        prompt = (
++            "You are an inline autocomplete for an academic writing editor. "
++            "Continue the text below naturally, matching its tone, tense and style. "
++            "Return ONLY the continuation that should come immediately next - do NOT repeat "
++            "any of the existing text, do not add quotes, labels or explanations. "
++            "Keep it concise: at most one sentence or clause (about 6-18 words).\n\n"
++            f"TEXT:\n{text[-1500:]}\n\nCONTINUATION:"
++        )
++        resp = await model.ainvoke([HumanMessage(content=prompt)])
++        completion = getattr(resp, "content", "") or ""
++        if isinstance(completion, list):
++            completion = " ".join(str(c) for c in completion)
++        completion = str(completion).strip().strip('"').strip()
++        if len(completion) > 220:
++            cut = completion[:220]
++            completion = cut.rsplit(" ", 1)[0] if " " in cut else cut
++        return {"completion": completion}
++    except Exception as e:
++        print(f"Autocomplete error: {e}")
++        return {"completion": ""}
+diff --git a/frontend/src/app/globals.css b/frontend/src/app/globals.css
+index 71bdc18..bb3f6ce 100644
+--- a/frontend/src/app/globals.css
++++ b/frontend/src/app/globals.css
+@@ -214,3 +214,12 @@ html.light :is(
+ 
+ /* page backdrop */
+ html.light body { background-color: #f6f7f9; }
++
++/* AI autocomplete ghost text */
++.ai-ghost-text {
++  color: #9ca3af;
++  opacity: 0.85;
++  pointer-events: none;
++  user-select: none;
++  white-space: pre-wrap;
++}
+diff --git a/frontend/src/components/AcademicWritingView.tsx b/frontend/src/components/AcademicWritingView.tsx
+index abfa583..c19d098 100644
+--- a/frontend/src/components/AcademicWritingView.tsx
++++ b/frontend/src/components/AcademicWritingView.tsx
+@@ -11,7 +11,9 @@ import Link from '@tiptap/extension-link';
+ import mermaid from 'mermaid';
+ import { marked } from 'marked';
+ import TurndownService from 'turndown';
+-import { Mark, mergeAttributes } from '@tiptap/core';
++import { Mark, Extension, mergeAttributes } from '@tiptap/core';
++import { Plugin, PluginKey } from '@tiptap/pm/state';
++import { Decoration, DecorationSet } from '@tiptap/pm/view';
+ import axios from 'axios';
+ import { UploadModal } from './UploadModal';
+ 
+@@ -25,6 +27,62 @@ const CitationMark = Mark.create({
+   renderHTML({ HTMLAttributes }) { return ['span', mergeAttributes(this.options.HTMLAttributes, HTMLAttributes), 0] },
+ });
+ 
++// AI ghost-text autocomplete: shows a grey suggestion at the cursor, Tab accepts it.
++const autocompleteKey = new PluginKey('aiAutocomplete');
++const AiAutocomplete = Extension.create({
++  name: 'aiAutocomplete',
++  addProseMirrorPlugins() {
++    return [
++      new Plugin({
++        key: autocompleteKey,
++        state: {
++          init: () => ({ text: '' }),
++          apply: (tr, value) => {
++            const meta = tr.getMeta(autocompleteKey);
++            if (meta !== undefined) return { text: meta };
++            if (tr.docChanged) return { text: '' };
++            return value;
++          },
++        },
++        props: {
++          decorations: (state) => {
++            const st = autocompleteKey.getState(state);
++            if (!st || !st.text) return DecorationSet.empty;
++            const pos = state.selection.head;
++            const widget = Decoration.widget(pos, () => {
++              const span = document.createElement('span');
++              span.className = 'ai-ghost-text';
++              span.textContent = st.text;
++              return span;
++            }, { side: 1, ignoreSelection: true });
++            return DecorationSet.create(state.doc, [widget]);
++          },
++        },
++      }),
++    ];
++  },
++  addKeyboardShortcuts() {
++    return {
++      Tab: () => {
++        const st = autocompleteKey.getState(this.editor.state);
++        if (st && st.text) {
++          this.editor.chain().focus().insertContent(st.text).run();
++          return true;
++        }
++        return false;
++      },
++      Escape: () => {
++        const st = autocompleteKey.getState(this.editor.state);
++        if (st && st.text) {
++          this.editor.view.dispatch(this.editor.state.tr.setMeta(autocompleteKey, ''));
++          return true;
++        }
++        return false;
++      },
++    };
++  },
++});
++
+ export function AcademicWritingView({ documentContent, setDocumentContent, loading, handleToolAction, aiResponse, handleFileUpload, uploadingDoc, handleGoHome, handleGenerateDocument }: any) {
+   
+   // State for chat history
+@@ -46,6 +104,10 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
+   const [citationMeta, setCitationMeta] = useState<{ loading: boolean; data: any | null }>({ loading: false, data: null });
+   const [citeExpanded, setCiteExpanded] = useState(false);
+   const imageInputRef = useRef<HTMLInputElement>(null);
++  const [autocompleteOn, setAutocompleteOn] = useState(true);
++  const autocompleteOnRef = useRef(true);
++  useEffect(() => { autocompleteOnRef.current = autocompleteOn; }, [autocompleteOn]);
++  const acTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+   const citeCacheRef = useRef<Record<string, any>>({});
+   const lastCiteRef = useRef<string>('');
+   const hideCiteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+@@ -732,7 +794,8 @@ Text to review: "${editor?.getText() || documentContent}"`, {
+       Superscript,
+       Subscript,
+       Link.configure({ openOnClick: false, HTMLAttributes: { class: 'text-blue-600 underline' } }),
+-      Image.configure({ inline: true, HTMLAttributes: { class: 'rounded-lg my-4 max-w-full shadow-md object-contain max-h-[400px] mx-auto' } })
++      Image.configure({ inline: true, HTMLAttributes: { class: 'rounded-lg my-4 max-w-full shadow-md object-contain max-h-[400px] mx-auto' } }),
++      AiAutocomplete,
+     ],
+     content: documentContent || '<h2 class="text-3xl font-bold mb-4">Quantum Computing with Artificial Intelligence</h2><p class="mb-4">The convergence of artificial intelligence and quantum computing represents a paradigm shift in computational science. Quantum machine learning algorithms can solve problems that lie beyond the reach of classical computers <span data-citation="true">(Pineda et al., 2025)</span>.</p>',
+     onUpdate: ({ editor }) => {
+@@ -769,6 +832,52 @@ Text to review: "${editor?.getText() || documentContent}"`, {
+     }
+   }, [editorClickPos]);
+ 
++  // AI autocomplete: debounce after typing, fetch a short continuation, show as ghost text
++  useEffect(() => {
++    if (!editor) return;
++    const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
++    const clearGhost = () => {
++      const st = autocompleteKey.getState(editor.state);
++      if (st && st.text) editor.view.dispatch(editor.state.tr.setMeta(autocompleteKey, ''));
++    };
++    const doFetch = async () => {
++      if (!autocompleteOnRef.current || !editor.isFocused) return;
++      const { state } = editor;
++      if (!state.selection.empty) return;
++      const head = state.selection.head;
++      const before = state.doc.textBetween(Math.max(0, head - 1500), head, '\n', '\n');
++      if (before.trim().length < 12) return;
++      const after = state.doc.textBetween(head, Math.min(state.doc.content.size, head + 1), '\n', '\n');
++      if (after && after.trim().length > 0) return; // only at end of a line/block
++      try {
++        const res = await fetch(`${API}/api/autocomplete`, {
++          method: 'POST',
++          headers: { 'Content-Type': 'application/json' },
++          body: JSON.stringify({ text: before }),
++        });
++        if (!res.ok) return;
++        const data = await res.json();
++        let sug = (data.completion || '').trim();
++        if (!sug) return;
++        if (before.length && !/\s$/.test(before) && !/^[\s.,;:!?)]/.test(sug)) sug = ' ' + sug;
++        if (editor.state.selection.head !== head || !editor.isFocused) return; // cursor moved
++        editor.view.dispatch(editor.state.tr.setMeta(autocompleteKey, sug));
++      } catch { /* ignore */ }
++    };
++    const schedule = () => {
++      if (acTimerRef.current) clearTimeout(acTimerRef.current);
++      if (!autocompleteOnRef.current) return;
++      acTimerRef.current = setTimeout(() => { void doFetch(); }, 650);
++    };
++    editor.on('update', schedule);
++    editor.on('selectionUpdate', clearGhost);
++    return () => {
++      editor.off('update', schedule);
++      editor.off('selectionUpdate', clearGhost);
++      if (acTimerRef.current) clearTimeout(acTimerRef.current);
++    };
++  }, [editor]);
++
+   // Sync external changes (like live streaming) to the editor
+   useEffect(() => {
+     if (editor && documentContent) {
+@@ -1211,13 +1320,24 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
+                 <button onClick={() => handleInsertEquation(true)} className="hover:text-white transition-colors" title="Insert inline math (LaTeX)">[x]</button>
+                 <button onClick={() => handleInsertEquation(false)} className="hover:text-white transition-colors" title="Insert equation (LaTeX)">∑</button>
+              </div>
+-             <div className="flex items-center gap-2 ml-auto">
+-                <Check className="w-3 h-3" />
++             <button
++                onClick={() => {
++                  const next = !autocompleteOn;
++                  setAutocompleteOn(next);
++                  if (!next && editor) {
++                    const st = autocompleteKey.getState(editor.state);
++                    if (st && st.text) editor.view.dispatch(editor.state.tr.setMeta(autocompleteKey, ''));
++                  }
++                }}
++                className="flex items-center gap-2 ml-auto"
++                title={autocompleteOn ? 'AI autocomplete on (type, pause, then press Tab to accept)' : 'AI autocomplete off'}
++             >
++                <Check className={`w-3 h-3 ${autocompleteOn ? 'text-[#5b5fff]' : 'text-gray-600'}`} />
+                 <span className="text-gray-300 font-bold">Autocomplete</span>
+-                <div className="w-8 h-4 bg-[#5b5fff] rounded-full relative">
+-                   <div className="w-3 h-3 bg-white rounded-full absolute right-0.5 top-0.5"></div>
++                <div className={`w-8 h-4 rounded-full relative transition-colors ${autocompleteOn ? 'bg-[#5b5fff]' : 'bg-[#444]'}`}>
++                   <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-all ${autocompleteOn ? 'right-0.5' : 'left-0.5'}`}></div>
+                 </div>
+-             </div>
++             </button>
+           </div>
+         </div>
+ 
+diff --git a/frontend/src/components/UploadModal.tsx b/frontend/src/components/UploadModal.tsx
+index 2834782..590ee5b 100644
+--- a/frontend/src/components/UploadModal.tsx
++++ b/frontend/src/components/UploadModal.tsx
+@@ -12,7 +12,7 @@ export function UploadModal({ showUploadModal, setShowUploadModal, handleFileUpl
+   const handleZoteroSync = async () => {
+     setIsFetchingLibrary(true);
+     try {
+-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/library/zotero`, {
++      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/library/zotero`, {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ user_id: zoteroId, api_key: zoteroKey })
+@@ -29,7 +29,7 @@ export function UploadModal({ showUploadModal, setShowUploadModal, handleFileUpl
+   const handleMendeleySync = async () => {
+     setIsFetchingLibrary(true);
+     try {
+-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/library/mendeley`, {
++      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/library/mendeley`, {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ access_token: mendeleyToken })
+@@ -47,7 +47,7 @@ export function UploadModal({ showUploadModal, setShowUploadModal, handleFileUpl
+     if(!fetchId) return;
+     setIsFetchingLibrary(true);
+     try {
+-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/library/fetch-id`, {
++      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/library/fetch-id`, {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ paper_id: fetchId })
+-- 
+2.34.1
+

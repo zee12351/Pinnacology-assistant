@@ -1,0 +1,161 @@
+From d9b5c1d1643fd8d3f01633754550dd282158f4d6 Mon Sep 17 00:00:00 2001
+From: x <a@b.c>
+Date: Thu, 18 Jun 2026 17:37:00 +0000
+Subject: [PATCH] fix: citation hover popup positioning + local image upload +
+ richer popup
+
+---
+ .../src/components/AcademicWritingView.tsx    | 72 ++++++++++++++-----
+ 1 file changed, 53 insertions(+), 19 deletions(-)
+
+diff --git a/frontend/src/components/AcademicWritingView.tsx b/frontend/src/components/AcademicWritingView.tsx
+index a849d1c..abfa583 100644
+--- a/frontend/src/components/AcademicWritingView.tsx
++++ b/frontend/src/components/AcademicWritingView.tsx
+@@ -44,6 +44,8 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
+   const [activeReviewTab, setActiveReviewTab] = useState<string | null>(null);
+   const [citationPopup, setCitationPopup] = useState({ visible: false, x: 0, y: 0, text: '' });
+   const [citationMeta, setCitationMeta] = useState<{ loading: boolean; data: any | null }>({ loading: false, data: null });
++  const [citeExpanded, setCiteExpanded] = useState(false);
++  const imageInputRef = useRef<HTMLInputElement>(null);
+   const citeCacheRef = useRef<Record<string, any>>({});
+   const lastCiteRef = useRef<string>('');
+   const hideCiteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+@@ -121,7 +123,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
+       setCitationPopup({
+         visible: true,
+         x: rect.left,
+-        y: rect.bottom + window.scrollY,
++        y: rect.bottom,
+         text: el.innerText
+       });
+     } else {
+@@ -143,6 +145,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
+   const fetchCitationMeta = async (rawText: string) => {
+     const key = rawText.trim();
+     if (!key) return;
++    setCiteExpanded(false);
+     if (citeCacheRef.current[key] !== undefined) {
+       setCitationMeta({ loading: false, data: citeCacheRef.current[key] });
+       return;
+@@ -199,7 +202,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
+     setCitationPopup(prev =>
+       prev.visible && prev.text === text
+         ? prev
+-        : { visible: true, x: rect.left, y: rect.bottom + window.scrollY, text }
++        : { visible: true, x: rect.left, y: rect.bottom, text }
+     );
+     if (lastCiteRef.current !== text) {
+       lastCiteRef.current = text;
+@@ -259,6 +262,19 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
+     editor.chain().focus().setImage({ src, alt: `${type} chart` }).run();
+   };
+ 
++  const handleImageFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
++    const file = e.target.files?.[0];
++    if (!file || !editor) { if (e.target) e.target.value = ''; return; }
++    if (!file.type.startsWith('image/')) { alert('Please select an image file.'); if (e.target) e.target.value = ''; return; }
++    const reader = new FileReader();
++    reader.onload = () => {
++      const src = reader.result as string;
++      editor.chain().focus().setImage({ src, alt: file.name }).run();
++    };
++    reader.readAsDataURL(file);
++    e.target.value = '';
++  };
++
+   const handleEditRequest = async () => {
+     if (!editInput.trim()) return;
+     const instruction = editInput;
+@@ -734,7 +750,7 @@ Text to review: "${editor?.getText() || documentContent}"`, {
+           setEditorClickPos({
+             visible: true,
+             x: rect.left,
+-            y: rect.bottom + window.scrollY,
++            y: rect.bottom,
+             text: el.innerText
+           });
+           return true; // prevent default
+@@ -1189,7 +1205,8 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
+                 <button onClick={() => editor?.chain().focus().insertContent('<span data-citation="true">(Author, Year)</span>&nbsp;').run()} className="hover:text-white transition-colors" title="Insert citation placeholder">@ Cite</button>
+              </div>
+              <div className="flex items-center gap-3 border-r border-[#333] pr-4">
+-                <button onClick={() => { const url = window.prompt('Enter image URL'); if (url) editor?.chain().focus().setImage({ src: url }).run(); }} className="hover:text-white transition-colors" title="Insert image">🖼️</button>
++                <button onClick={() => imageInputRef.current?.click()} className="hover:text-white transition-colors" title="Insert image from your computer">🖼️</button>
++                <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageFileSelected} />
+                 <button onClick={handleInsertChart} className="hover:text-white transition-colors" title="Insert chart (bar / line / pie / doughnut)">📊</button>
+                 <button onClick={() => handleInsertEquation(true)} className="hover:text-white transition-colors" title="Insert inline math (LaTeX)">[x]</button>
+                 <button onClick={() => handleInsertEquation(false)} className="hover:text-white transition-colors" title="Insert equation (LaTeX)">∑</button>
+@@ -1526,8 +1543,11 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
+               {/* Citation Popup (hover) */}
+               {citationPopup.visible && (
+                 <div 
+-                  className="absolute z-50 bg-[#252525] border border-[#333] rounded-xl shadow-2xl w-[420px] flex flex-col overflow-hidden"
+-                  style={{ top: Math.min(citationPopup.y + 6, window.innerHeight - 320), left: citationPopup.x }}
++                  className="fixed z-[60] bg-[#252525] border border-[#333] rounded-xl shadow-2xl w-[440px] flex flex-col overflow-hidden"
++                  style={{
++                    top: Math.min(citationPopup.y + 8, (typeof window !== 'undefined' ? window.innerHeight : 800) - 380),
++                    left: Math.max(12, Math.min(citationPopup.x, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 460)),
++                  }}
+                   onClick={(e) => e.stopPropagation()}
+                   onMouseEnter={cancelHideCitation}
+                   onMouseLeave={scheduleHideCitation}
+@@ -1560,28 +1580,42 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
+                             </p>
+                           )}
+                           {citationMeta.data.abstract && (
+-                            <div className="mt-1 bg-[#333]/50 rounded-lg p-3 text-[13px] text-gray-300 leading-relaxed border-l-2 border-[#5b5fff] max-h-32 overflow-y-auto">
+-                              {citationMeta.data.abstract}{citationMeta.data.truncated ? '…' : ''}
++                            <div className="mt-1 bg-[#333]/50 rounded-lg p-3 text-[13px] text-gray-300 leading-relaxed border-l-2 border-[#5b5fff] max-h-44 overflow-y-auto">
++                              {citeExpanded || !citationMeta.data.truncated
++                                ? citationMeta.data.abstract
++                                : <>{citationMeta.data.abstract}… <button onClick={() => setCiteExpanded(true)} className="text-white font-bold hover:underline">See more</button></>}
+                             </div>
+                           )}
+-                          {citationMeta.data.url && (
+-                            <a
+-                              href={citationMeta.data.url}
+-                              target="_blank"
+-                              rel="noreferrer"
+-                              className="mt-1 flex items-center gap-1 text-[13px] font-bold text-gray-300 hover:text-white w-fit"
+-                            >
+-                              <ChevronUp className="w-4 h-4 rotate-45" /> View source
+-                            </a>
+-                          )}
+                         </>
+                       ) : (
+                         <>
+                           <h3 className="text-[15px] font-bold text-white leading-snug">{citationPopup.text}</h3>
+-                          <p className="text-[13px] text-gray-500">No additional metadata found for this citation.</p>
++                          <p className="text-[13px] text-gray-500">No additional metadata found for this citation. It may be unpublished or formatted differently.</p>
+                         </>
+                       )}
+                    </div>
++                   <div className="px-4 py-3 bg-[#1e1e1e] border-t border-[#333] flex items-center justify-between">
++                      <div className="flex items-center gap-2">
++                        {citationMeta.data?.url && (
++                          <a href={citationMeta.data.url} target="_blank" rel="noreferrer"
++                             className="bg-[#5b5fff] hover:bg-[#6b6fff] text-white px-3 py-1.5 rounded-lg text-[13px] font-bold flex items-center gap-1.5 transition-colors">
++                            View source <ChevronRight className="w-3.5 h-3.5" />
++                          </a>
++                        )}
++                        <button
++                          onClick={() => {
++                            const d = citationMeta.data;
++                            const ref = d
++                              ? [d.authors, d.year ? `(${d.year}).` : '', d.title ? `${d.title}.` : '', d.container ? `${d.container}.` : '']
++                                  .filter(Boolean).join(' ')
++                              : citationPopup.text;
++                            navigator.clipboard?.writeText(ref);
++                          }}
++                          className="border border-[#444] hover:bg-[#2a2a2a] text-white px-3 py-1.5 rounded-lg text-[13px] font-bold flex items-center gap-1.5 transition-colors">
++                          <Feather className="w-3.5 h-3.5" /> Copy reference
++                        </button>
++                      </div>
++                   </div>
+                 </div>
+               )}
+             </div>
+-- 
+2.34.1
+
