@@ -432,6 +432,15 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   // Chat with papers
   const [srcModal, setSrcModal] = useState(false);
   const [srcSel, setSrcSel] = useState({} as any);
+  const [srcCol, setSrcCol] = useState('all');
+  const [srcColDd, setSrcColDd] = useState(false);
+  const [srcFilterDd, setSrcFilterDd] = useState(false);
+  const [srcMethods, setSrcMethods] = useState([] as string[]);
+  const [srcView, setSrcView] = useState('list');
+  const [srcColPop, setSrcColPop] = useState(false);
+  const [srcColApply, setSrcColApply] = useState('');
+  const [srcTagPop, setSrcTagPop] = useState(false);
+  const [srcTagInput, setSrcTagInput] = useState('');
   const [chatSources, setChatSources] = useState([] as any[]);
   const [chatStarted, setChatStarted] = useState(false);
   const [paperChat, setPaperChat] = useState([] as any[]);
@@ -643,7 +652,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     const files = Array.from((e.target && e.target.files) || []) as any[];
     if (!files.length) return;
     const preCol = activeCol !== 'all' && activeCol !== 'trash' ? activeCol : '';
-    const add = files.map((f, i) => ({ id: 'd' + Date.now() + '_' + i, name: f.name, size: f.size, ts: Date.now(), collection: preCol }));
+    const add = files.map((f, i) => ({ id: 'd' + Date.now() + '_' + i, name: f.name, size: f.size, ts: Date.now(), collection: preCol, creationMethod: 'upload' }));
     const next = add.concat(libDocs);
     setLibDocs(next);
     try { localStorage.setItem('pinnovix_library_docs', JSON.stringify(next)); } catch {}
@@ -670,6 +679,41 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setSrcModal(false);
     setChatStarted(true);
     setPaperChat([]);
+  }
+  function docMethod(d: any): string {
+    if (d.creationMethod) return d.creationMethod;
+    if (d.source === 'zotero') return 'zotero';
+    if (d.kind === 'paper' || d.doi || (d.url && !d.size)) return 'search';
+    return 'upload';
+  }
+  function srcSelIds(): string[] {
+    return Object.keys(srcSel).filter((k) => srcSel[k]);
+  }
+  function srcDeleteSelected() {
+    const ids = srcSelIds();
+    if (!ids.length) return;
+    const next = libDocs.filter((d) => ids.indexOf(d.id || docName(d)) === -1);
+    setLibDocs(next);
+    try { localStorage.setItem('pinnovix_library_docs', JSON.stringify(next)); } catch {}
+    setSrcSel({});
+  }
+  function srcApplyCollection() {
+    const ids = srcSelIds();
+    if (!ids.length || !srcColApply) { setSrcColPop(false); return; }
+    const cid = srcColApply === 'none' ? '' : srcColApply;
+    const next = libDocs.map((d) => ids.indexOf(d.id || docName(d)) !== -1 ? { ...d, collection: cid } : d);
+    setLibDocs(next);
+    try { localStorage.setItem('pinnovix_library_docs', JSON.stringify(next)); } catch {}
+    setSrcColPop(false); setSrcColApply('');
+  }
+  function srcApplyTag(t: string) {
+    const tag = (t || '').trim();
+    const ids = srcSelIds();
+    if (!tag || !ids.length) { setSrcTagPop(false); setSrcTagInput(''); return; }
+    const next = libDocs.map((d) => ids.indexOf(d.id || docName(d)) !== -1 ? { ...d, tag: tag } : d);
+    setLibDocs(next);
+    try { localStorage.setItem('pinnovix_library_docs', JSON.stringify(next)); } catch {}
+    setSrcTagPop(false); setSrcTagInput('');
   }
   async function paperChatSend(text: string) {
     const q = (text || '').trim();
@@ -709,7 +753,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     const chosen = view().filter((p) => selRows[p.id]);
     const picks = chosen.length ? chosen : view();
     if (!picks.length) { setSaveColModal(false); return; }
-    const docs = picks.map((p, i) => ({ id: 'lib_' + Date.now() + '_' + i, name: p.title, kind: 'paper', authorStr: p.authorStr, year: p.year, url: p.url, doi: p.doi, ts: Date.now(), collection: colId || '' }));
+    const docs = picks.map((p, i) => ({ id: 'lib_' + Date.now() + '_' + i, name: p.title, kind: 'paper', authorStr: p.authorStr, year: p.year, url: p.url, doi: p.doi, ts: Date.now(), collection: colId || '', creationMethod: 'search' }));
     const next = docs.concat(libDocs);
     setLibDocs(next);
     try { localStorage.setItem('pinnovix_library_docs', JSON.stringify(next)); } catch {}
@@ -1277,47 +1321,177 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         <div className="p-5 border-b border-border">
           <div className="flex items-start justify-between">
             <div>
-              <div className="text-[16px] font-bold">Upload sources to begin chat</div>
-              <div className="text-[12.5px] text-muted-foreground mt-0.5">{libDocs.length ? 'Select sources to start a new chat.' : 'No sources in your library.'} Papers you upload are stored in your library and are only visible to you.</div>
+              <div className="text-[16px] font-bold">Select or upload sources to begin chat</div>
+              <div className="text-[12.5px] text-muted-foreground mt-0.5">{libDocs.length ? 'You have ' + libDocs.length + ' source' + (libDocs.length > 1 ? 's' : '') + ' in your library. Select sources to start a new chat.' : 'No sources in your library.'} Papers you upload are stored in your library and are only visible to you.</div>
             </div>
             <button onClick={() => setSrcModal(false)} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
           </div>
           <div className="flex items-center gap-2 mt-4 flex-wrap">
-            <span className="inline-flex items-center gap-2 border border-border rounded-lg px-3 py-1.5 text-[13px]">All papers <span className="text-muted-foreground">{libDocs.length}</span> <ChevronDown className="w-3.5 h-3.5" /></span>
+            {(() => {
+              const colLabel = srcCol === 'all' ? 'All papers' : ((collections.find((c) => c.id === srcCol) || {}).name || 'Collection');
+              const colCount = srcCol === 'all' ? libDocs.length : libDocs.filter((d) => d.collection === srcCol).length;
+              return (
+                <div className="relative">
+                  <button onClick={() => { setSrcColDd((v) => !v); setSrcFilterDd(false); }} className="inline-flex items-center gap-2 border border-border rounded-lg px-3 py-1.5 text-[13px] hover:bg-muted">{colLabel} <span className="text-muted-foreground">{colCount}</span> <ChevronDown className="w-3.5 h-3.5" /></button>
+                  {srcColDd ? (
+                    <>
+                      <div className="fixed inset-0 z-[62]" onClick={() => setSrcColDd(false)} />
+                      <div className="absolute z-[63] top-full left-0 mt-1 w-[240px] bg-card border border-border rounded-xl shadow-2xl p-1.5 max-h-[300px] overflow-y-auto custom-scrollbar">
+                        <button onClick={() => { setSrcCol('all'); setSrcColDd(false); }} className={(srcCol === 'all' ? 'bg-muted font-semibold ' : 'hover:bg-muted ') + 'w-full text-left flex items-center justify-between px-3 py-2 rounded-lg text-[13px]'}><span className="flex items-center gap-2"><LibraryIcon className="w-3.5 h-3.5 text-muted-foreground" /> All papers</span><span className="text-muted-foreground text-[12px]">{libDocs.length}</span></button>
+                        {collections.length === 0 ? <div className="px-3 py-2 text-[12px] text-muted-foreground italic">No collections yet.</div> : collections.map((c) => (
+                          <button key={c.id} onClick={() => { setSrcCol(c.id); setSrcColDd(false); }} className={(srcCol === c.id ? 'bg-muted font-semibold ' : 'hover:bg-muted ') + 'w-full text-left flex items-center justify-between px-3 py-2 rounded-lg text-[13px]'}><span className="flex items-center gap-2 truncate"><BookOpen className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> <span className="truncate">{c.name}</span></span><span className="text-muted-foreground text-[12px] shrink-0">{libDocs.filter((d) => d.collection === c.id).length}</span></button>
+                        ))}
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+              );
+            })()}
             <div className="flex-1" />
             <button onClick={() => modalFileRef.current && modalFileRef.current.click()} className="inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[13px] font-semibold hover:bg-muted"><Plus className="w-3.5 h-3.5" /> Upload</button>
-            <button className="inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[13px] font-semibold hover:bg-muted"><SlidersHorizontal className="w-3.5 h-3.5" /> Filters</button>
-            <button className="inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[13px] font-semibold text-muted-foreground"><FolderPlus className="w-3.5 h-3.5" /> Collections</button>
-            <button className="w-8 h-8 border border-border rounded-lg flex items-center justify-center text-muted-foreground"><Tag className="w-3.5 h-3.5" /></button>
-            <button className="w-8 h-8 border border-border rounded-lg flex items-center justify-center text-muted-foreground"><Trash2 className="w-3.5 h-3.5" /></button>
+            <div className="relative">
+              <button onClick={() => { setSrcFilterDd((v) => !v); setSrcColDd(false); }} className={((srcMethods.length ? 'border-primary text-primary ' : 'text-foreground ') + 'inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[13px] font-semibold hover:bg-muted')}><SlidersHorizontal className="w-3.5 h-3.5" /> Filters{srcMethods.length ? ' (' + srcMethods.length + ')' : ''}</button>
+              {srcFilterDd ? (
+                <>
+                  <div className="fixed inset-0 z-[62]" onClick={() => setSrcFilterDd(false)} />
+                  <div className="absolute z-[63] top-full right-0 mt-1 w-[230px] bg-card border border-border rounded-xl shadow-2xl p-1.5">
+                    <div className="px-3 py-1.5 text-[11px] font-bold text-muted-foreground uppercase tracking-wide">Creation method</div>
+                    {[{ id: 'upload', label: 'Upload' }, { id: 'zotero', label: 'Zotero import' }, { id: 'search', label: 'Added from Pinnovix search' }].map((f) => (
+                      <button key={f.id} onClick={() => setSrcMethods((prev) => prev.indexOf(f.id) !== -1 ? prev.filter((x) => x !== f.id) : prev.concat(f.id))} className="w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] hover:bg-muted">
+                        <span className={'w-4 h-4 rounded border flex items-center justify-center shrink-0 ' + (srcMethods.indexOf(f.id) !== -1 ? 'bg-primary border-primary text-primary-foreground' : 'border-border')}>{srcMethods.indexOf(f.id) !== -1 ? <Check className="w-3 h-3" /> : null}</span>
+                        {f.label}
+                      </button>
+                    ))}
+                    {srcMethods.length ? <button onClick={() => setSrcMethods([])} className="w-full text-left px-3 py-2 rounded-lg text-[12.5px] text-muted-foreground hover:bg-muted mt-1 border-t border-border">Clear filters</button> : null}
+                  </div>
+                </>
+              ) : null}
+            </div>
+            <div className="inline-flex border border-border rounded-lg overflow-hidden">
+              <button onClick={() => setSrcView('list')} title="List view" className={(srcView === 'list' ? 'bg-muted text-foreground ' : 'text-muted-foreground ') + 'px-2 py-1.5 hover:bg-muted'}><ListChecks className="w-4 h-4" /></button>
+              <button onClick={() => setSrcView('table')} title="Table view" className={(srcView === 'table' ? 'bg-muted text-foreground ' : 'text-muted-foreground ') + 'px-2 py-1.5 hover:bg-muted border-l border-border'}><Table2 className="w-4 h-4" /></button>
+            </div>
+            <div className="relative">
+              <button onClick={() => { setSrcColPop((v) => !v); setSrcTagPop(false); }} disabled={!srcSelIds().length} className="inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[13px] font-semibold hover:bg-muted disabled:opacity-40"><FolderPlus className="w-3.5 h-3.5" /> Collections</button>
+              {srcColPop ? (
+                <>
+                  <div className="fixed inset-0 z-[62]" onClick={() => setSrcColPop(false)} />
+                  <div className="absolute z-[63] top-full right-0 mt-1 w-[250px] bg-card border border-border rounded-xl shadow-2xl p-2">
+                    <div className="flex items-center justify-between px-1 pb-2 mb-1 border-b border-border"><span className="text-[13px] font-bold">Add to collection</span><button onClick={() => { setSrcColPop(false); newCollection(); }} className="text-[12px] font-semibold border border-border rounded-md px-2 py-1 hover:bg-muted">New</button></div>
+                    <div className="max-h-[180px] overflow-y-auto custom-scrollbar">
+                      {collections.length === 0 ? <div className="px-2 py-2 text-[12px] text-muted-foreground italic">No collections. Tap New to create one.</div> : collections.map((c) => (
+                        <button key={c.id} onClick={() => setSrcColApply(c.id)} className={(srcColApply === c.id ? 'bg-muted font-semibold ' : 'hover:bg-muted ') + 'w-full text-left flex items-center gap-2 px-2 py-2 rounded-lg text-[13px]'}><span className={'w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ' + (srcColApply === c.id ? 'border-primary' : 'border-border')}>{srcColApply === c.id ? <span className="w-2 h-2 rounded-full bg-primary" /> : null}</span> {c.name}</button>
+                      ))}
+                    </div>
+                    <div className="flex items-center justify-end gap-2 pt-2 mt-1 border-t border-border"><button onClick={() => { setSrcColPop(false); setSrcColApply(''); }} className="text-[12.5px] font-semibold border border-border rounded-md px-3 py-1.5 hover:bg-muted">Cancel</button><button onClick={srcApplyCollection} disabled={!srcColApply} className="text-[12.5px] font-semibold bg-primary text-primary-foreground rounded-md px-3 py-1.5 disabled:opacity-40">Apply</button></div>
+                  </div>
+                </>
+              ) : null}
+            </div>
+            <div className="relative">
+              <button onClick={() => { setSrcTagPop((v) => !v); setSrcColPop(false); }} disabled={!srcSelIds().length} title="Tag" className="w-8 h-8 border border-border rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-40"><Tag className="w-3.5 h-3.5" /></button>
+              {srcTagPop ? (
+                <>
+                  <div className="fixed inset-0 z-[62]" onClick={() => setSrcTagPop(false)} />
+                  <div className="absolute z-[63] top-full right-0 mt-1 w-[260px] bg-card border border-border rounded-xl shadow-2xl p-2">
+                    <div className="flex items-center gap-2">
+                      <input autoFocus value={srcTagInput} onChange={(e) => setSrcTagInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') srcApplyTag(srcTagInput); }} placeholder="Find or create tags" className="flex-1 bg-muted/40 border border-border rounded-lg px-2.5 py-1.5 text-[13px] outline-none focus:border-primary" />
+                      <button onClick={() => srcApplyTag(srcTagInput)} disabled={!srcTagInput.trim()} className="text-[12.5px] font-semibold border border-border rounded-md px-2.5 py-1.5 hover:bg-muted disabled:opacity-40">Add</button>
+                    </div>
+                    <div className="mt-2 max-h-[150px] overflow-y-auto custom-scrollbar">
+                      {(() => {
+                        const tags = Array.from(new Set(libDocs.map((d) => d.tag).filter(Boolean))) as string[];
+                        const shown = tags.filter((t) => !srcTagInput || t.toLowerCase().indexOf(srcTagInput.toLowerCase()) !== -1);
+                        if (!shown.length) return <div className="px-2 py-2 text-[12px] text-muted-foreground">No tags in your library</div>;
+                        return shown.map((t) => (<button key={t} onClick={() => srcApplyTag(t)} className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg text-[13px] hover:bg-muted"><Tag className="w-3.5 h-3.5 text-muted-foreground" /> {t}</button>));
+                      })()}
+                    </div>
+                  </div>
+                </>
+              ) : null}
+            </div>
+            <button onClick={srcDeleteSelected} disabled={!srcSelIds().length} title="Delete selected" className="w-8 h-8 border border-border rounded-lg flex items-center justify-center text-muted-foreground hover:text-red-500 hover:bg-muted disabled:opacity-40"><Trash2 className="w-3.5 h-3.5" /></button>
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-2">
-          {libDocs.length === 0 ? (
-            <div className="flex flex-col items-center justify-center text-center py-14">
-              <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center mb-4"><FileText className="w-8 h-8 text-muted-foreground" /></div>
-              <div className="font-semibold text-[15px]">Upload papers to start using your library.</div>
-              <div className="text-[13px] text-muted-foreground mt-1 max-w-sm">Your library is used to store papers and research for analysis and insights.</div>
-              <div className="flex items-center gap-3 mt-5">
-                <button onClick={() => modalFileRef.current && modalFileRef.current.click()} className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-[13.5px] font-semibold"><Upload className="w-4 h-4" /> Upload</button>
-                <button className="border border-border rounded-lg px-4 py-2 text-[13.5px] font-semibold">Connect Zotero</button>
+        <div className="flex-1 overflow-auto custom-scrollbar p-2">
+          {(() => {
+            const srcDocs = libDocs
+              .filter((d) => srcCol === 'all' ? true : d.collection === srcCol)
+              .filter((d) => srcMethods.length === 0 ? true : srcMethods.indexOf(docMethod(d)) !== -1);
+            const allChecked = srcDocs.length > 0 && srcDocs.every((d) => srcSel[d.id || docName(d)]);
+            const toggleAll = () => { const v = !allChecked; setSrcSel(() => { const o: any = {}; if (v) srcDocs.forEach((d) => { o[d.id || docName(d)] = true; }); return o; }); };
+            if (libDocs.length === 0) {
+              return (
+                <div className="flex flex-col items-center justify-center text-center py-14">
+                  <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center mb-4"><FileText className="w-8 h-8 text-muted-foreground" /></div>
+                  <div className="font-semibold text-[15px]">Upload papers to start using your library.</div>
+                  <div className="text-[13px] text-muted-foreground mt-1 max-w-sm">Your library is used to store papers and research for analysis and insights.</div>
+                  <div className="flex items-center gap-3 mt-5">
+                    <button onClick={() => modalFileRef.current && modalFileRef.current.click()} className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-[13.5px] font-semibold"><Upload className="w-4 h-4" /> Upload</button>
+                    <button className="border border-border rounded-lg px-4 py-2 text-[13.5px] font-semibold">Connect Zotero</button>
+                  </div>
+                </div>
+              );
+            }
+            if (srcDocs.length === 0) {
+              return <div className="text-center text-[13px] text-muted-foreground py-14">No papers match this collection or filter.</div>;
+            }
+            if (srcView === 'table') {
+              return (
+                <table className="w-full text-[13px] min-w-[640px]">
+                  <thead>
+                    <tr className="text-left text-muted-foreground text-[12px] border-b border-border">
+                      <th className="px-3 py-2.5 w-10"><input type="checkbox" checked={allChecked} onChange={toggleAll} /></th>
+                      <th className="px-3 py-2.5 font-semibold">Title <span className="text-muted-foreground">({srcDocs.length} source{srcDocs.length > 1 ? 's' : ''})</span></th>
+                      <th className="px-3 py-2.5 font-semibold w-[200px]">Authors</th>
+                      <th className="px-3 py-2.5 font-semibold w-[150px]">Full text</th>
+                      <th className="px-3 py-2.5 font-semibold w-[160px]">File</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {srcDocs.map((d) => {
+                      const id = d.id || docName(d);
+                      const hasFt = !!(d.url || d.fullText || d.creationMethod === 'upload' || d.size);
+                      return (
+                        <tr key={id} className={'border-b border-border last:border-0 hover:bg-muted/50 ' + (srcSel[id] ? 'bg-primary/5' : '')}>
+                          <td className="px-3 py-2.5"><input type="checkbox" checked={!!srcSel[id]} onChange={() => toggleSrc(id)} /></td>
+                          <td className="px-3 py-2.5"><div className="font-medium leading-snug">{docName(d)}</div>{d.tag ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary mt-1 inline-block">{d.tag}</span> : null}</td>
+                          <td className="px-3 py-2.5 text-muted-foreground truncate max-w-[200px]">{d.authorStr || '-'}</td>
+                          <td className="px-3 py-2.5 text-muted-foreground">{hasFt ? 'Full text available' : '-'}</td>
+                          <td className="px-3 py-2.5 text-muted-foreground truncate max-w-[160px]">{d.creationMethod === 'upload' || d.size ? docName(d) : '-'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              );
+            }
+            return (
+              <div>
+                <div className="flex items-center gap-3 px-3 py-2 border-b border-border text-[12px] font-semibold text-muted-foreground">
+                  <input type="checkbox" checked={allChecked} onChange={toggleAll} />
+                  <span className="flex-1">Paper</span>
+                  <span>{srcDocs.length} source{srcDocs.length > 1 ? 's' : ''}</span>
+                </div>
+                {srcDocs.map((d) => {
+                  const id = d.id || docName(d);
+                  const isUpload = d.creationMethod === 'upload' || !!d.size;
+                  const hasFt = !!(d.url || d.fullText || isUpload);
+                  return (
+                    <label key={id} className={'flex items-start gap-3 px-3 py-3 rounded-lg hover:bg-muted cursor-pointer border-b border-border last:border-0 ' + (srcSel[id] ? 'bg-primary/5' : '')}>
+                      <input type="checkbox" className="mt-0.5" checked={!!srcSel[id]} onChange={() => toggleSrc(id)} />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[13.5px] font-semibold leading-snug">{docName(d)}{d.tag ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary ml-2">{d.tag}</span> : null}</div>
+                        {isUpload && d.name ? <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground mt-1"><FileText className="w-3.5 h-3.5" /> {d.name}</div> : null}
+                        {hasFt ? <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground mt-0.5"><FileText className="w-3.5 h-3.5" /> {d.url ? <a href={d.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-primary hover:underline">Full text</a> : 'Full text'}</div> : null}
+                      </div>
+                      <span className="text-[12px] text-muted-foreground shrink-0">{fmtTime(d.ts)}</span>
+                    </label>
+                  );
+                })}
               </div>
-            </div>
-          ) : (
-            <div className="p-2">
-              {libDocs.map((d) => {
-                const id = d.id || docName(d);
-                return (
-                  <label key={id} className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted cursor-pointer border-b border-border last:border-0">
-                    <input type="checkbox" checked={!!srcSel[id]} onChange={() => toggleSrc(id)} />
-                    <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
-                    <span className="flex-1 text-[13.5px] font-medium truncate">{docName(d)}</span>
-                    <span className="text-[12px] text-muted-foreground">{fmtTime(d.ts)}</span>
-                  </label>
-                );
-              })}
-            </div>
-          )}
+            );
+          })()}
         </div>
         <div className="p-4 border-t border-border flex items-center justify-between">
           <span className="text-[12.5px] text-muted-foreground">{Object.values(srcSel).filter(Boolean).length} selected</span>
@@ -2052,7 +2226,24 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                 </div>
               ) : null}
               {m.text ? (
-                <div className="bg-muted/50 border border-border rounded-2xl px-4 py-2.5 text-[13.5px] prose prose-sm dark:prose-invert max-w-none"><ReactMarkdown components={{ a: (props: any) => <a {...props} target="_blank" rel="noreferrer" className="text-primary font-semibold no-underline hover:underline" /> }}>{m.text}</ReactMarkdown></div>
+                <div className="bg-muted/50 border border-border rounded-2xl px-4 py-2.5 text-[13.5px] prose prose-sm dark:prose-invert max-w-none"><ReactMarkdown components={{ a: (props: any) => {
+                  const label = typeof props.children === 'string' ? props.children : (Array.isArray(props.children) ? props.children.join('') : '');
+                  const cite = /^\s*\[(\d+)\]\s*$/.exec(label);
+                  const src = cite && m.sources ? m.sources[parseInt(cite[1], 10) - 1] : null;
+                  if (src) {
+                    return (
+                      <span className="relative group inline-block align-baseline">
+                        <a href={props.href} target="_blank" rel="noreferrer" className="text-primary font-semibold no-underline hover:underline">{props.children}</a>
+                        <span className="pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-100 absolute z-[90] bottom-full left-0 mb-1.5 w-72 max-w-[calc(100vw-2rem)] bg-card border border-border rounded-lg shadow-2xl p-3 text-left normal-case">
+                          <span className="block text-[12.5px] font-semibold leading-snug text-foreground no-underline">{src.title}</span>
+                          <span className="block text-[11.5px] text-muted-foreground mt-1">{[src.authorStr, src.venue, src.year].filter(Boolean).join(' · ')}</span>
+                          {src.url ? <span className="block text-[11px] text-primary mt-1 truncate">{src.url}</span> : null}
+                        </span>
+                      </span>
+                    );
+                  }
+                  return <a {...props} target="_blank" rel="noreferrer" className="text-primary font-semibold no-underline hover:underline" />;
+                } }}>{m.text}</ReactMarkdown></div>
               ) : null}
               {m.text && !m.busy ? (
                 <div className="flex items-center gap-2 flex-wrap">
