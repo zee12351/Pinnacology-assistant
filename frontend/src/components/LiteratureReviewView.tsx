@@ -278,26 +278,59 @@ async function searchCrossref(q: string, n: number): Promise<any[]> {
   } catch { return []; }
 }
 
+function normTitleKey(t: string): string {
+  return (t || '').toLowerCase().replace(/<[^>]+>/g, '').replace(/[^a-z0-9]/g, '').slice(0, 80);
+}
+// Higher = more trustworthy. Rewards citations, a real venue and a DOI;
+// penalises records with no venue and no citations (typical junk/preprint duplicates).
+function paperQuality(p: any): number {
+  let s = 0;
+  const cited = p.cited || 0;
+  s += Math.log10(cited + 1) * 10;
+  const hasVenue = !!(p.venue && String(p.venue).trim());
+  if (hasVenue) s += 6;
+  if (p.doi) s += 4;
+  if (p.oa || p.fullText) s += 1;
+  if (!hasVenue && cited === 0) s -= 12;
+  const yr = parseInt(String(p.year), 10);
+  if (!isNaN(yr) && yr < 1900) s -= 20;
+  return s;
+}
+// Dedupe by DOI (or normalised title), keeping the higher-quality copy, then
+// keep good papers in relevance order and sink likely-junk records to the end.
+function dedupeAndRank(papers: any[]): any[] {
+  const idx: any = {}; const out: any[] = [];
+  (papers || []).forEach((p) => {
+    if (!p || !p.title) return;
+    const key = p.doi ? 'doi:' + String(p.doi).toLowerCase().replace(/^https?:\/\/(dx\.)?doi\.org\//, '') : 'ti:' + normTitleKey(p.title);
+    if (key === 'ti:') return;
+    if (idx[key] !== undefined) {
+      if (paperQuality(p) > paperQuality(out[idx[key]])) out[idx[key]] = p;
+      return;
+    }
+    idx[key] = out.length; out.push(p);
+  });
+  const scored = out.map((p, i) => ({ p: p, i: i, q: paperQuality(p) }));
+  const good = scored.filter((x) => x.q >= -5).sort((a, b) => a.i - b.i);
+  const junk = scored.filter((x) => x.q < -5).sort((a, b) => b.q - a.q);
+  return good.concat(junk).map((x) => x.p);
+}
+
 async function searchPapers(q: string, source: string, n: number): Promise<any[]> {
   n = n || 12;
+  let results: any[] = [];
   if (source === 'all') {
-    const per = Math.max(5, Math.ceil(n / 2));
+    const per = Math.max(6, Math.ceil(n / 2) + 2);
     const arrs = await Promise.all([
       searchOpenAlex(q, per), searchSemanticScholar(q, per), searchEuropePMC(q, per), searchArxiv(q, Math.min(per, 6)), searchCrossref(q, per),
     ]);
-    const merged: any[] = []; const seen: any = {};
-    ([] as any[]).concat.apply([], arrs).forEach((p: any) => {
-      const key = (p.doi || p.title || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 60);
-      if (!key || seen[key]) return; seen[key] = 1; merged.push(p);
-    });
-    merged.sort((a, b) => (b.cited || 0) - (a.cited || 0));
-    return merged.slice(0, n).map((p, i) => ({ ...p, idx: i, rel: 100000 - i }));
-  }
-  if (source === 'semanticscholar') return searchSemanticScholar(q, n);
-  if (source === 'europepmc') return searchEuropePMC(q, n);
-  if (source === 'arxiv') return searchArxiv(q, n);
-  if (source === 'crossref') return searchCrossref(q, n);
-  return searchOpenAlex(q, n);
+    results = ([] as any[]).concat.apply([], arrs);
+  } else if (source === 'semanticscholar') results = await searchSemanticScholar(q, n + 6);
+  else if (source === 'europepmc') results = await searchEuropePMC(q, n + 6);
+  else if (source === 'arxiv') results = await searchArxiv(q, n + 4);
+  else if (source === 'crossref') results = await searchCrossref(q, n + 6);
+  else results = await searchOpenAlex(q, n + 8);
+  return dedupeAndRank(results).slice(0, n).map((p, i) => ({ ...p, idx: i, rel: 100000 - i }));
 }
 
 function linkifyAgent(text: string, sources: any[]): string {
@@ -1044,6 +1077,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         const j = await r.json();
         sources = ((j && j.results) || []).map(mkPaper).filter((x: any) => x.title);
       }
+      sources = dedupeAndRank(sources);
       const screened = sources.slice(0, 10);
       setReport((prev: any) => ({ ...prev, sources: sources, screened: screened, done: { gather: true } }));
       setReportPhase('Screening sources against inclusion criteria...');

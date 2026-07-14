@@ -79,10 +79,22 @@ const VIZ = [
 const ACCENT_DEFAULT = '#2563eb';
 const ACCENT_SWATCHES = ['#2563eb', '#0ea5e9', '#4f46e5', '#0d9488', '#16a34a', '#db2777', '#ea580c', '#dc2626', '#7c3aed', '#0f172a'];
 
+// Design themes: each varies the surface background, text colour and font pairing.
+// The accent colour stays independently selectable so users can mix and match.
+const THEMES = [
+  { id: 'classic', name: 'Classic', bg: '#ffffff', fg: '#111827', sub: '#6b7280', font: "Inter, system-ui, sans-serif" },
+  { id: 'journal', name: 'Journal', bg: '#fffdf7', fg: '#1c1917', sub: '#78716c', font: "Georgia, 'Times New Roman', serif" },
+  { id: 'mint', name: 'Mint', bg: '#f2fbf9', fg: '#0f3d38', sub: '#5b807a', font: "'Segoe UI', system-ui, sans-serif" },
+  { id: 'lavender', name: 'Lavender', bg: '#f7f5ff', fg: '#241a45', sub: '#6b6394', font: "Verdana, system-ui, sans-serif" },
+  { id: 'slate', name: 'Slate', bg: '#f4f6f8', fg: '#1e293b', sub: '#64748b', font: "'Trebuchet MS', system-ui, sans-serif" },
+  { id: 'warm', name: 'Warm', bg: '#fff8f3', fg: '#3a2317', sub: '#8a6b57', font: "'Palatino Linotype', Georgia, serif" },
+];
+
 export function SciVizView({ onHome }: any) {
   const [inputMode, setInputMode] = useState('paste');
   const [inputText, setInputText] = useState('');
   const [fileName, setFileName] = useState('');
+  const [figures, setFigures] = useState([] as any[]);
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState('');
   const [data, setData] = useState<any>(null);
@@ -95,6 +107,8 @@ export function SciVizView({ onHome }: any) {
   const [navOpen, setNavOpen] = useState(true);
   const [mobileNav, setMobileNav] = useState(false);
   const [accent, setAccent] = useState(ACCENT_DEFAULT);
+  const [themeId, setThemeId] = useState('classic');
+  const TH = THEMES.find((t) => t.id === themeId) || THEMES[0];
   const [editOpen, setEditOpen] = useState(false);
   const [dlMenu, setDlMenu] = useState(false);
   const dlBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -131,14 +145,21 @@ export function SciVizView({ onHome }: any) {
   }
 
   function resetAll() {
-    setData(null); setInputText(''); setFileName(''); setSrcText(''); setMermaidSvg(''); setMindmapSvg(''); setVizType('graphical'); setSlideIdx(0);
+    setData(null); setInputText(''); setFileName(''); setSrcText(''); setMermaidSvg(''); setMindmapSvg(''); setVizType('graphical'); setSlideIdx(0); setFigures([]);
   }
 
   async function onPickFile(e: any) {
     const f = e.target && e.target.files && e.target.files[0];
     if (!f) return;
     setFileName(f.name);
+    setFigures([]);
     setBusy(true); setPhase('Reading PDF...');
+    // Extract embedded figures in the background (best-effort, PDF only).
+    if (/\.pdf$/i.test(f.name)) {
+      const fdF = new FormData(); fdF.append('file', f);
+      fetch(API + '/api/extract-figures', { method: 'POST', body: fdF })
+        .then((r) => r.json()).then((j) => setFigures((j && j.figures) || [])).catch(() => {});
+    }
     try {
       const fd = new FormData(); fd.append('file', f);
       const r = await fetch(API + '/api/parse-document', { method: 'POST', body: fd });
@@ -304,10 +325,10 @@ export function SciVizView({ onHome }: any) {
   ] : [];
 
   const graphical = data ? (
-    <div style={{ width: 820, maxWidth: '100%', background: '#ffffff', color: '#111827', borderRadius: 16, padding: 32, fontFamily: 'Inter, system-ui, sans-serif' }}>
+    <div style={{ width: 820, maxWidth: '100%', background: TH.bg, color: TH.fg, borderRadius: 16, padding: 32, fontFamily: TH.font }}>
       <div style={{ borderLeft: '6px solid ' + accent, paddingLeft: 14, marginBottom: 6 }}>
         <div style={{ fontSize: 24, fontWeight: 800, lineHeight: 1.2 }}>{data.title}</div>
-        {data.authors ? <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>{data.authors}</div> : null}
+        {data.authors ? <div style={{ fontSize: 13, color: TH.sub, marginTop: 4 }}>{data.authors}</div> : null}
       </div>
       <div style={{ display: 'flex', alignItems: 'stretch', gap: 12, marginTop: 24 }}>
         {[{ t: 'Background', v: data.background }, { t: 'Methods', v: data.methods }, { t: 'Results', v: (data.results[0] || data.conclusion || '') }].map((c, i) => (
@@ -325,7 +346,7 @@ export function SciVizView({ onHome }: any) {
           {data.stats.map((st: any, i: number) => (
             <div key={i} style={{ flex: 1, textAlign: 'center', background: '#f9fafb', borderRadius: 12, padding: 14 }}>
               <div style={{ fontSize: 26, fontWeight: 800, color: accent }}>{st.value}</div>
-              <div style={{ fontSize: 11.5, color: '#6b7280', marginTop: 2 }}>{st.label}</div>
+              <div style={{ fontSize: 11.5, color: TH.sub, marginTop: 2 }}>{st.label}</div>
             </div>
           ))}
         </div>
@@ -338,7 +359,7 @@ export function SciVizView({ onHome }: any) {
   ) : null;
 
   const poster = data ? (
-    <div style={{ width: 720, background: '#ffffff', color: '#111827', borderRadius: 12, overflow: 'hidden', fontFamily: 'Inter, system-ui, sans-serif', boxShadow: '0 1px 0 #e5e7eb' }}>
+    <div style={{ width: 720, background: TH.bg, color: TH.fg, borderRadius: 12, overflow: 'hidden', fontFamily: TH.font, boxShadow: '0 1px 0 #e5e7eb' }}>
       <div style={{ background: accent, color: '#fff', padding: '26px 28px' }}>
         <div style={{ fontSize: 26, fontWeight: 800, lineHeight: 1.15 }}>{data.title}</div>
         {data.authors ? <div style={{ fontSize: 13.5, opacity: 0.9, marginTop: 8 }}>{data.authors}</div> : null}
@@ -362,7 +383,7 @@ export function SciVizView({ onHome }: any) {
               {data.stats.map((st: any, i: number) => (
                 <div key={i} style={{ flex: 1, textAlign: 'center', background: '#eef2ff', borderRadius: 10, padding: 12 }}>
                   <div style={{ fontSize: 22, fontWeight: 800, color: accent }}>{st.value}</div>
-                  <div style={{ fontSize: 11, color: '#6b7280' }}>{st.label}</div>
+                  <div style={{ fontSize: 11, color: TH.sub }}>{st.label}</div>
                 </div>
               ))}
             </div>
@@ -384,10 +405,10 @@ export function SciVizView({ onHome }: any) {
   ) : null;
 
   const infographic = data ? (
-    <div style={{ width: 560, background: '#ffffff', color: '#111827', borderRadius: 12, padding: 28, fontFamily: 'Inter, system-ui, sans-serif' }}>
+    <div style={{ width: 560, background: TH.bg, color: TH.fg, borderRadius: 12, padding: 28, fontFamily: TH.font }}>
       <div style={{ textAlign: 'center', marginBottom: 18 }}>
         <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.2 }}>{data.title}</div>
-        {data.authors ? <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>{data.authors}</div> : null}
+        {data.authors ? <div style={{ fontSize: 12, color: TH.sub, marginTop: 4 }}>{data.authors}</div> : null}
       </div>
       {data.stats && data.stats.length ? (
         <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
@@ -422,7 +443,7 @@ export function SciVizView({ onHome }: any) {
   const slideCard = data ? (() => {
     const sl = slides[slideIdx] || slides[0];
     return (
-      <div style={{ width: 800, height: 450, background: sl.kind === 'title' ? accent : '#ffffff', color: sl.kind === 'title' ? '#fff' : '#111827', borderRadius: 14, padding: 44, fontFamily: 'Inter, system-ui, sans-serif', display: 'flex', flexDirection: 'column', justifyContent: sl.kind === 'title' ? 'center' : 'flex-start', boxShadow: '0 1px 0 #e5e7eb' }}>
+      <div style={{ width: 800, height: 450, background: sl.kind === 'title' ? accent : TH.bg, color: sl.kind === 'title' ? '#fff' : TH.fg, borderRadius: 14, padding: 44, fontFamily: TH.font, display: 'flex', flexDirection: 'column', justifyContent: sl.kind === 'title' ? 'center' : 'flex-start', boxShadow: '0 1px 0 #e5e7eb' }}>
         {sl.kind === 'title' ? (
           <>
             <div style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.15 }}>{sl.h}</div>
@@ -544,12 +565,32 @@ export function SciVizView({ onHome }: any) {
               {data.keywords.map((k: string, i: number) => <span key={i} className="text-[11px] bg-muted rounded-full px-2 py-0.5">{k}</span>)}
             </div>
           ) : null}
+          {figures.length ? (
+            <>
+              <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide px-2 mb-1 mt-3">Figures from PDF ({figures.length})</div>
+              <div className="grid grid-cols-2 gap-1.5 px-2 mb-2">
+                {figures.map((fig: any, i: number) => (
+                  <a key={i} href={fig.dataUrl} download={(fig.name || ('figure-' + (i + 1))).replace(/[^A-Za-z0-9._-]/g, '') + '.png'} title={'Page ' + fig.page + ' — click to download'} className="block border border-border rounded-md overflow-hidden hover:border-primary transition-colors bg-muted/40">
+                    <img src={fig.dataUrl} alt={'Figure ' + (i + 1)} className="w-full h-16 object-contain" />
+                    <div className="text-[9.5px] text-muted-foreground px-1 py-0.5 truncate">p{fig.page} · download</div>
+                  </a>
+                ))}
+              </div>
+            </>
+          ) : null}
           <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide px-2 mb-1 mt-3 flex items-center justify-between">
             <span>Edit &amp; recolour</span>
             <button onClick={() => setEditOpen((v) => !v)} className="text-primary font-semibold text-[11px]">{editOpen ? 'Done' : 'Edit'}</button>
           </div>
           {editOpen ? (
             <div className="flex flex-col gap-2 px-2 pb-2">
+              <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wide">Theme &amp; font</div>
+              <div className="flex flex-wrap gap-1.5">
+                {THEMES.map((t) => (
+                  <button key={t.id} onClick={() => setThemeId(t.id)} title={t.name} className={'px-2 py-1 rounded-md border text-[11px] font-semibold ' + (themeId === t.id ? 'border-primary text-primary' : 'border-border text-muted-foreground hover:border-primary')} style={{ fontFamily: t.font, background: t.bg, color: themeId === t.id ? undefined : t.fg }}>{t.name}</button>
+                ))}
+              </div>
+              <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wide mt-1">Accent colour</div>
               <div className="flex flex-wrap gap-1.5">
                 {ACCENT_SWATCHES.map((c) => <button key={c} onClick={() => setAccent(c)} title={c} className={'w-6 h-6 rounded-full border-2 ' + (accent === c ? 'border-foreground' : 'border-transparent')} style={{ background: c }} />)}
               </div>

@@ -64,9 +64,27 @@ async def chat(request: ChatRequest):
                     if not model:
                         yield f"data: {json.dumps({'error': 'GEMINI_API_KEY not set'})}\n\n"
                         return
+                    # Full-text RAG: when use_rag is set, pull the most relevant
+                    # chunks from the user's uploaded documents and ground the answer
+                    # in them (so chat-with-papers answers from full text, not just abstracts).
+                    review_message = request.message
+                    if request.use_rag:
+                        try:
+                            if chroma_store.embeddings and chroma_store.collection.count() > 0:
+                                cnt = chroma_store.collection.count()
+                                rag = chroma_store.query(request.message, n_results=min(5, cnt))
+                                if rag and rag.get('documents') and rag['documents'][0]:
+                                    excerpts = "\n\n---\n\n".join(rag['documents'][0])[:6000]
+                                    review_message = (
+                                        "Use the following excerpts from the user's uploaded documents to answer the question. "
+                                        "Base your answer on these excerpts and cite them where relevant.\n\n"
+                                        "=== DOCUMENT EXCERPTS ===\n" + excerpts + "\n=== END EXCERPTS ===\n\n" + request.message
+                                    )
+                        except Exception as rag_err:
+                            print(f"review RAG warning: {rag_err}")
                     review_emitted = False
                     try:
-                        async for chunk in model.astream([HumanMessage(content=request.message)]):
+                        async for chunk in model.astream([HumanMessage(content=review_message)]):
                             if hasattr(chunk, 'content') and chunk.content:
                                 text_to_yield = _review_text(chunk.content)
                                 if text_to_yield:
@@ -78,7 +96,7 @@ async def chat(request: ChatRequest):
                     # content. Do one non-streaming call so the user still gets an answer.
                     if not review_emitted:
                         try:
-                            result = await model.ainvoke([HumanMessage(content=request.message)])
+                            result = await model.ainvoke([HumanMessage(content=review_message)])
                             text_to_yield = _review_text(getattr(result, "content", ""))
                             if text_to_yield:
                                 review_emitted = True
@@ -141,6 +159,47 @@ async def chat(request: ChatRequest):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/extract-figures")
+async def extract_figures(file: UploadFile = File(...)):
+    """Extract embedded figures/images from an uploaded PDF and return them as
+    base64 data URLs. Best-effort and fully guarded — returns an empty list rather
+    than erroring if the PDF has no extractable raster images."""
+    import base64, io
+    figures = []
+    try:
+        from pypdf import PdfReader
+        data = await file.read()
+        reader = PdfReader(io.BytesIO(data))
+        count = 0
+        for pi, page in enumerate(reader.pages):
+            try:
+                for img in page.images:
+                    b = img.data
+                    if not b or len(b) < 4000:  # skip tiny icons / logos
+                        continue
+                    name = (getattr(img, "name", "") or "").lower()
+                    if name.endswith(".jpg") or name.endswith(".jpeg"):
+                        mime = "image/jpeg"
+                    elif name.endswith(".gif"):
+                        mime = "image/gif"
+                    else:
+                        mime = "image/png"
+                    figures.append({
+                        "page": pi + 1,
+                        "name": getattr(img, "name", None) or ("figure-" + str(count + 1)),
+                        "dataUrl": "data:" + mime + ";base64," + base64.b64encode(b).decode("ascii"),
+                    })
+                    count += 1
+                    if count >= 12:
+                        break
+            except Exception:
+                continue
+            if count >= 12:
+                break
+    except Exception as e:
+        return {"figures": [], "error": str(e)}
+    return {"figures": figures}
 
 @router.post("/upload")
 async def upload_file(file: UploadFile = File(...)):

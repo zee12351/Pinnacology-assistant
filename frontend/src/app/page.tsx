@@ -572,7 +572,7 @@ export default function HomePage() {
             <SciVizView onHome={() => { setSelectedPersona('ACADEMIC WRITING'); setIsChatActive(false); window.history.pushState(null, '', '/home'); }} />
           </div>
         ) : !isChatActive ? (
-          <div className="flex-1 min-h-0 flex flex-col items-center justify-start md:justify-center p-6 pt-16 md:pt-6 h-full overflow-y-auto custom-scrollbar relative">
+          <div className="flex-1 min-h-0 flex flex-col items-center justify-start px-0 pt-14 md:pt-2 pb-0 h-full overflow-y-auto custom-scrollbar relative">
             <div className="md:hidden absolute top-0 left-0 right-0 flex items-center justify-between px-4 h-14 z-20 bg-background/80 backdrop-blur-sm border-b border-border">
               <div className="flex items-center gap-2">
                 <span className="w-7 h-7 bg-contain bg-no-repeat bg-center shrink-0" style={{ backgroundImage: 'url(/logo.png)' }} />
@@ -593,20 +593,98 @@ export default function HomePage() {
               <div className="pnx-orb pnx-orb-3" />
             </div>
             <div className="relative z-10 w-full flex flex-col items-center pnx-fade-up">
-              <PersonaGrid
-                selectedPersona={selectedPersona}
-                onSelectPersona={setSelectedPersona}
-                onActivate={(id: string) => {
-                  if (authConfigured && !authUser) { setAuthOpen(true); return; }
-                  setSelectedPersona(id);
-                  const urlSlug = id.toLowerCase().replace(/\s+/g, '-');
-                  window.history.pushState(null, '', `/home/${urlSlug}`); setMessages([]); setDocumentContent(''); setStructuredPapers([]); setAiResponse(''); setCurrentChatId(null); setQuery('');
-                  setIsChatActive(true);
-                }}
-              />
-              <div className="w-full max-w-3xl mt-4">
-                <SearchBar {...searchBarProps} />
-              </div>
+              {/* HERO */}
+              <section className="w-full max-w-4xl mx-auto text-center px-4 pt-10 md:pt-16 pb-6">
+                <div className="inline-flex items-center gap-2 border border-border rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold text-muted-foreground mb-6 bg-card/60 backdrop-blur-sm">
+                  <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" /> AI research workspace for scientists
+                </div>
+                <h1 className="text-4xl md:text-6xl font-bold tracking-tight leading-[1.05]">
+                  Research, write, and <span className="pnx-gradient-text">visualize</span><br className="hidden md:block" /> — in one AI workspace
+                </h1>
+                <p className="text-muted-foreground text-[15px] md:text-lg max-w-2xl mx-auto mt-5 leading-relaxed">
+                  Pinnovix helps researchers discover literature, draft and cite papers, and turn findings into publication‑ready visuals — powered by AI and grounded in real sources.
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-3 mt-7">
+                  <button onClick={() => { if (authConfigured && !authUser) { setAuthOpen(true); } else { const el = document.getElementById('pnx-personas'); if (el) el.scrollIntoView({ behavior: 'smooth' }); } }} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-xl text-[15px] shadow-lg shadow-blue-600/20 transition-colors">
+                    {authUser ? 'Choose a workspace' : 'Get started free'}
+                  </button>
+                  <button onClick={() => { const el = document.getElementById('pnx-how'); if (el) el.scrollIntoView({ behavior: 'smooth' }); }} className="border border-border hover:bg-muted font-semibold px-6 py-3 rounded-xl text-[15px] transition-colors">
+                    How it works
+                  </button>
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 mt-6 text-[12.5px] text-muted-foreground">
+                  <span className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-blue-500" /> Free to start</span>
+                  <span className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-blue-500" /> Real citations & references</span>
+                  <span className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-blue-500" /> 138M+ papers searchable</span>
+                </div>
+                <div className="w-full max-w-3xl mx-auto mt-9">
+                  <SearchBar {...searchBarProps} />
+                </div>
+              </section>
+
+              {/* FEATURES / PERSONAS */}
+              <section id="pnx-personas" className="w-full max-w-5xl mx-auto px-4 pt-10 scroll-mt-20">
+                <PersonaGrid
+                  selectedPersona={selectedPersona}
+                  onSelectPersona={setSelectedPersona}
+                  onActivate={(id: string) => {
+                    if (authConfigured && !authUser) { setAuthOpen(true); return; }
+                    setSelectedPersona(id);
+                    const urlSlug = id.toLowerCase().replace(/\s+/g, '-');
+                    window.history.pushState(null, '', `/home/${urlSlug}`); setMessages([]); setDocumentContent(''); setStructuredPapers([]); setAiResponse(''); setCurrentChatId(null); setQuery('');
+                    setIsChatActive(true);
+                  }}
+                />
+              </section>
+
+              {/* HOW IT WORKS */}
+              <section id="pnx-how" className="w-full max-w-5xl mx-auto px-4 pt-16 scroll-mt-20">
+                <div className="text-center mb-9">
+                  <h2 className="text-2xl md:text-3xl font-bold">From question to result in <span className="pnx-gradient-text">three steps</span></h2>
+                  <p className="text-muted-foreground text-[14px] mt-2 max-w-xl mx-auto">No setup, no learning curve — just pick a workspace and go.</p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                  {[
+                    { n: '1', t: 'Pick a workspace', d: 'Choose Academic Writing, Literature Review, or SciViz depending on what you need to do.' },
+                    { n: '2', t: 'Bring your topic or papers', d: 'Type a research question, paste an abstract, or upload PDFs from your library.' },
+                    { n: '3', t: 'Get AI output with citations', d: 'Receive drafts, evidence tables, reports, or visuals — every claim backed by a real source.' },
+                  ].map((s) => (
+                    <div key={s.n} className="pnx-card rounded-2xl border border-border bg-card p-6 text-left">
+                      <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center font-bold text-[17px] mb-4">{s.n}</div>
+                      <h3 className="font-bold text-[16px] mb-1.5">{s.t}</h3>
+                      <p className="text-[13.5px] text-muted-foreground leading-relaxed">{s.d}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              {/* CTA STRIP */}
+              <section className="w-full max-w-5xl mx-auto px-4 pt-16">
+                <div className="rounded-3xl border border-border bg-gradient-to-br from-blue-600/10 via-card to-card p-8 md:p-12 text-center">
+                  <h2 className="text-2xl md:text-3xl font-bold">Ready to accelerate your research?</h2>
+                  <p className="text-muted-foreground text-[14px] mt-2 max-w-lg mx-auto">Join researchers using Pinnovix to write, review, and visualize faster.</p>
+                  <button onClick={() => { if (authConfigured && !authUser) { setAuthOpen(true); } else { const el = document.getElementById('pnx-personas'); if (el) el.scrollIntoView({ behavior: 'smooth' }); } }} className="mt-6 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-7 py-3 rounded-xl text-[15px] shadow-lg shadow-blue-600/20 transition-colors">
+                    {authUser ? 'Open a workspace' : 'Get started free'}
+                  </button>
+                </div>
+              </section>
+
+              {/* FOOTER */}
+              <footer className="w-full max-w-5xl mx-auto px-4 pt-14 pb-10 mt-6 border-t border-border/60 mt-14">
+                <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <span className="w-6 h-6 bg-contain bg-no-repeat bg-center shrink-0" style={{ backgroundImage: 'url(/logo.png)' }} />
+                    <span className="font-bold tracking-wide">Pinnovix</span>
+                    <span className="text-[12.5px] text-muted-foreground">· AI research workspace</span>
+                  </div>
+                  <div className="flex items-center gap-5 text-[13px] text-muted-foreground">
+                    <span className="hover:text-foreground cursor-default">Privacy</span>
+                    <span className="hover:text-foreground cursor-default">Terms</span>
+                    <a href="mailto:support@pinnovix.app" className="hover:text-foreground">Contact</a>
+                  </div>
+                </div>
+                <div className="text-[12px] text-muted-foreground/70 mt-4 text-center md:text-left">© {new Date().getFullYear()} Pinnovix. Built for researchers.</div>
+              </footer>
             </div>
           </div>
         ) : (

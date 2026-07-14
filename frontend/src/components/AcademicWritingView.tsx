@@ -336,6 +336,8 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const [citeResults, setCiteResults] = useState<any[]>([]);
   const [citeSearching, setCiteSearching] = useState(false);
   const [citations, setCitations] = useState<any[]>([]);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<any>(null);
   const [citationStyleId, setCitationStyleId] = useState('apa');
   const [selectedStyleId, setSelectedStyleId] = useState('apa');
   const [cslBib, setCslBib] = useState<string[] | null>(null);
@@ -2388,6 +2390,46 @@ Document: "${editor?.getText() || documentContent}"`, {
     });
   };
 
+  // Real, database-backed citation verification (no AI backend needed):
+  // dedupes references and validates each against Crossref.
+  const verifyCitations = async () => {
+    const norm = (t: string) => (t || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 80);
+    const cites = citations || [];
+    if (!cites.length) { setVerifyResult({ empty: true }); return; }
+    setVerifying(true);
+    setVerifyResult(null);
+    const seen: any = {}; const duplicates: any[] = []; const uniq: any[] = [];
+    cites.forEach((c) => {
+      const doi = (c.doi || '').toString().toLowerCase().replace(/^https?:\/\/(dx\.)?doi\.org\//, '');
+      const key = doi ? 'doi:' + doi : 'ti:' + norm(c.title);
+      if (key === 'ti:') { uniq.push(c); return; }
+      if (seen[key]) duplicates.push(c); else { seen[key] = 1; uniq.push(c); }
+    });
+    const verified: any[] = []; const unresolved: any[] = [];
+    for (const c of uniq) {
+      let ok = false; let resolvedDoi = c.doi || '';
+      try {
+        const doi = (c.doi || '').toString().replace(/^https?:\/\/(dx\.)?doi\.org\//, '');
+        if (doi) {
+          const r = await fetch('https://api.crossref.org/works/' + encodeURIComponent(doi) + '?mailto=support@pinnovix.app');
+          ok = r.ok;
+        } else if (c.title) {
+          const r = await fetch('https://api.crossref.org/works?rows=1&mailto=support@pinnovix.app&query.bibliographic=' + encodeURIComponent(c.title));
+          const j = await r.json();
+          const item = j && j.message && j.message.items && j.message.items[0];
+          if (item) {
+            const it = norm(Array.isArray(item.title) ? item.title[0] : item.title);
+            const mine = norm(c.title);
+            if (it && mine && (it.indexOf(mine.slice(0, 28)) !== -1 || mine.indexOf(it.slice(0, 28)) !== -1)) { ok = true; resolvedDoi = item.DOI || ''; }
+          }
+        }
+      } catch {}
+      (ok ? verified : unresolved).push({ ...c, resolvedDoi });
+    }
+    setVerifyResult({ total: cites.length, verified: verified, unresolved: unresolved, duplicates: duplicates });
+    setVerifying(false);
+  };
+
   const handleClaimConfidence = () => {
     setActiveReviewTab('claim');
     fetchReview(`Review the following text for claims. Return ONLY a valid JSON object. Do not use markdown formatting. Format must be exactly:
@@ -4003,15 +4045,51 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                    <p className="text-[13px] text-gray-400 leading-relaxed">
                      Checks your writing, finds missing or weak citations, and adds references to help you avoid academic plagiarism
                    </p>
-                   <div className="flex items-center gap-3 mt-2">
+                   <div className="flex items-center gap-3 mt-2 flex-wrap">
                      <button onClick={handleClaimConfidence} disabled={loading} className="flex items-center gap-2 border border-[#333] rounded-lg px-3 py-1.5 hover:bg-[#1b2c4e] transition-colors disabled:opacity-50">
                         <Play className="w-3.5 h-3.5 text-gray-300" />
                         <span className="text-[13px] font-bold text-white">Run review</span>
+                     </button>
+                     <button onClick={verifyCitations} disabled={verifying} className="flex items-center gap-2 border border-[#333] rounded-lg px-3 py-1.5 hover:bg-[#1b2c4e] transition-colors disabled:opacity-50">
+                        {verifying ? <Loader2 className="w-3.5 h-3.5 text-gray-300 animate-spin" /> : <Check className="w-3.5 h-3.5 text-gray-300" />}
+                        <span className="text-[13px] font-bold text-white">{verifying ? 'Verifying…' : 'Verify DOIs'}</span>
                      </button>
                      <button onClick={() => setShowClaimConfidenceSettings(true)} className="text-gray-400 hover:text-white transition-colors">
                        <SlidersHorizontal className="w-4 h-4" />
                      </button>
                    </div>
+                   {verifyResult ? (
+                     <div className="mt-1 border-t border-[#1b2c4e] pt-3 flex flex-col gap-2">
+                       {verifyResult.empty ? (
+                         <div className="text-[12.5px] text-gray-400">No references found in your document yet. Add citations, then verify.</div>
+                       ) : (
+                         <>
+                           <div className="flex items-center gap-3 text-[12.5px] flex-wrap">
+                             <span className="flex items-center gap-1.5 text-green-400 font-semibold"><Check className="w-3.5 h-3.5" /> {verifyResult.verified.length} verified</span>
+                             <span className="flex items-center gap-1.5 text-amber-400 font-semibold">⚠ {verifyResult.unresolved.length} unresolved</span>
+                             <span className="flex items-center gap-1.5 text-gray-400 font-semibold">⧉ {verifyResult.duplicates.length} duplicate{verifyResult.duplicates.length === 1 ? '' : 's'}</span>
+                           </div>
+                           {verifyResult.unresolved.length ? (
+                             <div>
+                               <div className="text-[11px] font-bold text-amber-400 uppercase tracking-wide mb-1">Could not verify</div>
+                               {verifyResult.unresolved.slice(0, 8).map((c: any, i: number) => (
+                                 <div key={i} className="text-[12px] text-gray-300 py-0.5 truncate">• {c.title || c.intext || 'Untitled reference'}{c.year ? ' (' + c.year + ')' : ''}</div>
+                               ))}
+                               <div className="text-[11px] text-gray-500 mt-1">These may have a wrong/missing DOI or an inexact title — double‑check them.</div>
+                             </div>
+                           ) : null}
+                           {verifyResult.duplicates.length ? (
+                             <div>
+                               <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1">Duplicates</div>
+                               {verifyResult.duplicates.slice(0, 6).map((c: any, i: number) => (
+                                 <div key={i} className="text-[12px] text-gray-300 py-0.5 truncate">• {c.title || 'Untitled'}</div>
+                               ))}
+                             </div>
+                           ) : null}
+                         </>
+                       )}
+                     </div>
+                   ) : null}
                  </div>
 
                  {/* Card: Expert Review */}
