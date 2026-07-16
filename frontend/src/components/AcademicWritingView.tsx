@@ -85,6 +85,17 @@ function toRis(cites: any[]): string {
   }).join('\n\n');
 }
 
+function toCsv(cites: any[]): string {
+  const esc = (v: any) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const rows = [['#', 'Authors', 'Title', 'Year', 'Journal', 'DOI', 'URL']];
+  cites.forEach((c, i) => {
+    const al = citeAuthorList(c.authors);
+    const authors = al.map((a: any) => `${a.family || ''}${a.given ? ', ' + a.given : ''}`).join('; ');
+    rows.push([String(i + 1), authors, c.title || c.intext || '', c.year || '', c.container || '', c.doi || '', c.doi ? 'https://doi.org/' + c.doi : '']);
+  });
+  return rows.map((r) => r.map(esc).join(',')).join('\r\n');
+}
+
 function formatReference(meta: any, style: string, index: number) {
   const authors = citeAuthorList(meta.authors);
   const year = meta.year || 'n.d.';
@@ -3431,7 +3442,9 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                     <button onClick={() => handleDownload('txt')} className="w-full text-left px-4 py-2 hover:bg-[#222] transition-colors text-white font-medium text-[13px] border-b border-[#333]">Plain Text (.txt)</button>
                     <button onClick={() => handleDownload('html')} className="w-full text-left px-4 py-2 hover:bg-[#222] transition-colors text-white font-medium text-[13px] border-b border-[#333]">HTML (.html)</button>
                     <button onClick={() => { setDownloadMenuOpen(false); downloadText(toBibtex(citations), `${projectName || 'references'}.bib`, 'application/x-bibtex'); }} disabled={!citations.length} className="w-full text-left px-4 py-2 hover:bg-[#222] transition-colors text-white font-medium text-[13px] border-b border-[#333] disabled:opacity-40">References (.bib)</button>
-                    <button onClick={() => { setDownloadMenuOpen(false); downloadText(toRis(citations), `${projectName || 'references'}.ris`, 'application/x-research-info-systems'); }} disabled={!citations.length} className="w-full text-left px-4 py-2 hover:bg-[#222] transition-colors text-white font-medium text-[13px] disabled:opacity-40">References (.ris)</button>
+                    <button onClick={() => { setDownloadMenuOpen(false); downloadText(toRis(citations), `${projectName || 'references'}.ris`, 'application/x-research-info-systems'); }} disabled={!citations.length} className="w-full text-left px-4 py-2 hover:bg-[#222] transition-colors text-white font-medium text-[13px] border-b border-[#333] disabled:opacity-40">References (.ris)</button>
+                    <button onClick={() => { setDownloadMenuOpen(false); downloadText(toCsv(citations), `${projectName || 'references'}.csv`, 'text/csv'); }} disabled={!citations.length} className="w-full text-left px-4 py-2 hover:bg-[#222] transition-colors text-white font-medium text-[13px] border-b border-[#333] disabled:opacity-40">References (.csv)</button>
+                    <button onClick={() => { setDownloadMenuOpen(false); downloadText(toCsv(citations), `${projectName || 'references'}.xls`, 'application/vnd.ms-excel'); }} disabled={!citations.length} className="w-full text-left px-4 py-2 hover:bg-[#222] transition-colors text-white font-medium text-[13px] disabled:opacity-40">References (Excel)</button>
                   </div>
                 )}
              </div>
@@ -3855,6 +3868,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                         {genMode === 'paragraph' && <button onClick={insertBibliography} title="Insert this list into the document" className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors">Insert into document</button>}
                         <button onClick={() => downloadText(toBibtex(citations), `${projectName || 'references'}.bib`, 'application/x-bibtex')} title="Export BibTeX (.bib)" className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors">.bib</button>
                         <button onClick={() => downloadText(toRis(citations), `${projectName || 'references'}.ris`, 'application/x-research-info-systems')} title="Export RIS (.ris)" className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors">.ris</button>
+                        <button onClick={() => downloadText(toCsv(citations), `${projectName || 'references'}.csv`, 'text/csv')} title="Export CSV / Excel (.csv)" className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors">.csv</button>
                         <button onClick={() => { const txt = (cslBib && cslBib.length) ? cslBib.map(stripHtml).join('\n') : citations.map((c, i) => formatReference(c, citationStyle, i + 1)).join('\n'); navigator.clipboard?.writeText(txt); }} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors">Copy all</button>
                       </div>
                     </div>

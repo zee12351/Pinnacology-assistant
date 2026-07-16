@@ -278,6 +278,42 @@ async function searchCrossref(q: string, n: number): Promise<any[]> {
   } catch { return []; }
 }
 
+async function searchPubMed(q: string, n: number): Promise<any[]> {
+  try {
+    const es = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmode=json&retmax=' + n + '&term=' + encodeURIComponent(q);
+    const r1 = await fetch(es); const j1 = await r1.json();
+    const ids: string[] = (j1 && j1.esearchresult && j1.esearchresult.idlist) || [];
+    if (!ids.length) return [];
+    const su = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&retmode=json&id=' + ids.join(',');
+    const r2 = await fetch(su); const j2 = await r2.json();
+    const res = (j2 && j2.result) || {};
+    return ids.map((id: string, i: number) => {
+      const it = res[id]; if (!it) return null;
+      const authors = (it.authors || []).map((a: any) => a.name).filter(Boolean);
+      const doiObj = (it.articleids || []).find((x: any) => x.idtype === 'doi');
+      const doi = doiObj ? doiObj.value : '';
+      const ym = (it.pubdate || '').match(/\d{4}/);
+      return normPaper({ id: 'pm' + id, title: it.title || '', authors: authors, year: ym ? ym[0] : '', venue: it.fulljournalname || it.source || '', cited: 0, doi: doi, url: doi ? 'https://doi.org/' + doi : 'https://pubmed.ncbi.nlm.nih.gov/' + id + '/', oa: false, fullText: false, abstract: '', i: i, source: 'PubMed' });
+    }).filter(Boolean).filter((p: any) => p.title);
+  } catch { return []; }
+}
+
+async function searchDOAJ(q: string, n: number): Promise<any[]> {
+  try {
+    const url = 'https://doaj.org/api/search/articles/' + encodeURIComponent(q) + '?pageSize=' + Math.min(n, 50);
+    const r = await fetch(url); const j = await r.json();
+    const list = (j && j.results) || [];
+    return list.map((it: any, i: number) => {
+      const b = it.bibjson || {};
+      const authors = (b.author || []).map((a: any) => a.name).filter(Boolean);
+      const doiObj = (b.identifier || []).find((x: any) => (x.type || '').toLowerCase() === 'doi');
+      const doi = doiObj ? doiObj.id : '';
+      const link = (b.link && b.link[0] && b.link[0].url) || (doi ? 'https://doi.org/' + doi : '');
+      return normPaper({ id: 'doaj' + (it.id || i), title: b.title || '', authors: authors, year: b.year || '', venue: (b.journal && b.journal.title) || '', cited: 0, doi: doi, url: link, oa: true, fullText: true, abstract: b.abstract || '', i: i, source: 'DOAJ' });
+    }).filter((p: any) => p.title);
+  } catch { return []; }
+}
+
 function normTitleKey(t: string): string {
   return (t || '').toLowerCase().replace(/<[^>]+>/g, '').replace(/[^a-z0-9]/g, '').slice(0, 80);
 }
@@ -320,15 +356,17 @@ async function searchPapers(q: string, source: string, n: number): Promise<any[]
   n = n || 12;
   let results: any[] = [];
   if (source === 'all') {
-    const per = Math.max(6, Math.ceil(n / 2) + 2);
+    const per = Math.max(5, Math.ceil(n / 3) + 1);
     const arrs = await Promise.all([
-      searchOpenAlex(q, per), searchSemanticScholar(q, per), searchEuropePMC(q, per), searchArxiv(q, Math.min(per, 6)), searchCrossref(q, per),
+      searchOpenAlex(q, per), searchSemanticScholar(q, per), searchEuropePMC(q, per), searchArxiv(q, Math.min(per, 6)), searchCrossref(q, per), searchPubMed(q, per), searchDOAJ(q, per),
     ]);
     results = ([] as any[]).concat.apply([], arrs);
   } else if (source === 'semanticscholar') results = await searchSemanticScholar(q, n + 6);
   else if (source === 'europepmc') results = await searchEuropePMC(q, n + 6);
   else if (source === 'arxiv') results = await searchArxiv(q, n + 4);
   else if (source === 'crossref') results = await searchCrossref(q, n + 6);
+  else if (source === 'pubmed') results = await searchPubMed(q, n + 6);
+  else if (source === 'doaj') results = await searchDOAJ(q, n + 6);
   else results = await searchOpenAlex(q, n + 8);
   return dedupeAndRank(results).slice(0, n).map((p, i) => ({ ...p, idx: i, rel: 100000 - i }));
 }
@@ -448,7 +486,8 @@ function titleCaseFirst(s: string): string {
 }
 
 // Comprehensive research report built deterministically from the screened sources.
-function synthesizeReport(question: string, screened: any[], totalFound: number): { title: string; abstract: string; body: string } {
+function synthesizeReport(question: string, screened: any[], totalFound: number, reviewType?: string): { title: string; abstract: string; body: string } {
+  const rt = reviewType || 'Systematic';
   const q = cleanText(question).replace(/[.\s"']+$/, '');
   const scr = (screened || []).filter(Boolean);
   const years = scr.map((s) => parseInt(String(s.year), 10)).filter((y) => !isNaN(y));
@@ -463,7 +502,7 @@ function synthesizeReport(question: string, screened: any[], totalFound: number)
   // Bottom-line answer + synthesised abstract with multi-source citations.
   const lead = scr[0] ? titleCaseFirst(firstSentences(scr[0].abstract, 1)) : ('Evidence on ' + q + ' is summarised below.');
   let abstract = '**' + lead + '**\n\n';
-  abstract += 'This report synthesises ' + scr.length + ' studies' + (span ? ' published across ' + span : '') + ' on ' + q + ', screened from ' + totalFound + ' retrieved records';
+  abstract += 'This ' + rt.toLowerCase() + ' review synthesises ' + scr.length + ' studies' + (span ? ' published across ' + span : '') + ' on ' + q + ', screened from ' + totalFound + ' retrieved records';
   abstract += venues.length ? ' and spanning venues such as ' + venues.slice(0, 3).join(', ') + '. ' : '. ';
   if (scr[1]) abstract += titleCaseFirst(firstSentences(scr[1].abstract, 1)) + ' [2]. ';
   if (scr[2]) abstract += titleCaseFirst(firstSentences(scr[2].abstract, 1)) + ' [3]. ';
@@ -610,6 +649,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
 
   // Report
   const [reportInput, setReportInput] = useState('');
+  const [reviewType, setReviewType] = useState('Systematic');
+  const [reviewTypeMenu, setReviewTypeMenu] = useState(false);
   const [reportSource, setReportSource] = useState('Research papers');
   const [reportSrcMenu, setReportSrcMenu] = useState(false);
   const [report, setReport] = useState(null as any);
@@ -690,6 +731,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [libSearch, setLibSearch] = useState('');
   const [libView, setLibView] = useState('list');
   const [selRows, setSelRows] = useState({} as any);
+  const [compareOpen, setCompareOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareEmail, setShareEmail] = useState('');
   const [shareList, setShareList] = useState([] as any[]);
@@ -1055,7 +1097,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     }
   }
 
-  async function runReport(q: string, source: string) {
+  async function runReport(q: string, source: string, rtype?: string) {
+    const rt = rtype || 'Systematic';
     setMode('report');
     setNavView('search');
     setDetailsOpen(false);
@@ -1063,7 +1106,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     pushRecent(q, 'Research report');
     setReportBusy(true);
     setReportPhase('Gathering sources...');
-    setReport({ question: q, source: source, title: '', abstract: '', body: '', sources: [], screened: [], done: {} });
+    setReport({ question: q, source: source, reviewType: rt, title: '', abstract: '', body: '', sources: [], screened: [], done: {} });
     let sources: any[] = [];
     try {
       if (source === 'Clinical trials') {
@@ -1085,14 +1128,21 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       setReport((prev: any) => ({ ...prev, done: { gather: true, screen: true } }));
       setReportPhase('Extracting key metrics and findings from each paper...');
       const srcTxt = screened.map((p, i) => '[' + (i + 1) + '] ' + p.title + ' (' + p.authorStr + ', ' + p.year + '). ' + (p.abstract || 'No abstract').slice(0, 600)).join('\n\n');
-      const shape = '{"title": "short report title, max 8 words", "abstract": "2-3 paragraph abstract summarising the evidence with specific numbers and [1]-style citations", "body": "the full report in Markdown with ## section headings (Search and screening, Key findings, Characteristics of included studies as a bold-labelled bullet list — NOT a table, Synthesis) and inline [n] citations"}';
-      const prompt = 'Write a structured systematic-review-style research report that answers: "' + q + '". Use ONLY the ' + screened.length + ' sources below. Include specific findings, numbers and caveats, and inline [n] citations matching the source numbers. Do not use Markdown tables; use bold-labelled bullet lists instead. Return ONLY valid JSON, no fences, in this shape: ' + shape + '\n\nSources:\n' + srcTxt;
+      const rtGuide: any = {
+        Narrative: 'a NARRATIVE review — flowing prose that weaves the studies into a coherent story, lighter on formal screening sections',
+        Systematic: 'a SYSTEMATIC review — rigorous, with explicit search/screening, structured findings and a study-characteristics list',
+        Scoping: 'a SCOPING review — map the breadth of the evidence, themes and study types, and highlight where evidence is concentrated or missing',
+        Mini: 'a MINI review — concise, focusing on the few most important papers and their headline findings',
+        Rapid: 'a RAPID review — a fast, high-level overview of the key takeaways with minimal formal structure',
+      };
+      const shape = '{"title": "short report title, max 8 words", "abstract": "2-3 paragraph abstract summarising the evidence with specific numbers and [1]-style citations", "body": "the full report in Markdown with ## section headings and inline [n] citations. Use bold-labelled bullet lists, NOT tables."}';
+      const prompt = 'Write ' + (rtGuide[rt] || rtGuide.Systematic) + ' that answers: "' + q + '". Use ONLY the ' + screened.length + ' sources below. Include specific findings, numbers and caveats, and inline [n] citations matching the source numbers. Do not use Markdown tables; use bold-labelled bullet lists instead. Return ONLY valid JSON, no fences, in this shape: ' + shape + '\n\nSources:\n' + srcTxt;
       setReport((prev: any) => ({ ...prev, done: { gather: true, screen: true, extract: true } }));
       setReportPhase('Generating report and summarising findings...');
       const raw = await callChat(prompt);
       const parsed = extractJSON(raw);
       const modelOk = !!(parsed && parsed.body && String(raw).indexOf('⚠') !== 0);
-      const fb = synthesizeReport(q, screened, sources.length);
+      const fb = synthesizeReport(q, screened, sources.length, rt);
       setReport((prev: any) => ({
         ...prev,
         title: (parsed && parsed.title) || fb.title,
@@ -1101,7 +1151,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         done: { gather: true, screen: true, extract: true, generate: true },
       }));
     } catch {
-      const fb = synthesizeReport(q, sources.slice(0, 10), sources.length);
+      const fb = synthesizeReport(q, sources.slice(0, 10), sources.length, rt);
       setReport((prev: any) => ({ ...prev, title: fb.title, abstract: fb.abstract, body: fb.body, done: { gather: true, screen: true, extract: true, generate: true } }));
     } finally {
       setReportBusy(false);
@@ -1436,11 +1486,20 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const filteredRecents = recents.filter((r) => !recentSearch || (r.question || '').toLowerCase().indexOf(recentSearch.toLowerCase()) !== -1);
   const shownDocs = libDocs.filter((d) => (activeCol === 'all' || activeCol === 'trash') ? activeCol !== 'trash' : d.collection === activeCol).filter((d) => !libSearch || docName(d).toLowerCase().indexOf(libSearch.toLowerCase()) !== -1);
 
+  const REVIEW_TYPES = [
+    { id: 'Narrative', desc: 'Flowing prose synthesis of the themes' },
+    { id: 'Systematic', desc: 'Structured search, screening and extraction' },
+    { id: 'Scoping', desc: 'Maps the breadth of evidence and themes' },
+    { id: 'Mini', desc: 'Concise synthesis of the top few papers' },
+    { id: 'Rapid', desc: 'Fast, high-level overview' },
+  ];
   const SOURCES = [
     { id: 'openalex', label: 'OpenAlex' },
     { id: 'all', label: 'All sources' },
     { id: 'semanticscholar', label: 'Semantic Scholar' },
-    { id: 'europepmc', label: 'Europe PMC' },
+    { id: 'pubmed', label: 'PubMed' },
+    { id: 'europepmc', label: 'Europe PMC / PMC' },
+    { id: 'doaj', label: 'DOAJ (open access)' },
     { id: 'arxiv', label: 'arXiv' },
     { id: 'crossref', label: 'Crossref' },
   ];
@@ -1907,21 +1966,39 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                   ))}
                 </div>
               </div>
-              <div className="flex items-center justify-between px-4 py-3 border-t border-border">
-                <div className="relative">
-                  <button onClick={() => setReportSrcMenu((v) => !v)} className="inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[13px] font-semibold hover:bg-muted">Source <span className="text-primary">{reportSource}</span> <ChevronDown className="w-3.5 h-3.5" /></button>
-                  {reportSrcMenu ? (
-                    <>
-                      <div className="fixed inset-0 z-[40]" onClick={() => setReportSrcMenu(false)} />
-                      <div className="absolute z-[41] bottom-[110%] left-0 w-[200px] bg-card border border-border rounded-xl shadow-2xl p-1.5">
-                        {['Research papers', 'Clinical trials'].map((s) => (
-                          <button key={s} onClick={() => { setReportSource(s); setReportSrcMenu(false); }} className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-[13.5px] hover:bg-muted text-left">{s} {reportSource === s ? <Check className="w-3.5 h-3.5 text-primary" /> : null}</button>
-                        ))}
-                      </div>
-                    </>
-                  ) : null}
+              <div className="flex items-center justify-between px-4 py-3 border-t border-border gap-2 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="relative">
+                    <button onClick={() => setReportSrcMenu((v) => !v)} className="inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[13px] font-semibold hover:bg-muted">Source <span className="text-primary">{reportSource}</span> <ChevronDown className="w-3.5 h-3.5" /></button>
+                    {reportSrcMenu ? (
+                      <>
+                        <div className="fixed inset-0 z-[40]" onClick={() => setReportSrcMenu(false)} />
+                        <div className="absolute z-[41] bottom-[110%] left-0 w-[200px] bg-card border border-border rounded-xl shadow-2xl p-1.5">
+                          {['Research papers', 'Clinical trials'].map((s) => (
+                            <button key={s} onClick={() => { setReportSource(s); setReportSrcMenu(false); }} className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-[13.5px] hover:bg-muted text-left">{s} {reportSource === s ? <Check className="w-3.5 h-3.5 text-primary" /> : null}</button>
+                          ))}
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                  <div className="relative">
+                    <button onClick={() => setReviewTypeMenu((v) => !v)} className="inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[13px] font-semibold hover:bg-muted">Review <span className="text-primary">{reviewType}</span> <ChevronDown className="w-3.5 h-3.5" /></button>
+                    {reviewTypeMenu ? (
+                      <>
+                        <div className="fixed inset-0 z-[40]" onClick={() => setReviewTypeMenu(false)} />
+                        <div className="absolute z-[41] bottom-[110%] left-0 w-[260px] bg-card border border-border rounded-xl shadow-2xl p-1.5">
+                          {REVIEW_TYPES.map((rt) => (
+                            <button key={rt.id} onClick={() => { setReviewType(rt.id); setReviewTypeMenu(false); }} className="w-full flex items-start justify-between gap-2 px-3 py-2 rounded-lg text-left hover:bg-muted">
+                              <span><span className="text-[13.5px] font-semibold">{rt.id} review</span><span className="block text-[11.5px] text-muted-foreground">{rt.desc}</span></span>
+                              {reviewType === rt.id ? <Check className="w-3.5 h-3.5 text-primary mt-0.5 shrink-0" /> : null}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
                 </div>
-                <button onClick={() => reportInput.trim() && runReport(reportInput.trim(), reportSource)} disabled={!reportInput.trim()} className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40" title="Generate report"><ArrowRight className="w-4 h-4" /></button>
+                <button onClick={() => reportInput.trim() && runReport(reportInput.trim(), reportSource, reviewType)} disabled={!reportInput.trim()} className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40" title="Generate report"><ArrowRight className="w-4 h-4" /></button>
               </div>
             </div>
           ) : mode === 'extract' ? (
@@ -2040,7 +2117,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
             <span className="inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[12.5px]">Source <span className="text-primary font-semibold">{report ? report.source : ''}</span></span>
             <button className="inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[12.5px]"><SlidersHorizontal className="w-3.5 h-3.5" /> Filters</button>
             <div className="flex-1" />
-            <button onClick={() => report && runReport(report.question, report.source)} className="bg-primary/90 text-primary-foreground rounded-lg px-3 py-1.5 text-[12.5px] font-semibold">Update search</button>
+            <button onClick={() => report && runReport(report.question, report.source, report.reviewType)} className="bg-primary/90 text-primary-foreground rounded-lg px-3 py-1.5 text-[12.5px] font-semibold">Update search</button>
             <button onClick={() => setDetailsOpen(false)} className="border border-border rounded-lg px-3 py-1.5 text-[12.5px] text-muted-foreground">Back to report</button>
           </div>
         </div>
@@ -2118,6 +2195,29 @@ export function LiteratureReviewView({ messages, onHome }: any) {
           {report && report.body ? (
             <div className="prose prose-sm dark:prose-invert max-w-none text-[14.5px] leading-relaxed"><ReactMarkdown components={{ a: (props: any) => <a {...props} target="_blank" rel="noreferrer" className="text-primary font-semibold no-underline hover:underline" /> }}>{linkifyAgent(report.body, reportScreened)}</ReactMarkdown></div>
           ) : null}
+          {report && report.done && report.done.generate && reportSources.length ? (() => {
+            const identified = reportSources.length;
+            const included = reportScreened.length;
+            const excluded = Math.max(0, identified - included);
+            const boxCls = 'w-full max-w-md mx-auto border border-border rounded-lg px-4 py-3 text-[13px] bg-card';
+            const arrow = <div className="w-px h-5 bg-border mx-auto" />;
+            return (
+              <div className="mt-8 border-t border-border pt-5">
+                <div className="text-[12px] font-bold text-muted-foreground uppercase mb-3">PRISMA flow</div>
+                <div className="flex flex-col items-center gap-0">
+                  <div className={boxCls}><span className="font-semibold">Identification.</span> {identified} records identified through database searching.</div>
+                  {arrow}
+                  <div className={boxCls}><span className="font-semibold">Screening.</span> {identified} records screened on title & abstract.</div>
+                  {arrow}
+                  <div className={boxCls + ' border-amber-400/50'}><span className="font-semibold">Excluded.</span> {excluded} records excluded (off‑topic, duplicates, no abstract).</div>
+                  {arrow}
+                  <div className={boxCls}><span className="font-semibold">Eligibility.</span> {included} full‑text articles assessed for eligibility.</div>
+                  {arrow}
+                  <div className={boxCls + ' border-primary/60 bg-primary/5'}><span className="font-semibold text-primary">Included.</span> {included} studies included in the synthesis.</div>
+                </div>
+              </div>
+            );
+          })() : null}
           {reportScreened.length ? (
             <div className="mt-8 border-t border-border pt-4">
               <div className="text-[12px] font-bold text-muted-foreground uppercase mb-2">Sources</div>
@@ -2308,6 +2408,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
               </>
             ) : null}
           </div>
+          <button onClick={() => setCompareOpen(true)} disabled={Object.values(selRows).filter(Boolean).length < 2} title="Select 2+ papers to compare" className="flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40"><Table2 className="w-3.5 h-3.5" /> Compare{Object.values(selRows).filter(Boolean).length >= 2 ? ' (' + Object.values(selRows).filter(Boolean).length + ')' : ''}</button>
           <button onClick={saveLibrary} disabled={!papers.length} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40"><Bookmark className="w-3.5 h-3.5" /> {saved ? 'Saved' : (Object.values(selRows).filter(Boolean).length ? 'Save ' + Object.values(selRows).filter(Boolean).length + ' to library' : 'Save to library')}</button>
         </div>
 
@@ -2700,6 +2801,58 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       </div>
     </>
   ) : null;
+  const compareModalEl = compareOpen ? (() => {
+    const cols = view().filter((p: any) => selRows[p.id]);
+    const sent = (txt: string, kws: string[]) => {
+      const s = cleanText(txt); if (!s) return '';
+      const parts = s.match(/[^.!?]+[.!?]+/g) || [s];
+      const hit = parts.find((pp) => kws.some((k) => pp.toLowerCase().indexOf(k) !== -1));
+      return hit ? hit.trim() : '';
+    };
+    const rows = [
+      { label: 'Authors', get: (p: any) => p.authorStr || '—' },
+      { label: 'Year', get: (p: any) => p.year || '—' },
+      { label: 'Venue', get: (p: any) => cleanText(p.venue) || '—' },
+      { label: 'Citations', get: (p: any) => (p.cited != null ? String(p.cited) : '—') },
+      { label: 'Objective / focus', get: (p: any) => firstSentences(p.abstract, 1) || cleanText(p.title) || '—' },
+      { label: 'Methods', get: (p: any) => sent(p.abstract, ['method', 'approach', 'we use', 'using', 'dataset', 'experiment', 'model', 'simulation', 'analys', 'framework']) || '—' },
+      { label: 'Key findings', get: (p: any) => firstSentences(p.abstract, 2) || '—' },
+      { label: 'Limitations', get: (p: any) => sent(p.abstract, ['limitation', 'however', 'challenge', 'constraint', 'remain', 'future work']) || '—' },
+    ];
+    return (
+      <div className="fixed inset-0 z-[72] bg-black/50 flex items-center justify-center p-3 md:p-6" onClick={() => setCompareOpen(false)}>
+        <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-5xl max-h-[88vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
+            <div><div className="text-[16px] font-bold">Compare papers</div><div className="text-[12.5px] text-muted-foreground">{cols.length} papers side by side</div></div>
+            <button onClick={() => setCompareOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+          </div>
+          <div className="flex-1 overflow-auto custom-scrollbar p-4">
+            <table className="w-full text-[13px] border-collapse">
+              <thead>
+                <tr>
+                  <th className="sticky left-0 bg-card text-left p-2 w-[130px] z-10" />
+                  {cols.map((p: any, i: number) => (
+                    <th key={i} className="text-left p-2 align-top min-w-[220px] border-l border-border">
+                      <div className="font-bold leading-snug">{p.title}</div>
+                      {p.url ? <a href={p.url} target="_blank" rel="noreferrer" className="text-[11.5px] text-primary font-semibold">Open paper</a> : null}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.label} className="border-t border-border align-top">
+                    <td className="sticky left-0 bg-card font-semibold text-muted-foreground p-2 text-[11px] uppercase tracking-wide z-10">{r.label}</td>
+                    {cols.map((p: any, i: number) => (<td key={i} className="p-2 border-l border-border text-foreground/90 leading-snug">{r.get(p)}</td>))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  })() : null;
   const settingsEl = settingsOpen ? (
     <div className="fixed inset-0 z-[72] bg-black/50 flex items-start justify-center p-6 overflow-y-auto" onClick={() => setSettingsOpen(false)}>
       <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg my-6" onClick={(e) => e.stopPropagation()}>
@@ -2763,6 +2916,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       {tagModalEl}
       {moveMenuEl}
       {settingsEl}
+      {compareModalEl}
     </div>
   );
 }
