@@ -141,6 +141,7 @@ export default function HomePage() {
   const [selectedPersona, setSelectedPersona] = useState('ACADEMIC WRITING');
   const [isPersonaDropdownOpen, setIsPersonaDropdownOpen] = useState(false);
   const [isPreferencesOpen, setIsPreferencesOpen] = useState(false);
+  const [pricingOpen, setPricingOpen] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const { theme, setTheme } = useTheme();
 
@@ -524,7 +525,7 @@ export default function HomePage() {
               >
                 Theme Toggle
               </button>
-              <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-sm transition-colors shadow-sm">
+              <button onClick={() => setPricingOpen(true)} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-sm transition-colors shadow-sm">
                 See Pricing
               </button>
               {authUser ? (
@@ -767,66 +768,26 @@ export default function HomePage() {
                 </div>
               </div>
 
-              {/* Position */}
+              {/* Account */}
               <div className="px-6 py-5 border-b border-[#2a2a2a] flex justify-between items-center">
                 <div className="flex flex-col gap-1">
-                  <span className="font-bold text-[14px]">Position</span>
-                  <span className="text-[13px] text-gray-400">Adjust the placement of your dev tools.</span>
+                  <span className="font-bold text-[14px]">Account</span>
+                  <span className="text-[13px] text-gray-400">{authUser ? (authUser.email || 'Signed in') : 'You are not signed in.'}</span>
                 </div>
-                <div className="relative">
-                  <select className="appearance-none bg-[#111] border border-[#444] rounded-lg pl-4 pr-8 py-2 text-[14px] font-medium text-white hover:border-gray-400 transition-colors cursor-pointer min-w-[140px]">
-                    <option>Bottom Left</option>
-                    <option>Bottom Right</option>
-                  </select>
-                  <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400" />
-                </div>
+                {authUser ? (
+                  <button onClick={async () => { try { if (supabase) await supabase.auth.signOut(); } catch {} setAuthUser(null); }} className="border border-[#444] bg-[#111] hover:bg-[#2a2a2a] rounded-lg px-4 py-2 text-[14px] font-medium transition-colors">Log out</button>
+                ) : (
+                  <button onClick={() => { setIsPreferencesOpen(false); setAuthOpen(true); }} className="bg-blue-600 hover:bg-blue-700 rounded-lg px-4 py-2 text-[14px] font-medium transition-colors">Sign in</button>
+                )}
               </div>
 
-              {/* Size */}
-              <div className="px-6 py-5 border-b border-[#2a2a2a] flex justify-between items-center">
+              {/* Plan */}
+              <div className="px-6 py-5 bg-[#1a1a1a] flex justify-between items-center">
                 <div className="flex flex-col gap-1">
-                  <span className="font-bold text-[14px]">Size</span>
-                  <span className="text-[13px] text-gray-400">Adjust the size of your dev tools.</span>
+                  <span className="font-bold text-[14px]">Plan</span>
+                  <span className="text-[13px] text-gray-400">You are on the Free plan.</span>
                 </div>
-                <div className="relative">
-                  <select className="appearance-none bg-[#111] border border-[#444] rounded-lg pl-4 pr-8 py-2 text-[14px] font-medium text-white hover:border-gray-400 transition-colors cursor-pointer min-w-[100px]">
-                    <option>Small</option>
-                    <option>Large</option>
-                  </select>
-                  <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400" />
-                </div>
-              </div>
-
-              {/* Hide Dev Tools for this session */}
-              <div className="px-6 py-5 border-b border-[#2a2a2a] flex justify-between items-center">
-                <div className="flex flex-col gap-1">
-                  <span className="font-bold text-[14px]">Hide Dev Tools for this session</span>
-                  <span className="text-[13px] text-gray-400">Hide Dev Tools until you restart your dev server, or 1 day.</span>
-                </div>
-                <button className="border border-[#444] bg-[#111] hover:bg-[#2a2a2a] rounded-lg px-4 py-2 flex items-center gap-2 text-[14px] font-medium transition-colors">
-                  <EyeOff className="w-4 h-4" /> Hide
-                </button>
-              </div>
-
-              {/* Hide Dev Tools shortcut */}
-              <div className="px-6 py-5 border-b border-[#2a2a2a] flex justify-between items-center">
-                <div className="flex flex-col gap-1">
-                  <span className="font-bold text-[14px]">Hide Dev Tools shortcut</span>
-                  <span className="text-[13px] text-gray-400">Set a custom keyboard shortcut to toggle visibility.</span>
-                </div>
-                <button className="border border-dashed border-[#444] bg-[#111] hover:border-gray-400 rounded-lg px-4 py-2 text-[14px] font-medium transition-colors text-gray-300">
-                  Record Shortcut
-                </button>
-              </div>
-
-              {/* Disable Dev Tools for this project */}
-              <div className="px-6 py-5 bg-[#1a1a1a]">
-                <div className="flex flex-col gap-1">
-                  <span className="font-bold text-[14px]">Disable Dev Tools for this project</span>
-                  <span className="text-[13px] text-gray-400">
-                    To disable this UI completely, set <code className="bg-[#333] px-1.5 py-0.5 rounded text-gray-300 font-mono">devIndicators: false</code> in your next.config file.
-                  </span>
-                </div>
+                <button onClick={() => { setIsPreferencesOpen(false); setPricingOpen(true); }} className="border border-[#444] bg-[#111] hover:bg-[#2a2a2a] rounded-lg px-4 py-2 text-[14px] font-medium transition-colors">See plans</button>
               </div>
 
             </div>
@@ -841,6 +802,38 @@ export default function HomePage() {
         uploadingDoc={uploadingDoc}
       />
       <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} onAuthed={(u: any) => setAuthUser(u)} />
+
+      {pricingOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setPricingOpen(false)}>
+          <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-card border border-border rounded-2xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-5 border-b border-border">
+              <div>
+                <h2 className="text-xl font-bold">Simple, researcher‑friendly pricing</h2>
+                <p className="text-[13px] text-muted-foreground mt-0.5">Start free. Upgrade when you need more.</p>
+              </div>
+              <button onClick={() => setPricingOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-6">
+              {[
+                { name: 'Free', price: '$0', period: '/forever', cta: authUser ? 'Current plan' : 'Get started', highlight: false, features: ['All 3 workspaces', 'Search 138M+ papers', 'Reports with citations', 'Basic exports (PDF, Word, BibTeX)'] },
+                { name: 'Pro', price: '$12', period: '/month', cta: 'Upgrade to Pro', highlight: true, features: ['Everything in Free', 'Full‑text PDF chat (RAG)', 'Unlimited reports & extractions', 'All export formats', 'Priority AI (no cold starts)'] },
+                { name: 'Team', price: '$29', period: '/user/mo', cta: 'Contact us', highlight: false, features: ['Everything in Pro', 'Shared libraries & collections', 'Collaboration & comments', 'Zotero / Mendeley sync', 'Admin & SSO'] },
+              ].map((p) => (
+                <div key={p.name} className={'rounded-2xl border p-5 flex flex-col ' + (p.highlight ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-500/5' : 'border-border bg-card')}>
+                  {p.highlight ? <span className="self-start text-[11px] font-bold text-blue-500 bg-blue-500/10 rounded-full px-2.5 py-1 mb-2">MOST POPULAR</span> : null}
+                  <div className="font-bold text-[16px]">{p.name}</div>
+                  <div className="mt-1 mb-4"><span className="text-3xl font-bold">{p.price}</span><span className="text-[13px] text-muted-foreground">{p.period}</span></div>
+                  <ul className="flex flex-col gap-2 flex-1 mb-4">
+                    {p.features.map((f) => (<li key={f} className="flex items-start gap-2 text-[13px]"><Check className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" /> {f}</li>))}
+                  </ul>
+                  <button onClick={() => { if (p.name === 'Free') { setPricingOpen(false); if (authConfigured && !authUser) setAuthOpen(true); } else { window.location.href = 'mailto:support@pinnovix.app?subject=' + encodeURIComponent('Pinnovix ' + p.name + ' plan'); } }} className={'w-full py-2.5 rounded-lg text-[14px] font-semibold transition-colors ' + (p.highlight ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'border border-border hover:bg-muted')}>{p.cta}</button>
+                </div>
+              ))}
+            </div>
+            <div className="px-6 pb-6 text-center text-[12px] text-muted-foreground">Prices are indicative during the research preview. Questions? <a href="mailto:support@pinnovix.app" className="text-primary">support@pinnovix.app</a></div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

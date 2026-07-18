@@ -685,12 +685,18 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [colModal, setColModal] = useState(false);
   const [colName, setColName] = useState('');
   const [cellPop, setCellPop] = useState(null as any);
+  function cellConfidence(p: any, colId: string): 'high' | 'med' | 'low' {
+    const ans = String((p.cols && p.cols[colId]) || '').trim();
+    if (!ans || /^(not reported|n\/a|na|none|unknown|not stated|not mentioned|-|—)$/i.test(ans)) return 'low';
+    const hasQuote = !!(p.colQuotes && String(p.colQuotes[colId] || '').trim());
+    return hasQuote ? 'high' : 'med';
+  }
   function openCellPop(e: any, p: any, c: any) {
     try {
       const r = e.currentTarget.getBoundingClientRect();
       const vw = typeof window !== 'undefined' ? window.innerWidth : 1200;
       const q = (p.colQuotes && p.colQuotes[c.id]) || '';
-      setCellPop({ x: Math.max(8, Math.min(r.left, vw - 380)), y: r.bottom + 6, title: p.title, url: p.url, quote: q, quote2: p.abstract || '', answer: p.cols[c.id], col: c.name });
+      setCellPop({ x: Math.max(8, Math.min(r.left, vw - 380)), y: r.bottom + 6, title: p.title, url: p.url, quote: q, quote2: p.abstract || '', answer: p.cols[c.id], col: c.name, conf: cellConfidence(p, c.id) });
     } catch {}
   }
   async function runExtractFromSelection() {
@@ -2498,7 +2504,12 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                     </td>
                     {columns.map((c) => (
                       <td key={c.id} className="p-3 text-foreground/90">
-                        {p.cols[c.id] ? <button onClick={(e) => openCellPop(e, p, c)} className="text-left w-full hover:bg-muted/60 rounded px-1 -mx-1 py-0.5 transition-colors">{p.cols[c.id]}</button> : (colBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" /> : '-')}
+                        {p.cols[c.id] ? (() => {
+                          const conf = cellConfidence(p, c.id);
+                          const dot = conf === 'high' ? 'bg-green-500' : conf === 'med' ? 'bg-amber-400' : 'bg-muted-foreground/40';
+                          const tip = conf === 'high' ? 'High confidence — supported by a direct quote' : conf === 'med' ? 'Medium confidence — extracted, no direct quote' : 'Low confidence — not clearly reported';
+                          return <button onClick={(e) => openCellPop(e, p, c)} title={tip} className="text-left w-full hover:bg-muted/60 rounded px-1 -mx-1 py-0.5 transition-colors flex items-start gap-1.5"><span className={'w-1.5 h-1.5 rounded-full shrink-0 mt-[7px] ' + dot} /> <span>{p.cols[c.id]}</span></button>;
+                        })() : (colBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" /> : '-')}
                       </td>
                     ))}
                   </tr>
@@ -2758,7 +2769,10 @@ export function LiteratureReviewView({ messages, onHome }: any) {
             <button onClick={() => setCellPop(null)} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
           </div>
         </div>
-        <div className="text-[12px] font-semibold text-primary mb-1">{cellPop.col}: {cellPop.answer}</div>
+        <div className="flex items-center gap-2 mb-1">
+          <div className="text-[12px] font-semibold text-primary">{cellPop.col}: {cellPop.answer}</div>
+          {cellPop.conf ? <span className={'text-[10px] font-bold rounded-full px-2 py-0.5 ' + (cellPop.conf === 'high' ? 'bg-green-500/15 text-green-600' : cellPop.conf === 'med' ? 'bg-amber-400/15 text-amber-600' : 'bg-muted text-muted-foreground')}>{cellPop.conf === 'high' ? 'High confidence' : cellPop.conf === 'med' ? 'Medium confidence' : 'Low confidence'}</span> : null}
+        </div>
         <div className="text-[13px] leading-relaxed text-foreground/90">{cellPop.quote ? '"' + cellPop.quote + '"' : (cellPop.quote2 ? cellPop.quote2.slice(0, 400) + '...' : 'No supporting quote available for this paper.')}</div>
       </div>
     </>

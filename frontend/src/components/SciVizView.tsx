@@ -109,6 +109,12 @@ export function SciVizView({ onHome }: any) {
   const [accent, setAccent] = useState(ACCENT_DEFAULT);
   const [themeId, setThemeId] = useState('classic');
   const TH = THEMES.find((t) => t.id === themeId) || THEMES[0];
+  // Shrink font size as text grows so long titles/abstracts never overflow the canvas.
+  const fitFont = (text: any, base: number, min: number, charsAtBase: number) => {
+    const len = String(text || '').length;
+    if (len <= charsAtBase) return base;
+    return Math.max(min, Math.round(base * Math.sqrt(charsAtBase / len)));
+  };
   const [editOpen, setEditOpen] = useState(false);
   const [dlMenu, setDlMenu] = useState(false);
   const dlBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -327,7 +333,7 @@ export function SciVizView({ onHome }: any) {
   const graphical = data ? (
     <div style={{ width: 820, maxWidth: '100%', background: TH.bg, color: TH.fg, borderRadius: 16, padding: 32, fontFamily: TH.font }}>
       <div style={{ borderLeft: '6px solid ' + accent, paddingLeft: 14, marginBottom: 6 }}>
-        <div style={{ fontSize: 24, fontWeight: 800, lineHeight: 1.2 }}>{data.title}</div>
+        <div style={{ fontSize: fitFont(data.title, 24, 15, 55), fontWeight: 800, lineHeight: 1.2, overflowWrap: 'anywhere' }}>{data.title}</div>
         {data.authors ? <div style={{ fontSize: 13, color: TH.sub, marginTop: 4 }}>{data.authors}</div> : null}
       </div>
       <div style={{ display: 'flex', alignItems: 'stretch', gap: 12, marginTop: 24 }}>
@@ -361,7 +367,7 @@ export function SciVizView({ onHome }: any) {
   const poster = data ? (
     <div style={{ width: 720, background: TH.bg, color: TH.fg, borderRadius: 12, overflow: 'hidden', fontFamily: TH.font, boxShadow: '0 1px 0 #e5e7eb' }}>
       <div style={{ background: accent, color: '#fff', padding: '26px 28px' }}>
-        <div style={{ fontSize: 26, fontWeight: 800, lineHeight: 1.15 }}>{data.title}</div>
+        <div style={{ fontSize: fitFont(data.title, 26, 16, 55), fontWeight: 800, lineHeight: 1.15, overflowWrap: 'anywhere' }}>{data.title}</div>
         {data.authors ? <div style={{ fontSize: 13.5, opacity: 0.9, marginTop: 8 }}>{data.authors}</div> : null}
       </div>
       <div style={{ padding: 28, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 22 }}>
@@ -407,7 +413,7 @@ export function SciVizView({ onHome }: any) {
   const infographic = data ? (
     <div style={{ width: 560, background: TH.bg, color: TH.fg, borderRadius: 12, padding: 28, fontFamily: TH.font }}>
       <div style={{ textAlign: 'center', marginBottom: 18 }}>
-        <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.2 }}>{data.title}</div>
+        <div style={{ fontSize: fitFont(data.title, 22, 14, 50), fontWeight: 800, lineHeight: 1.2, overflowWrap: 'anywhere' }}>{data.title}</div>
         {data.authors ? <div style={{ fontSize: 12, color: TH.sub, marginTop: 4 }}>{data.authors}</div> : null}
       </div>
       {data.stats && data.stats.length ? (
@@ -443,11 +449,11 @@ export function SciVizView({ onHome }: any) {
   const slideCard = data ? (() => {
     const sl = slides[slideIdx] || slides[0];
     return (
-      <div style={{ width: 800, height: 450, background: sl.kind === 'title' ? accent : TH.bg, color: sl.kind === 'title' ? '#fff' : TH.fg, borderRadius: 14, padding: 44, fontFamily: TH.font, display: 'flex', flexDirection: 'column', justifyContent: sl.kind === 'title' ? 'center' : 'flex-start', boxShadow: '0 1px 0 #e5e7eb' }}>
+      <div style={{ width: 800, height: 450, overflow: 'hidden', background: sl.kind === 'title' ? accent : TH.bg, color: sl.kind === 'title' ? '#fff' : TH.fg, borderRadius: 14, padding: 44, fontFamily: TH.font, display: 'flex', flexDirection: 'column', justifyContent: sl.kind === 'title' ? 'center' : 'flex-start', boxShadow: '0 1px 0 #e5e7eb' }}>
         {sl.kind === 'title' ? (
           <>
-            <div style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.15 }}>{sl.h}</div>
-            {sl.sub ? <div style={{ fontSize: 16, opacity: 0.9, marginTop: 16 }}>{sl.sub}</div> : null}
+            <div style={{ fontSize: fitFont(sl.h, 34, 20, 45), fontWeight: 800, lineHeight: 1.15, overflowWrap: 'anywhere' }}>{sl.h}</div>
+            {sl.sub ? <div style={{ fontSize: fitFont(sl.sub, 16, 12, 90), opacity: 0.9, marginTop: 16, overflowWrap: 'anywhere' }}>{sl.sub}</div> : null}
           </>
         ) : (
           <>
@@ -456,11 +462,11 @@ export function SciVizView({ onHome }: any) {
             {sl.kind === 'list' ? (
               <ul style={{ margin: 0, paddingLeft: 22 }}>
                 {(data.results.length ? data.results : ['—']).map((r: string, i: number) => (
-                  <li key={i} style={{ fontSize: 19, lineHeight: 1.5, marginBottom: 10, color: '#374151' }}>{r}</li>
+                  <li key={i} style={{ fontSize: fitFont((data.results || []).join(' '), 19, 12, 220), lineHeight: 1.45, marginBottom: 8, color: TH.fg, overflowWrap: 'anywhere' }}>{r}</li>
                 ))}
               </ul>
             ) : (
-              <div style={{ fontSize: 20, lineHeight: 1.55, color: '#374151' }}>{sl.body || '—'}</div>
+              <div style={{ fontSize: fitFont(sl.body, 20, 13, 240), lineHeight: 1.5, color: TH.fg, overflowWrap: 'anywhere' }}>{sl.body || '—'}</div>
             )}
           </>
         )}
