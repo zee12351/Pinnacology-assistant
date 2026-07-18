@@ -349,6 +349,10 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const [citations, setCitations] = useState<any[]>([]);
   const [verifying, setVerifying] = useState(false);
   const [verifyResult, setVerifyResult] = useState<any>(null);
+  const [docVersions, setDocVersions] = useState<any[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [lastSaved, setLastSaved] = useState<number | null>(null);
+  const lastSnapRef = useRef(0);
   const [citationStyleId, setCitationStyleId] = useState('apa');
   const [selectedStyleId, setSelectedStyleId] = useState('apa');
   const [cslBib, setCslBib] = useState<string[] | null>(null);
@@ -3030,6 +3034,46 @@ Text to review: "${editor?.getText() || documentContent}"`, {
   const activeChat = chatHistory.find(c => c.id === activeChatId);
   const projectName = activeChat ? activeChat.title : '';
 
+  // Load saved version history once.
+  useEffect(() => { try { const raw = localStorage.getItem('pinnovix_aw_versions'); if (raw) setDocVersions(JSON.parse(raw)); } catch {} }, []);
+  // Autosave the document (debounced) and snapshot a version at most every 45s.
+  useEffect(() => {
+    if (documentContent == null) return;
+    const t = setTimeout(() => {
+      try { localStorage.setItem('pinnovix_aw_autosave', JSON.stringify({ html: documentContent, name: projectName || '', ts: Date.now() })); } catch {}
+      setLastSaved(Date.now());
+      const now = Date.now();
+      const plain = String(documentContent).replace(/<[^>]+>/g, '').trim();
+      if (plain.length > 20 && now - lastSnapRef.current > 45000) {
+        lastSnapRef.current = now;
+        setDocVersions((prev) => {
+          const snap = { id: now, ts: now, name: projectName || 'Untitled', html: documentContent, preview: plain.slice(0, 90) };
+          const next = [snap, ...prev].slice(0, 25);
+          try { localStorage.setItem('pinnovix_aw_versions', JSON.stringify(next)); } catch {}
+          return next;
+        });
+      }
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [documentContent, projectName]);
+  const restoreVersion = (v: any) => {
+    if (editor) { try { editor.commands.setContent(v.html || ''); } catch {} }
+    setDocumentContent(v.html || '');
+    setHistoryOpen(false);
+  };
+  const snapshotNow = () => {
+    const now = Date.now();
+    const plain = String(documentContent || '').replace(/<[^>]+>/g, '').trim();
+    if (!plain) return;
+    lastSnapRef.current = now;
+    setDocVersions((prev) => {
+      const snap = { id: now, ts: now, name: projectName || 'Untitled', html: documentContent, preview: plain.slice(0, 90) };
+      const next = [snap, ...prev].slice(0, 25);
+      try { localStorage.setItem('pinnovix_aw_versions', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
   const handleProjectNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newName = e.target.value;
     setChatHistory(prev => prev.map(chat => 
@@ -3376,6 +3420,10 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
               <button onClick={() => setShowAiChat(true)} className="flex items-center gap-2 text-gray-300 hover:text-white transition-colors text-[13px] font-bold" title="AI Chat">
                 <MessageSquare className="w-4 h-4" /> <span className="hidden sm:inline">AI Chat</span>
               </button>
+              <button onClick={() => setHistoryOpen(true)} className="flex items-center gap-2 text-gray-300 hover:text-white transition-colors text-[13px] font-bold" title="Version history">
+                <Clock className="w-4 h-4" /> <span className="hidden md:inline">History</span>
+              </button>
+              {lastSaved ? <span className="hidden lg:flex items-center gap-1 text-[11.5px] text-gray-500" title="Autosaved locally"><Check className="w-3 h-3 text-green-500" /> Saved</span> : null}
               <button onClick={() => setShowClaimConfidenceSettings(true)} className="text-gray-400 hover:text-white transition-colors" title="Settings">
                 <SlidersHorizontal className="w-4 h-4" />
               </button>
@@ -4597,6 +4645,36 @@ Required JSON structure:
       )}
 
       {/* Citation Style Modal */}
+      {historyOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setHistoryOpen(false)}>
+          <div className="w-full max-w-lg max-h-[85vh] bg-[#0c1830] border border-[#1b2c4e] rounded-xl shadow-2xl flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-[#1b2c4e] flex items-center justify-between">
+              <div>
+                <h2 className="text-[16px] font-bold text-white">Version history</h2>
+                <p className="text-[12px] text-gray-400 mt-0.5">Your document autosaves as you write. Restore any earlier version.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={snapshotNow} className="text-[12px] font-semibold border border-[#333] rounded-lg px-3 py-1.5 text-gray-200 hover:bg-[#1b2c4e]">Save version</button>
+                <button onClick={() => setHistoryOpen(false)} className="text-gray-400 hover:text-white"><X className="w-5 h-5" /></button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-3">
+              {docVersions.length === 0 ? (
+                <div className="text-center text-gray-500 text-[13px] py-10">No saved versions yet. Keep writing — snapshots are captured automatically, or tap "Save version".</div>
+              ) : docVersions.map((v: any) => (
+                <div key={v.id} className="flex items-start justify-between gap-3 px-3 py-3 rounded-lg hover:bg-[#111f3d] border-b border-[#1b2c4e] last:border-0">
+                  <div className="min-w-0">
+                    <div className="text-[13px] font-semibold text-white truncate">{v.name || 'Untitled'}</div>
+                    <div className="text-[11.5px] text-gray-500">{new Date(v.ts).toLocaleString()}</div>
+                    <div className="text-[12px] text-gray-400 mt-1 line-clamp-2">{v.preview}…</div>
+                  </div>
+                  <button onClick={() => restoreVersion(v)} className="shrink-0 text-[12px] font-semibold bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-lg px-3 py-1.5">Restore</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       {showCitationModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="w-[850px] max-w-[94vw] bg-[#151515] rounded-xl border border-[#333] shadow-2xl flex flex-col overflow-hidden">

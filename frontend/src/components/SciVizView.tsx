@@ -108,7 +108,26 @@ export function SciVizView({ onHome }: any) {
   const [mobileNav, setMobileNav] = useState(false);
   const [accent, setAccent] = useState(ACCENT_DEFAULT);
   const [themeId, setThemeId] = useState('classic');
+  const [brandLogo, setBrandLogo] = useState('');
+  const [brandSaved, setBrandSaved] = useState(false);
+  const brandFileRef = useRef<HTMLInputElement>(null);
   const TH = THEMES.find((t) => t.id === themeId) || THEMES[0];
+  // Load a saved brand kit (logo + palette + theme) once.
+  useEffect(() => {
+    try { const raw = localStorage.getItem('pinnovix_sciviz_brand'); if (raw) { const b = JSON.parse(raw); if (b.logo) setBrandLogo(b.logo); if (b.accent) setAccent(b.accent); if (b.theme) setThemeId(b.theme); } } catch {}
+  }, []);
+  const saveBrandKit = () => {
+    try { localStorage.setItem('pinnovix_sciviz_brand', JSON.stringify({ logo: brandLogo, accent: accent, theme: themeId })); } catch {}
+    setBrandSaved(true); setTimeout(() => setBrandSaved(false), 1500);
+  };
+  const onPickLogo = (e: any) => {
+    const f = e.target && e.target.files && e.target.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => setBrandLogo(String(reader.result || ''));
+    reader.readAsDataURL(f);
+    if (e.target) e.target.value = '';
+  };
   // Shrink font size as text grows so long titles/abstracts never overflow the canvas.
   const fitFont = (text: any, base: number, min: number, charsAtBase: number) => {
     const len = String(text || '').length;
@@ -332,6 +351,7 @@ export function SciVizView({ onHome }: any) {
 
   const graphical = data ? (
     <div style={{ width: 820, maxWidth: '100%', background: TH.bg, color: TH.fg, borderRadius: 16, padding: 32, fontFamily: TH.font }}>
+      {brandLogo ? <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}><img src={brandLogo} alt="" style={{ height: 34, objectFit: 'contain' }} /></div> : null}
       <div style={{ borderLeft: '6px solid ' + accent, paddingLeft: 14, marginBottom: 6 }}>
         <div style={{ fontSize: fitFont(data.title, 24, 15, 55), fontWeight: 800, lineHeight: 1.2, overflowWrap: 'anywhere' }}>{data.title}</div>
         {data.authors ? <div style={{ fontSize: 13, color: TH.sub, marginTop: 4 }}>{data.authors}</div> : null}
@@ -367,6 +387,7 @@ export function SciVizView({ onHome }: any) {
   const poster = data ? (
     <div style={{ width: 720, background: TH.bg, color: TH.fg, borderRadius: 12, overflow: 'hidden', fontFamily: TH.font, boxShadow: '0 1px 0 #e5e7eb' }}>
       <div style={{ background: accent, color: '#fff', padding: '26px 28px' }}>
+        {brandLogo ? <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}><img src={brandLogo} alt="" style={{ height: 30, objectFit: 'contain' }} /></div> : null}
         <div style={{ fontSize: fitFont(data.title, 26, 16, 55), fontWeight: 800, lineHeight: 1.15, overflowWrap: 'anywhere' }}>{data.title}</div>
         {data.authors ? <div style={{ fontSize: 13.5, opacity: 0.9, marginTop: 8 }}>{data.authors}</div> : null}
       </div>
@@ -600,6 +621,15 @@ export function SciVizView({ onHome }: any) {
               <div className="flex flex-wrap gap-1.5">
                 {ACCENT_SWATCHES.map((c) => <button key={c} onClick={() => setAccent(c)} title={c} className={'w-6 h-6 rounded-full border-2 ' + (accent === c ? 'border-foreground' : 'border-transparent')} style={{ background: c }} />)}
               </div>
+              <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wide mt-1">Brand kit</div>
+              <input ref={brandFileRef} type="file" accept="image/*" className="hidden" onChange={onPickLogo} />
+              <div className="flex items-center gap-2">
+                {brandLogo ? <img src={brandLogo} alt="logo" className="w-8 h-8 object-contain rounded border border-border bg-white" /> : <span className="w-8 h-8 rounded border border-dashed border-border flex items-center justify-center text-[9px] text-muted-foreground">Logo</span>}
+                <button onClick={() => brandFileRef.current && brandFileRef.current.click()} className="text-[11.5px] font-semibold border border-border rounded-md px-2 py-1 hover:bg-muted">{brandLogo ? 'Change' : 'Upload logo'}</button>
+                {brandLogo ? <button onClick={() => setBrandLogo('')} className="text-[11.5px] text-muted-foreground hover:text-red-500">Remove</button> : null}
+              </div>
+              <button onClick={saveBrandKit} className="text-[11.5px] font-semibold bg-primary text-primary-foreground rounded-md px-2.5 py-1.5 self-start">{brandSaved ? 'Saved ✓' : 'Save brand kit'}</button>
+              <div className="text-[10px] text-muted-foreground -mt-1">Saves your logo, accent and theme to reuse on every visual.</div>
               <input value={data.title || ''} onChange={(e) => updateData('title', e.target.value)} placeholder="Title" className="w-full bg-muted/40 border border-border rounded-md px-2 py-1.5 text-[12.5px] outline-none focus:border-primary" />
               <input value={data.authors || ''} onChange={(e) => updateData('authors', e.target.value)} placeholder="Authors" className="w-full bg-muted/40 border border-border rounded-md px-2 py-1.5 text-[12.5px] outline-none focus:border-primary" />
               <textarea value={data.background || ''} onChange={(e) => updateData('background', e.target.value)} placeholder="Background" rows={2} className="w-full bg-muted/40 border border-border rounded-md px-2 py-1.5 text-[12.5px] outline-none focus:border-primary resize-none" />

@@ -1,17 +1,27 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
-import { PanelLeftClose, PanelLeftOpen, Plus, Home, MessageSquare, Square, ArrowRight, Settings2, ChevronDown, Moon, LayoutPanelLeft, MonitorSmartphone, Keyboard, EyeOff, X, Check } from 'lucide-react';
+import dynamic from 'next/dynamic';
+import { PanelLeftClose, PanelLeftOpen, Plus, Home, MessageSquare, Square, ArrowRight, Settings2, ChevronDown, Moon, LayoutPanelLeft, MonitorSmartphone, Keyboard, EyeOff, X, Check, Loader2 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import axios from 'axios';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { PersonaGrid } from '@/components/PersonaGrid';
 import { DefaultChatView } from '@/components/DefaultChatView';
-import { AcademicWritingView } from '@/components/AcademicWritingView';
-import { LiteratureReviewView } from '@/components/LiteratureReviewView';
-import { SciVizView } from '@/components/SciVizView';
 import { AuthModal } from '@/components/AuthModal';
 import { supabase, authConfigured } from '@/lib/supabaseClient';
 import { UploadModal } from '@/components/UploadModal';
+
+// Loading placeholder while a heavy persona chunk streams in.
+const PersonaLoading = () => (
+  <div className="flex-1 h-full flex items-center justify-center text-muted-foreground">
+    <Loader2 className="w-6 h-6 animate-spin" />
+  </div>
+);
+// Code-split the large persona views so the homepage/first load stays light —
+// each chunk only downloads when its persona is opened.
+const AcademicWritingView = dynamic(() => import('@/components/AcademicWritingView').then((m) => m.AcademicWritingView), { ssr: false, loading: PersonaLoading });
+const LiteratureReviewView = dynamic(() => import('@/components/LiteratureReviewView').then((m) => m.LiteratureReviewView), { ssr: false, loading: PersonaLoading });
+const SciVizView = dynamic(() => import('@/components/SciVizView').then((m) => m.SciVizView), { ssr: false, loading: PersonaLoading });
 
 interface Message {
   role: 'user' | 'assistant';

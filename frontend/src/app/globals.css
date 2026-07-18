@@ -337,3 +337,23 @@ html.light .ai-md code { background: #eef1f5; }
 .chat-cite { color: #7fa3ff; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .chat-cite:hover { color: #a9c2ff; }
 html.light .chat-cite { color: #2f5bd0; }
+
+/* ---- Accessibility: visible keyboard focus ---- */
+:where(button, a, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--primary, #2563eb);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+/* Don't show focus rings for mouse clicks, only keyboard */
+:where(button, a, input, textarea, select):focus:not(:focus-visible) { outline: none; }
+
+/* ---- Respect reduced-motion preference ---- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .pnx-orb, .pnx-orb-1, .pnx-orb-2, .pnx-orb-3 { animation: none !important; }
+}

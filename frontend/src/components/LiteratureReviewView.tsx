@@ -486,8 +486,9 @@ function titleCaseFirst(s: string): string {
 }
 
 // Comprehensive research report built deterministically from the screened sources.
-function synthesizeReport(question: string, screened: any[], totalFound: number, reviewType?: string): { title: string; abstract: string; body: string } {
+function synthesizeReport(question: string, screened: any[], totalFound: number, reviewType?: string, criteria?: string[]): { title: string; abstract: string; body: string } {
   const rt = reviewType || 'Systematic';
+  const crit = (criteria || []).filter(Boolean);
   const q = cleanText(question).replace(/[.\s"']+$/, '');
   const scr = (screened || []).filter(Boolean);
   const years = scr.map((s) => parseInt(String(s.year), 10)).filter((y) => !isNaN(y));
@@ -511,7 +512,13 @@ function synthesizeReport(question: string, screened: any[], totalFound: number,
   let body = '## Search and screening\n\n';
   body += 'We ran a semantic search across academic databases (OpenAlex, Semantic Scholar, Europe PMC, arXiv and Crossref) for **"' + q + '"**. ';
   body += 'The search returned **' + totalFound + '** records; we screened on title and abstract and retained the **' + scr.length + '** most relevant studies for data extraction. ';
-  body += 'Inclusion favoured peer-reviewed work with an available abstract that directly addresses the question.\n\n';
+  if (crit.length) {
+    body += 'Studies were screened against the following inclusion/exclusion criteria:\n\n';
+    crit.forEach((c) => { body += '- ' + c + '\n'; });
+    body += '\n';
+  } else {
+    body += 'Inclusion favoured peer-reviewed work with an available abstract that directly addresses the question.\n\n';
+  }
 
   body += '## Key findings\n\n';
   scr.slice(0, 10).forEach((s, i) => {
@@ -651,6 +658,9 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [reportInput, setReportInput] = useState('');
   const [reviewType, setReviewType] = useState('Systematic');
   const [reviewTypeMenu, setReviewTypeMenu] = useState(false);
+  const [screenCriteria, setScreenCriteria] = useState([] as string[]);
+  const [criteriaInput, setCriteriaInput] = useState('');
+  const [criteriaOpen, setCriteriaOpen] = useState(false);
   const [reportSource, setReportSource] = useState('Research papers');
   const [reportSrcMenu, setReportSrcMenu] = useState(false);
   const [report, setReport] = useState(null as any);
@@ -1112,7 +1122,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     pushRecent(q, 'Research report');
     setReportBusy(true);
     setReportPhase('Gathering sources...');
-    setReport({ question: q, source: source, reviewType: rt, title: '', abstract: '', body: '', sources: [], screened: [], done: {} });
+    const criteria = screenCriteria.slice();
+    setReport({ question: q, source: source, reviewType: rt, criteria: criteria, title: '', abstract: '', body: '', sources: [], screened: [], done: {} });
     let sources: any[] = [];
     try {
       if (source === 'Clinical trials') {
@@ -1142,13 +1153,14 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         Rapid: 'a RAPID review — a fast, high-level overview of the key takeaways with minimal formal structure',
       };
       const shape = '{"title": "short report title, max 8 words", "abstract": "2-3 paragraph abstract summarising the evidence with specific numbers and [1]-style citations", "body": "the full report in Markdown with ## section headings and inline [n] citations. Use bold-labelled bullet lists, NOT tables."}';
-      const prompt = 'Write ' + (rtGuide[rt] || rtGuide.Systematic) + ' that answers: "' + q + '". Use ONLY the ' + screened.length + ' sources below. Include specific findings, numbers and caveats, and inline [n] citations matching the source numbers. Do not use Markdown tables; use bold-labelled bullet lists instead. Return ONLY valid JSON, no fences, in this shape: ' + shape + '\n\nSources:\n' + srcTxt;
+      const critTxt = criteria.length ? ' Screen studies for inclusion against these criteria: ' + criteria.map((c, i) => (i + 1) + ') ' + c).join('; ') + '. Note in the report which criteria were applied.' : '';
+      const prompt = 'Write ' + (rtGuide[rt] || rtGuide.Systematic) + ' that answers: "' + q + '".' + critTxt + ' Use ONLY the ' + screened.length + ' sources below. Include specific findings, numbers and caveats, and inline [n] citations matching the source numbers. Do not use Markdown tables; use bold-labelled bullet lists instead. Return ONLY valid JSON, no fences, in this shape: ' + shape + '\n\nSources:\n' + srcTxt;
       setReport((prev: any) => ({ ...prev, done: { gather: true, screen: true, extract: true } }));
       setReportPhase('Generating report and summarising findings...');
       const raw = await callChat(prompt);
       const parsed = extractJSON(raw);
       const modelOk = !!(parsed && parsed.body && String(raw).indexOf('⚠') !== 0);
-      const fb = synthesizeReport(q, screened, sources.length, rt);
+      const fb = synthesizeReport(q, screened, sources.length, rt, criteria);
       setReport((prev: any) => ({
         ...prev,
         title: (parsed && parsed.title) || fb.title,
@@ -1157,7 +1169,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         done: { gather: true, screen: true, extract: true, generate: true },
       }));
     } catch {
-      const fb = synthesizeReport(q, sources.slice(0, 10), sources.length, rt);
+      const fb = synthesizeReport(q, sources.slice(0, 10), sources.length, rt, criteria);
       setReport((prev: any) => ({ ...prev, title: fb.title, abstract: fb.abstract, body: fb.body, done: { gather: true, screen: true, extract: true, generate: true } }));
     } finally {
       setReportBusy(false);
@@ -1988,6 +2000,27 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                     ) : null}
                   </div>
                   <div className="relative">
+                    <button onClick={() => setCriteriaOpen((v) => !v)} className="inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[13px] font-semibold hover:bg-muted"><ListChecks className="w-3.5 h-3.5" /> Criteria{screenCriteria.length ? ' (' + screenCriteria.length + ')' : ''}</button>
+                    {criteriaOpen ? (
+                      <>
+                        <div className="fixed inset-0 z-[40]" onClick={() => setCriteriaOpen(false)} />
+                        <div className="absolute z-[41] bottom-[110%] left-0 w-[320px] bg-card border border-border rounded-xl shadow-2xl p-3">
+                          <div className="text-[12.5px] font-bold mb-1">Screening criteria</div>
+                          <div className="text-[11.5px] text-muted-foreground mb-2">Add inclusion/exclusion questions. Studies are screened against these.</div>
+                          <div className="flex items-center gap-1.5 mb-2">
+                            <input value={criteriaInput} onChange={(e) => setCriteriaInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && criteriaInput.trim()) { setScreenCriteria((c) => c.concat(criteriaInput.trim())); setCriteriaInput(''); } }} placeholder="e.g. Peer-reviewed and published after 2015" className="flex-1 bg-muted/40 border border-border rounded-lg px-2.5 py-1.5 text-[12.5px] outline-none focus:border-primary" />
+                            <button onClick={() => { if (criteriaInput.trim()) { setScreenCriteria((c) => c.concat(criteriaInput.trim())); setCriteriaInput(''); } }} disabled={!criteriaInput.trim()} className="text-[12px] font-semibold border border-border rounded-lg px-2.5 py-1.5 hover:bg-muted disabled:opacity-40">Add</button>
+                          </div>
+                          <div className="flex flex-col gap-1 max-h-[160px] overflow-y-auto custom-scrollbar">
+                            {screenCriteria.length === 0 ? <div className="text-[11.5px] text-muted-foreground italic px-1">No criteria yet.</div> : screenCriteria.map((c, i) => (
+                              <div key={i} className="flex items-start justify-between gap-2 text-[12.5px] bg-muted/40 rounded-lg px-2 py-1.5"><span className="flex-1">{c}</span><button onClick={() => setScreenCriteria((arr) => arr.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-red-500 shrink-0"><X className="w-3.5 h-3.5" /></button></div>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                  <div className="relative">
                     <button onClick={() => setReviewTypeMenu((v) => !v)} className="inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[13px] font-semibold hover:bg-muted">Review <span className="text-primary">{reviewType}</span> <ChevronDown className="w-3.5 h-3.5" /></button>
                     {reviewTypeMenu ? (
                       <>
@@ -2197,6 +2230,14 @@ export function LiteratureReviewView({ messages, onHome }: any) {
           ) : null}
           {report && report.abstract ? (
             <div className="prose prose-sm dark:prose-invert max-w-none text-[15px] leading-relaxed mb-6"><ReactMarkdown components={{ a: (props: any) => <a {...props} target="_blank" rel="noreferrer" className="text-primary font-semibold no-underline hover:underline" /> }}>{linkifyAgent(report.abstract, reportScreened)}</ReactMarkdown></div>
+          ) : null}
+          {report && report.criteria && report.criteria.length ? (
+            <div className="mb-6 border border-border rounded-xl bg-muted/30 p-4">
+              <div className="text-[12px] font-bold text-muted-foreground uppercase mb-2 flex items-center gap-1.5"><ListChecks className="w-3.5 h-3.5" /> Screening criteria</div>
+              <ul className="flex flex-col gap-1.5">
+                {report.criteria.map((c: string, i: number) => (<li key={i} className="flex items-start gap-2 text-[13px]"><Check className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" /> {c}</li>))}
+              </ul>
+            </div>
           ) : null}
           {report && report.body ? (
             <div className="prose prose-sm dark:prose-invert max-w-none text-[14.5px] leading-relaxed"><ReactMarkdown components={{ a: (props: any) => <a {...props} target="_blank" rel="noreferrer" className="text-primary font-semibold no-underline hover:underline" /> }}>{linkifyAgent(report.body, reportScreened)}</ReactMarkdown></div>
