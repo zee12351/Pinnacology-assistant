@@ -5514,7 +5514,7 @@ Required JSON structure:
                   <div className="flex items-center gap-2 min-w-0"><FileText className="w-4 h-4 text-gray-400 shrink-0" /><span className="text-[13px] text-gray-100 truncate">{label}</span></div>
                   <button onClick={() => setAiLibraryDocs(prev => { const n = prev.filter(x => x !== d); try { localStorage.setItem('pinnovix_aw_library', JSON.stringify(n)); } catch {} return n; })} className="text-gray-500 hover:text-red-400 shrink-0"><Trash2 className="w-4 h-4" /></button>
                 </div>
-              ))}
+              ); })}
               {savedCitations.map((c: any, i: number) => (
                 <div key={'c' + i} className="bg-[#0c1830] border border-[#1b2c4e] rounded-lg p-3">
                   <div className="text-[13px] text-gray-100 font-semibold truncate">{c.title || 'Untitled source'}</div>
