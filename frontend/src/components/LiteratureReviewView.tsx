@@ -208,9 +208,12 @@ function normPaper(o: any): any {
 
 async function searchOpenAlex(q: string, n: number): Promise<any[]> {
   try {
-    const url = 'https://api.openalex.org/works?search=' + encodeURIComponent(q) + '&per_page=' + n + '&sort=relevance_score:desc&filter=has_abstract:true&mailto=support@pinnovix.app';
-    const r = await fetch(url); const j = await r.json();
-    return (j.results || []).map(mkPaper).filter((p: any) => p.title);
+    const base = 'https://api.openalex.org/works?search=' + encodeURIComponent(q) + '&per_page=' + n + '&sort=relevance_score:desc&mailto=support@pinnovix.app';
+    let r = await fetch(base + '&filter=has_abstract:true'); let j = await r.json();
+    let res = (j.results || []).map(mkPaper).filter((p: any) => p.title);
+    // If the abstract filter is too strict for this query, retry without it.
+    if (!res.length) { r = await fetch(base); j = await r.json(); res = (j.results || []).map(mkPaper).filter((p: any) => p.title); }
+    return res;
   } catch { return []; }
 }
 
@@ -354,20 +357,28 @@ function dedupeAndRank(papers: any[]): any[] {
 
 async function searchPapers(q: string, source: string, n: number): Promise<any[]> {
   n = n || 12;
+  // Clean the query: strip question marks and quotes that break some search APIs.
+  const cq = String(q || '').replace(/[?"“”'’]/g, ' ').replace(/\s{2,}/g, ' ').trim() || q;
   let results: any[] = [];
   if (source === 'all') {
     const per = Math.max(5, Math.ceil(n / 3) + 1);
     const arrs = await Promise.all([
-      searchOpenAlex(q, per), searchSemanticScholar(q, per), searchEuropePMC(q, per), searchArxiv(q, Math.min(per, 6)), searchCrossref(q, per), searchPubMed(q, per), searchDOAJ(q, per),
+      searchOpenAlex(cq, per), searchSemanticScholar(cq, per), searchEuropePMC(cq, per), searchArxiv(cq, Math.min(per, 6)), searchCrossref(cq, per), searchPubMed(cq, per), searchDOAJ(cq, per),
     ]);
     results = ([] as any[]).concat.apply([], arrs);
-  } else if (source === 'semanticscholar') results = await searchSemanticScholar(q, n + 6);
-  else if (source === 'europepmc') results = await searchEuropePMC(q, n + 6);
-  else if (source === 'arxiv') results = await searchArxiv(q, n + 4);
-  else if (source === 'crossref') results = await searchCrossref(q, n + 6);
-  else if (source === 'pubmed') results = await searchPubMed(q, n + 6);
-  else if (source === 'doaj') results = await searchDOAJ(q, n + 6);
-  else results = await searchOpenAlex(q, n + 8);
+  } else if (source === 'semanticscholar') results = await searchSemanticScholar(cq, n + 6);
+  else if (source === 'europepmc') results = await searchEuropePMC(cq, n + 6);
+  else if (source === 'arxiv') results = await searchArxiv(cq, n + 4);
+  else if (source === 'crossref') results = await searchCrossref(cq, n + 6);
+  else if (source === 'pubmed') results = await searchPubMed(cq, n + 6);
+  else if (source === 'doaj') results = await searchDOAJ(cq, n + 6);
+  else results = await searchOpenAlex(cq, n + 8);
+  // Fallback: if the chosen source returned nothing, broaden across several sources.
+  if (!results.length && source !== 'all') {
+    const per = Math.max(6, Math.ceil(n / 2));
+    const arrs = await Promise.all([searchOpenAlex(cq, per), searchSemanticScholar(cq, per), searchCrossref(cq, per), searchEuropePMC(cq, per)]);
+    results = ([] as any[]).concat.apply([], arrs);
+  }
   return dedupeAndRank(results).slice(0, n).map((p, i) => ({ ...p, idx: i, rel: 100000 - i }));
 }
 
@@ -1396,13 +1407,26 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     const c = (cmd || '').trim();
     if (!c || chatBusy || !papers.length) return;
     setChatInput('');
-    setChatThread((prev) => [...prev, { role: 'user', text: c }, { role: 'assistant', text: '', busy: true }]);
+    // Only treat the message as a table edit when the user clearly asks for one.
+    const isColumnEdit = /(^|\b)(add|include|insert|create)\b[^.]*\bcolumn\b/i.test(c) || /^(add a column|add column|separate (the table )?by|group (the table )?by|break ?down by|extract )/i.test(c);
+    setChatThread((prev) => [...prev, { role: 'user', text: c }, { role: 'assistant', text: '', busy: true, mode: isColumnEdit ? 'table' : 'answer' }]);
     setChatBusy(true);
     try {
-      const name = await runAddColumn(c);
-      setChatThread((prev) => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', text: name ? ('Added a new column **' + name + '** and filled it across all ' + papers.length + ' papers. You can sort or download the updated table on the right.') : 'Updated your analysis.' }; return m; });
+      if (isColumnEdit) {
+        const name = await runAddColumn(c);
+        setChatThread((prev) => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', text: name ? ('Added a new column **' + name + '** and filled it across all ' + papers.length + ' papers. You can sort or download the updated table on the right.') : 'Updated your analysis.' }; return m; });
+      } else {
+        // Answer the question conversationally, grounded ONLY in the result papers.
+        const rows = view();
+        const ctx = rows.map((p: any, i: number) => '[' + (i + 1) + '] ' + p.title + ' (' + p.authorStr + ', ' + p.year + '). ' + (cleanText(p.abstract) || p.summary || '').slice(0, 650)).join('\n\n');
+        const msg = 'You are a research assistant. Answer the question using ONLY the ' + rows.length + ' papers listed below (the current results). Cite each claim inline with [n] matching the paper number. Be concise and specific with numbers where available. If the papers do not answer it, say so plainly.\n\nQuestion: ' + c + '\n\nPapers:\n' + ctx;
+        const ans = await callChat(msg);
+        const good = !!(ans && ans.trim() && ans.indexOf('⚠') !== 0);
+        const finalText = good ? ans : synthesizePaperAnswer(c, rows);
+        setChatThread((prev) => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', text: linkifyAgent(finalText, rows), sources: rows }; return m; });
+      }
     } catch {
-      setChatThread((prev) => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', text: 'Sorry, I could not update the table. Please try rephrasing.' }; return m; });
+      setChatThread((prev) => { const m = [...prev]; m[m.length - 1] = { role: 'assistant', text: 'Sorry, I could not process that. Please try rephrasing.' }; return m; });
     } finally {
       setChatBusy(false);
     }
@@ -2397,8 +2421,11 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                 m.role === 'user' ? (
                   <div key={i} className="self-end max-w-[90%] bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 text-[13.5px]">{m.text}</div>
                 ) : (
-                  <div key={i} className="self-start max-w-[92%] bg-muted/50 border border-border rounded-2xl px-4 py-2.5 text-[13.5px] prose prose-sm dark:prose-invert max-w-none">
-                    {m.busy ? <span className="flex items-center gap-1.5 text-muted-foreground"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Updating table...</span> : <ReactMarkdown>{m.text}</ReactMarkdown>}
+                  <div key={i} className="self-start max-w-[92%] flex flex-col gap-1.5">
+                    <div className="bg-muted/50 border border-border rounded-2xl px-4 py-2.5 text-[13.5px] prose prose-sm dark:prose-invert max-w-none">
+                      {m.busy ? <span className="flex items-center gap-1.5 text-muted-foreground"><Loader2 className="w-3.5 h-3.5 animate-spin" /> {m.mode === 'table' ? 'Updating table...' : 'Thinking...'}</span> : <ReactMarkdown components={{ a: (props: any) => <a {...props} target="_blank" rel="noreferrer" className="text-primary font-semibold no-underline hover:underline" /> }}>{m.text}</ReactMarkdown>}
+                    </div>
+                    {!m.busy && m.sources && m.sources.length ? <span className="text-[11.5px] text-muted-foreground flex items-center gap-1.5 pl-1"><BookOpen className="w-3.5 h-3.5" /> Answer based on {m.sources.length} papers in your table</span> : null}
                   </div>
                 )
               ))}

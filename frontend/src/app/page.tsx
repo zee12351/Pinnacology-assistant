@@ -628,9 +628,6 @@ export default function HomePage() {
                   <span className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-blue-500" /> Real citations & references</span>
                   <span className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-blue-500" /> 138M+ papers searchable</span>
                 </div>
-                <div className="w-full max-w-3xl mx-auto mt-9">
-                  <SearchBar {...searchBarProps} />
-                </div>
               </section>
 
               {/* FEATURES / PERSONAS */}

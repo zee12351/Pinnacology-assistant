@@ -893,7 +893,10 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       container: item.container || null,
       citedBy: item.citedBy != null ? String(item.citedBy) : null,
     };
+    const cf = editor.state.selection.from;
+    const pc = cf > 0 ? editor.state.doc.textBetween(Math.max(0, cf - 1), cf, '') : ' ';
     editor.chain().focus().insertContent([
+      ...((pc && !/\s/.test(pc) && pc !== '(') ? [{ type: 'text', text: ' ' }] : []),
       { type: 'text', text: intext, marks: [{ type: 'citation', attrs }] },
       { type: 'text', text: ' ' },
     ]).run();
@@ -1626,9 +1629,14 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       container: p.container || null,
       citedBy: p.citedBy != null ? String(p.citedBy) : null,
     };
-    const content = [{ type: 'text', text: ' ' + intext, marks: [{ type: 'citation', attrs }] }];
     const pos = findClaimInsertPos(sug.claim);
-    if (pos != null) editor.chain().focus().insertContentAt(pos, content as any).run();
+    const at = pos != null ? pos : editor.state.doc.content.size;
+    const prevChar = at > 0 ? editor.state.doc.textBetween(Math.max(0, at - 1), at, '') : ' ';
+    const needSpace = !!prevChar && !/\s/.test(prevChar) && prevChar !== '(';
+    const content: any[] = [];
+    if (needSpace) content.push({ type: 'text', text: ' ' });
+    content.push({ type: 'text', text: intext, marks: [{ type: 'citation', attrs }] });
+    if (pos != null) editor.chain().focus().insertContentAt(at, content as any).run();
     else editor.chain().focus('end').insertContent(content as any).run();
     setSuggestions(prev => prev.map(x => (x === sug ? { ...x, status: 'accepted' } : x)));
     setTimeout(() => editor && collectCitations(editor), 100);
@@ -2204,17 +2212,18 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
       await axios.post(`${API}/api/upload`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       setAiChatDoc(file.name);
       setAiChatContexts(c => c.includes(file.name) ? c : [...c, file.name]);
-      setAiLibraryDocs(prev => { const next = prev.includes(file.name) ? prev : [file.name, ...prev]; try { localStorage.setItem('pinnovix_library_docs', JSON.stringify(next)); } catch {} return next; });
+      setAiLibraryDocs(prev => { const next = prev.includes(file.name) ? prev : [file.name, ...prev]; try { localStorage.setItem('pinnovix_aw_library', JSON.stringify(next)); } catch {} return next; });
       setAiChatMessages(prev => [...prev, { role: 'system', text: `Attached \u201c${file.name}\u201d \u2014 ask anything about it.` }]);
     } catch {
       setAiChatMessages(prev => [...prev, { role: 'system', text: 'Upload failed. Please try a PDF, DOCX, or TXT file.' }]);
     } finally { setAiChatBusy(false); if (e.target) e.target.value = ''; }
   };
 
-  const runFindPapers = async (q?: string, sortOverride?: string) => {
+  const runFindPapers = async (q?: string, sortOverride?: string, page?: number) => {
     const query = (q ?? fpQuery).trim();
     if (!query) return;
-    setFpBusy(true); setFpSearched(true);
+    const pg = page || 1;
+    if (pg === 1) { setFpBusy(true); setFpSearched(true); } else { setFpLoadingMore(true); }
     try {
       const sortName = sortOverride || fpSort;
       const sortMap: Record<string,string> = { 'Relevance':'relevance_score:desc', 'Most Recent':'publication_date:desc', 'Oldest':'publication_date:asc', 'Most Cited':'cited_by_count:desc' };
@@ -2225,6 +2234,7 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
       const params = new URLSearchParams();
       params.set('search', query);
       params.set('per_page', '25');
+      params.set('page', String(pg));
       params.set('sort', sortMap[sortName] || 'relevance_score:desc');
       if (filters.length) params.set('filter', filters.join(','));
       params.set('mailto', 'support@pinnovix.app');
@@ -2240,9 +2250,11 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
         venue: w.primary_location?.source?.display_name || '',
         isOA: !!w.open_access?.is_oa,
       }));
-      setFpResults(items);
-    } catch { setFpResults([]); }
-    finally { setFpBusy(false); }
+      setFpResults((prev) => pg === 1 ? items : prev.concat(items));
+      setFpPage(pg);
+      setFpHasMore(items.length >= 25);
+    } catch { if (pg === 1) setFpResults([]); }
+    finally { setFpBusy(false); setFpLoadingMore(false); }
   };
 
 
@@ -2420,29 +2432,58 @@ Document: "${editor?.getText() || documentContent}"`, {
       if (key === 'ti:') { uniq.push(c); return; }
       if (seen[key]) duplicates.push(c); else { seen[key] = 1; uniq.push(c); }
     });
-    const verified: any[] = []; const unresolved: any[] = [];
+    const verified: any[] = []; const unresolved: any[] = []; const entries: any[] = [];
     for (const c of uniq) {
-      let ok = false; let resolvedDoi = c.doi || '';
+      const currentDoi = (c.doi || '').toString().toLowerCase().replace(/^https?:\/\/(dx\.)?doi\.org\//, '');
+      let ok = false; let suggestedDoi = '';
       try {
-        const doi = (c.doi || '').toString().replace(/^https?:\/\/(dx\.)?doi\.org\//, '');
-        if (doi) {
-          const r = await fetch('https://api.crossref.org/works/' + encodeURIComponent(doi) + '?mailto=support@pinnovix.app');
-          ok = r.ok;
-        } else if (c.title) {
+        // Always look up the authoritative DOI by title so we can suggest a correction.
+        if (c.title) {
           const r = await fetch('https://api.crossref.org/works?rows=1&mailto=support@pinnovix.app&query.bibliographic=' + encodeURIComponent(c.title));
           const j = await r.json();
           const item = j && j.message && j.message.items && j.message.items[0];
           if (item) {
             const it = norm(Array.isArray(item.title) ? item.title[0] : item.title);
             const mine = norm(c.title);
-            if (it && mine && (it.indexOf(mine.slice(0, 28)) !== -1 || mine.indexOf(it.slice(0, 28)) !== -1)) { ok = true; resolvedDoi = item.DOI || ''; }
+            if (it && mine && (it.indexOf(mine.slice(0, 28)) !== -1 || mine.indexOf(it.slice(0, 28)) !== -1)) suggestedDoi = (item.DOI || '').toLowerCase();
           }
         }
+        // Validate the current DOI resolves.
+        if (currentDoi) {
+          const rr = await fetch('https://api.crossref.org/works/' + encodeURIComponent(currentDoi) + '?mailto=support@pinnovix.app');
+          ok = rr.ok;
+        } else {
+          ok = !!suggestedDoi;
+        }
       } catch {}
-      (ok ? verified : unresolved).push({ ...c, resolvedDoi });
+      const needsFix = !!suggestedDoi && suggestedDoi !== currentDoi;
+      const entry = { title: c.title || c.intext || 'Untitled', intext: c.intext || '', year: c.year || '', currentDoi: currentDoi, suggestedDoi: suggestedDoi, ok: ok, needsFix: needsFix, applied: false };
+      entries.push(entry);
+      (ok && !needsFix ? verified : unresolved).push(entry);
     }
-    setVerifyResult({ total: cites.length, verified: verified, unresolved: unresolved, duplicates: duplicates });
+    setVerifyResult({ total: cites.length, verified: verified, unresolved: unresolved, duplicates: duplicates, entries: entries });
     setVerifying(false);
+  };
+  // Replace a citation's DOI in the document with the suggested (correct) one.
+  const applyCitationDoi = (entry: any) => {
+    if (!editor || !entry || !entry.suggestedDoi) return;
+    const citationType = editor.schema?.marks?.citation;
+    if (!citationType) return;
+    let range: any = null;
+    editor.state.doc.descendants((node: any, pos: number) => {
+      if (range) return false;
+      if (node.isText && node.text && citationType.isInSet(node.marks)) {
+        const m = node.marks.find((mk: any) => mk.type.name === 'citation');
+        const sameLabel = entry.intext && node.text.trim() === entry.intext.trim();
+        const sameDoi = m && (m.attrs.doi || '').toLowerCase().replace(/^https?:\/\/(dx\.)?doi\.org\//, '') === entry.currentDoi && entry.currentDoi;
+        if (sameLabel || sameDoi) range = { from: pos, to: pos + node.nodeSize };
+      }
+      return true;
+    });
+    if (!range) return;
+    editor.chain().focus().setTextSelection(range).updateAttributes('citation', { doi: entry.suggestedDoi }).run();
+    setVerifyResult((prev: any) => prev ? { ...prev, entries: (prev.entries || []).map((e: any) => e === entry ? { ...e, currentDoi: entry.suggestedDoi, needsFix: false, ok: true, applied: true } : e) } : prev);
+    setTimeout(() => editor && collectCitations(editor), 60);
   };
 
   const handleClaimConfidence = () => {
@@ -2873,7 +2914,7 @@ Text to review: "${editor?.getText() || documentContent}"`, {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aiChatMessages]);
-  useEffect(() => { try { const raw = localStorage.getItem('pinnovix_library_docs'); if (raw) setAiLibraryDocs(JSON.parse(raw)); } catch {} try { const rp = localStorage.getItem('pinnovix_saved_prompts'); if (rp) setSavedPrompts(JSON.parse(rp)); } catch {} try { const rs = localStorage.getItem('pinnovix_aichat_sessions'); if (rs) setAiChatSessions(JSON.parse(rs)); } catch {} }, []);
+  useEffect(() => { try { const raw = localStorage.getItem('pinnovix_aw_library'); if (raw) { const arr = JSON.parse(raw); if (Array.isArray(arr)) setAiLibraryDocs(arr.map((x: any) => typeof x === 'string' ? x : ((x && (x.name || x.title)) || '')).filter(Boolean)); } } catch {} try { const rp = localStorage.getItem('pinnovix_saved_prompts'); if (rp) setSavedPrompts(JSON.parse(rp)); } catch {} try { const rs = localStorage.getItem('pinnovix_aichat_sessions'); if (rs) setAiChatSessions(JSON.parse(rs)); } catch {} }, []);
   const selectMention = (name: string) => {
     setAiChatContexts(c => c.includes(name) ? c : [...c, name]);
     setAiChatInput(prev => prev.replace(/@([^\s@]*)$/, ''));
@@ -2900,6 +2941,9 @@ Text to review: "${editor?.getText() || documentContent}"`, {
   const [fpSearched, setFpSearched] = useState(false);
   const [fpSort, setFpSort] = useState('Relevance');
   const [fpSortOpen, setFpSortOpen] = useState(false);
+  const [fpPage, setFpPage] = useState(1);
+  const [fpHasMore, setFpHasMore] = useState(false);
+  const [fpLoadingMore, setFpLoadingMore] = useState(false);
   const [fpFilterOpen, setFpFilterOpen] = useState(false);
   const [fpFromYear, setFpFromYear] = useState('');
   const [fpOA, setFpOA] = useState(false);
@@ -3818,17 +3862,6 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                   </div>
                 )}
               </div>
-              <div className="mt-4">
-                <h3 className="text-[13px] font-bold text-gray-400 mb-2 px-1">Or start from a template</h3>
-                <div className="grid grid-cols-2 gap-2">
-                  {PAPER_TEMPLATES.map(tpl => (
-                    <button key={tpl.id} onClick={() => insertTemplate(tpl)} className="text-left rounded-xl border border-[#1b2c4e] bg-[#0c1830] hover:border-[#2563eb] hover:bg-[#222] p-3 transition-colors">
-                      <div className="text-[14px] font-bold text-gray-200">{tpl.name}</div>
-                      <div className="text-[12px] text-gray-500 leading-snug">{tpl.desc}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
               <div className="flex justify-center mt-4">
                 <button onClick={onStartWriting} className="text-[14px] font-bold text-gray-400 hover:text-white transition-colors">Skip and start writing</button>
               </div>
@@ -4131,13 +4164,29 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                              <span className="flex items-center gap-1.5 text-amber-400 font-semibold">⚠ {verifyResult.unresolved.length} unresolved</span>
                              <span className="flex items-center gap-1.5 text-gray-400 font-semibold">⧉ {verifyResult.duplicates.length} duplicate{verifyResult.duplicates.length === 1 ? '' : 's'}</span>
                            </div>
-                           {verifyResult.unresolved.length ? (
+                           {verifyResult.entries && verifyResult.entries.length ? (
                              <div>
-                               <div className="text-[11px] font-bold text-amber-400 uppercase tracking-wide mb-1">Could not verify</div>
-                               {verifyResult.unresolved.slice(0, 8).map((c: any, i: number) => (
-                                 <div key={i} className="text-[12px] text-gray-300 py-0.5 truncate">• {c.title || c.intext || 'Untitled reference'}{c.year ? ' (' + c.year + ')' : ''}</div>
-                               ))}
-                               <div className="text-[11px] text-gray-500 mt-1">These may have a wrong/missing DOI or an inexact title — double‑check them.</div>
+                               <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1.5">All references &amp; DOIs</div>
+                               <div className="flex flex-col gap-1.5 max-h-[280px] overflow-y-auto pr-1">
+                                 {verifyResult.entries.map((e: any, i: number) => (
+                                   <div key={i} className="bg-[#0c1830] border border-[#1b2c4e] rounded-lg px-2.5 py-2">
+                                     <div className="flex items-start gap-1.5">
+                                       <span className={'mt-0.5 shrink-0 ' + (e.applied ? 'text-green-400' : e.needsFix ? 'text-amber-400' : e.ok ? 'text-green-400' : 'text-red-400')}>{(e.ok && !e.needsFix) || e.applied ? '✓' : e.needsFix ? '✎' : '⚠'}</span>
+                                       <div className="min-w-0 flex-1">
+                                         <div className="text-[12px] text-gray-200 font-semibold truncate">{e.title}{e.year ? ' (' + e.year + ')' : ''}</div>
+                                         <div className="text-[11px] text-gray-400 truncate">{e.currentDoi ? 'DOI: ' + e.currentDoi : 'No DOI in citation'}</div>
+                                         {e.needsFix ? (
+                                           <div className="mt-1 flex items-center gap-2 flex-wrap">
+                                             <span className="text-[11px] text-amber-300">Correct DOI: {e.suggestedDoi}</span>
+                                             <button onClick={() => applyCitationDoi(e)} className="text-[11px] font-bold bg-[#2563eb] hover:bg-[#3b82f6] text-white rounded px-2 py-0.5">Use this DOI</button>
+                                           </div>
+                                         ) : null}
+                                         {e.applied ? <div className="text-[11px] text-green-400 mt-0.5">Updated ✓</div> : null}
+                                       </div>
+                                     </div>
+                                   </div>
+                                 ))}
+                               </div>
                              </div>
                            ) : null}
                            {verifyResult.duplicates.length ? (
@@ -5394,6 +5443,11 @@ Required JSON structure:
                     </div>
                   </button>
                 ))}
+                {fpResults.length > 0 && fpHasMore ? (
+                  <button onClick={() => runFindPapers(fpQuery, fpSort, fpPage + 1)} disabled={fpLoadingMore} className="w-full mt-1 py-2.5 rounded-lg border border-[#333] text-[13px] font-semibold text-gray-200 hover:bg-[#1b2c4e] transition-colors disabled:opacity-50">
+                    {fpLoadingMore ? 'Loading…' : 'Load more papers'}
+                  </button>
+                ) : null}
               </div>
             </div>
           </div>
@@ -5455,10 +5509,10 @@ Required JSON structure:
             <input ref={aiChatFileRef} type="file" accept=".pdf,.docx,.txt,.md" className="hidden" onChange={handleAiChatUpload} />
             <div className="flex-1 overflow-y-auto flex flex-col gap-2">
               {(aiLibraryDocs.length === 0 && savedCitations.length === 0) && <div className="text-[13px] text-gray-500 italic">Your library is empty. Upload a document, or use Save on any citation.</div>}
-              {aiLibraryDocs.map((d: string) => (
-                <div key={d} className="bg-[#0c1830] border border-[#1b2c4e] rounded-lg p-3 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0"><FileText className="w-4 h-4 text-gray-400 shrink-0" /><span className="text-[13px] text-gray-100 truncate">{d}</span></div>
-                  <button onClick={() => setAiLibraryDocs(prev => { const n = prev.filter(x => x !== d); try { localStorage.setItem('pinnovix_library_docs', JSON.stringify(n)); } catch {} return n; })} className="text-gray-500 hover:text-red-400 shrink-0"><Trash2 className="w-4 h-4" /></button>
+              {aiLibraryDocs.map((d: any) => { const label = typeof d === 'string' ? d : ((d && (d.name || d.title)) || 'Document'); return (
+                <div key={label} className="bg-[#0c1830] border border-[#1b2c4e] rounded-lg p-3 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0"><FileText className="w-4 h-4 text-gray-400 shrink-0" /><span className="text-[13px] text-gray-100 truncate">{label}</span></div>
+                  <button onClick={() => setAiLibraryDocs(prev => { const n = prev.filter(x => x !== d); try { localStorage.setItem('pinnovix_aw_library', JSON.stringify(n)); } catch {} return n; })} className="text-gray-500 hover:text-red-400 shrink-0"><Trash2 className="w-4 h-4" /></button>
                 </div>
               ))}
               {savedCitations.map((c: any, i: number) => (
