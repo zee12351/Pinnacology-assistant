@@ -756,12 +756,51 @@ async def cite_claims(request: CiteClaimsRequest):
 class ContinuePaperRequest(BaseModel):
     topic: str
     existing: str = ""
+    headings: str = "Standard headings (IMRaD)"
 
 @router.post("/continue-paper")
 async def continue_paper(request: ContinuePaperRequest):
-    """Paragraph-by-paragraph (jenni-style) generation: write only the NEXT section each call."""
+    """Paragraph-by-paragraph (jenni-style) generation: write only the NEXT section each call.
+    Respects the heading style: Standard (IMRaD), Smart (topic-tailored), or No headings."""
     topic = (request.topic or "").strip()
     existing = (request.existing or "").strip()
+    mode = (request.headings or "Standard headings (IMRaD)").lower()
+    no_headings = "no heading" in mode
+    smart = "smart" in mode
+
+    if no_headings:
+        first_struct = (
+            "Write ONLY the title as a Markdown '# ' heading, then ONE complete opening claim (one or two "
+            "sentences, ~35-60 words). Do NOT add any section heading."
+        )
+        next_struct = (
+            "- Continue with ONE more complete claim (one or two sentences) that advances the paper. "
+            "Do NOT add any section headings at all — write continuous flowing prose.\n"
+            "- After roughly 10-12 claims of well-developed prose, reply with exactly: DONE"
+        )
+    elif smart:
+        first_struct = (
+            "Write ONLY: the title as a Markdown '# ' heading, then the FIRST section heading as a '## ' "
+            "heading whose wording is tailored to THIS specific topic (not a fixed template), then ONE complete "
+            "opening claim (one or two sentences, ~35-60 words)."
+        )
+        next_struct = (
+            "- If the most recent section has fewer than 5 sentences, continue THAT section with one more claim (no heading).\n"
+            "- If it already has about 5-6 sentences, start the next section: output a '## ' heading whose wording "
+            "is tailored to this topic (choose the most natural next section for this subject), followed by ONE opening paragraph.\n"
+            "- Once the paper has a natural concluding section with 2+ paragraphs, reply with exactly: DONE"
+        )
+    else:  # Standard IMRaD
+        first_struct = (
+            "Write ONLY: the title as a Markdown '# ' heading, then a '## Introduction' heading, then ONE complete "
+            "opening claim (one or two sentences, ~35-60 words)."
+        )
+        next_struct = (
+            "- If the most recent section has fewer than 5 sentences, continue THAT section with one more claim (no heading).\n"
+            "- If it already has about 5-6 sentences, start the next section: output its '## ' heading "
+            "(usual order: Literature Review, Methodology, Results, Discussion, Conclusion) followed by ONE opening paragraph.\n"
+            "- If the paper already has a Conclusion with 2+ paragraphs, reply with exactly: DONE"
+        )
 
     async def event_generator():
         try:
@@ -773,8 +812,7 @@ async def continue_paper(request: ContinuePaperRequest):
             if not existing:
                 instruction = (
                     f"Begin a research paper on: \"{topic}\".\n"
-                    "Write ONLY: the title as a Markdown '# ' heading, then a '## Introduction' heading, then "
-                    "ONE complete opening claim - one or two full sentences (about 35-60 words) that make a single point which one citation would support. Always finish the sentence; never stop mid-sentence. Do not write any other section yet.\n"
+                    + first_struct + " Always finish the sentence; never stop mid-sentence.\n"
                     "Do NOT include any in-text citations, bracketed numbers, or a References section - "
                     "citations are added separately. Output only the content, no commentary."
                 )
@@ -783,14 +821,9 @@ async def continue_paper(request: ContinuePaperRequest):
                     f"You are continuing a research paper on: \"{topic}\".\n\n"
                     f"=== PAPER SO FAR ===\n{existing[-3500:]}\n=== END ===\n\n"
                     "Write ONLY ONE complete claim - one or two full sentences (about 35-60 words) that make a single point which ONE citation would support. Always finish the sentence; never stop mid-sentence.\n"
-                    "- If the most recent section currently has fewer than 5 sentences, continue THAT section "
-                    "with one more such claim that advances the discussion (no heading, do not repeat anything).\n"
-                    "- If the most recent section already has about 5-6 sentences, start the next section: output "
-                    "its '## ' heading (usual order: Literature Review, Methodology, Results, Discussion, "
-                    "Conclusion) followed by ONE opening paragraph.\n"
+                    + next_struct + "\n"
                     "Do NOT add a References section and do NOT include any in-text citations or bracketed "
-                    "numbers (they are added automatically). "
-                    "If the paper already has a Conclusion with 2+ paragraphs, reply with exactly: DONE"
+                    "numbers (they are added automatically)."
                 )
             async for chunk in model.astream([HumanMessage(content=instruction)]):
                 content = getattr(chunk, "content", "")

@@ -334,6 +334,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const [paperComplete, setPaperComplete] = useState(false);
   const [pending, setPending] = useState<any>(null);
   const paperTopicRef = useRef('');
+  const paperHeadingsRef = useRef('Standard headings (IMRaD)');
   const generateNextSectionRef = useRef<null | (() => void)>(null);
   useEffect(() => { try { const sv = localStorage.getItem('pinnovix_saved_citations'); if (sv) setSavedCitations(JSON.parse(sv)); } catch {} }, []);
   const autocompleteOnRef = useRef(true);
@@ -1251,7 +1252,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       const existing = editor.getText().trim();
       const res = await fetch(`${API}/api/continue-paper`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic: paperTopicRef.current, existing }),
+        body: JSON.stringify({ topic: paperTopicRef.current, existing, headings: paperHeadingsRef.current }),
       });
       if (!res.ok) { setGenBusy(false); return; }
       const reader = res.body?.getReader();
@@ -3156,6 +3157,7 @@ Text to review: "${editor?.getText() || documentContent}"`, {
     // Paragraph-by-paragraph mode: generate the first section, then let the user click Continue.
     if (genMode === 'paragraph' && hasPrompt) {
       paperTopicRef.current = promptInput.trim();
+      paperHeadingsRef.current = headingsOption;
       setPaperComplete(false);
       setPending(null);
       setDocumentContent('');
@@ -3195,14 +3197,14 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
       {sidebarOpen && <div className="md:hidden fixed inset-0 bg-black/50 z-40" onClick={() => setSidebarOpen(false)} />}
       
       {/* 1. LEFT SECTION */}
-      <div className={`w-[260px] bg-[#2d2d2d] border-r border-[#3d3d3d] flex flex-col shrink-0 h-full fixed md:static inset-y-0 left-0 z-50 transition-transform duration-200 md:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <div className={`w-[260px] bg-[#0a1428] border-r border-[#1b2c4e] flex flex-col shrink-0 h-full fixed md:static inset-y-0 left-0 z-50 transition-transform duration-200 md:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="p-4 flex flex-col gap-4 h-full">
           
           <div className="flex flex-col gap-2">
             {/* Home Button */}
             <button 
               onClick={handleGoHome}
-              className="flex items-center gap-2 w-full hover:bg-[#3d3d3d] text-gray-300 hover:text-white px-4 py-3 rounded-lg text-[14px] font-semibold transition-colors"
+              className="flex items-center gap-2 w-full hover:bg-[#1b2c4e] text-gray-300 hover:text-white px-4 py-3 rounded-lg text-[14px] font-semibold transition-colors"
             >
               <Home className="w-4 h-4" />
               Home
@@ -3226,7 +3228,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                 }
                 setPromptInput('');
               }}
-              className="flex items-center gap-2 w-full bg-[#3d3d3d] hover:bg-[#4d4d4d] text-gray-200 px-4 py-3 rounded-lg text-[14px] font-semibold transition-colors border border-[#444] hover:border-[#555]"
+              className="flex items-center gap-2 w-full bg-[#1b2c4e] hover:bg-[#4d4d4d] text-gray-200 px-4 py-3 rounded-lg text-[14px] font-semibold transition-colors border border-[#444] hover:border-[#555]"
             >
               <Plus className="w-4 h-4" />
               New chat
@@ -3255,7 +3257,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                   }
                 }
               }}
-              className="flex items-center gap-2 w-full hover:bg-[#3d3d3d] text-gray-400 hover:text-red-400 px-4 py-2.5 rounded-lg text-[13px] font-semibold transition-colors"
+              className="flex items-center gap-2 w-full hover:bg-[#1b2c4e] text-gray-400 hover:text-red-400 px-4 py-2.5 rounded-lg text-[13px] font-semibold transition-colors"
             >
               <Trash2 className="w-4 h-4" />
               {selectedChats.length > 0 ? `Delete ${selectedChats.length} selected` : 'Clear all chats'}
@@ -3263,7 +3265,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
 
             <button
               onClick={() => setShowSavedModal(true)}
-              className="flex items-center gap-2 w-full hover:bg-[#3d3d3d] text-gray-300 hover:text-white px-4 py-2.5 rounded-lg text-[13px] font-semibold transition-colors"
+              className="flex items-center gap-2 w-full hover:bg-[#1b2c4e] text-gray-300 hover:text-white px-4 py-2.5 rounded-lg text-[13px] font-semibold transition-colors"
             >
               <Bookmark className="w-4 h-4" />
               Saved citations{savedCitations.length > 0 ? ` (${savedCitations.length})` : ''}
@@ -3271,7 +3273,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
 
             <button
               onClick={() => setShowFindPapers(true)}
-              className="flex items-center gap-2 w-full hover:bg-[#3d3d3d] text-gray-300 hover:text-white px-4 py-2.5 rounded-lg text-[13px] font-semibold transition-colors"
+              className="flex items-center gap-2 w-full hover:bg-[#1b2c4e] text-gray-300 hover:text-white px-4 py-2.5 rounded-lg text-[13px] font-semibold transition-colors"
             >
               <Search className="w-4 h-4" />
               Find papers
@@ -3279,7 +3281,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
 
             <button
               onClick={() => setShowLibraryModal(true)}
-              className="flex items-center gap-2 w-full hover:bg-[#3d3d3d] text-gray-300 hover:text-white px-4 py-2.5 rounded-lg text-[13px] font-semibold transition-colors"
+              className="flex items-center gap-2 w-full hover:bg-[#1b2c4e] text-gray-300 hover:text-white px-4 py-2.5 rounded-lg text-[13px] font-semibold transition-colors"
             >
               <LibraryIcon className="w-4 h-4" />
               Library{(aiLibraryDocs.length + savedCitations.length) > 0 ? ` (${aiLibraryDocs.length + savedCitations.length})` : ''}
@@ -3287,7 +3289,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
 
             <button
               onClick={() => { setPromptCreating(false); setShowPromptManager(true); }}
-              className="flex items-center gap-2 w-full hover:bg-[#3d3d3d] text-gray-300 hover:text-white px-4 py-2.5 rounded-lg text-[13px] font-semibold transition-colors"
+              className="flex items-center gap-2 w-full hover:bg-[#1b2c4e] text-gray-300 hover:text-white px-4 py-2.5 rounded-lg text-[13px] font-semibold transition-colors"
             >
               <SquarePen className="w-4 h-4" />
               Saved prompts{savedPrompts.length > 0 ? ` (${savedPrompts.length})` : ''}
@@ -3306,7 +3308,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                 value={chatSearch}
                 onChange={(e) => setChatSearch(e.target.value)}
                 placeholder="Search chats"
-                className="w-full bg-[#222] border border-[#3d3d3d] rounded-lg pl-8 pr-2 py-1.5 text-[12px] text-gray-200 placeholder:text-gray-500 outline-none focus:border-[#2563eb] transition-colors"
+                className="w-full bg-[#222] border border-[#1b2c4e] rounded-lg pl-8 pr-2 py-1.5 text-[12px] text-gray-200 placeholder:text-gray-500 outline-none focus:border-[#2563eb] transition-colors"
               />
             </div>
 
@@ -3330,7 +3332,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                       editor.commands.setContent(chat.content || '<p class="text-gray-400">Start writing or type / for commands</p>', { emitUpdate: false });
                     }
                   }}
-                  className={`flex items-center justify-between gap-2 w-full text-left px-2 py-2.5 rounded-lg transition-colors group cursor-pointer ${activeChatId === chat.id ? 'bg-[#3d3d3d]' : 'hover:bg-[#3d3d3d]'}`}
+                  className={`flex items-center justify-between gap-2 w-full text-left px-2 py-2.5 rounded-lg transition-colors group cursor-pointer ${activeChatId === chat.id ? 'bg-[#1b2c4e]' : 'hover:bg-[#1b2c4e]'}`}
                 >
                   <div className="flex items-center gap-2 overflow-hidden flex-1">
                     <input
@@ -3726,7 +3728,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                           <span className="text-[14px] font-bold text-white">Consider external sources</span>
                           <span className="text-[13px] text-gray-500">Pinnovix will consider sources from the web</span>
                         </div>
-                        <div onClick={() => setExternalSources(!externalSources)} className={`w-[42px] h-[24px] rounded-full flex items-center px-0.5 cursor-pointer transition-colors ${externalSources ? 'bg-[#2563eb]' : 'bg-[#3d3d3d]'}`}>
+                        <div onClick={() => setExternalSources(!externalSources)} className={`w-[42px] h-[24px] rounded-full flex items-center px-0.5 cursor-pointer transition-colors ${externalSources ? 'bg-[#2563eb]' : 'bg-[#1b2c4e]'}`}>
                           <div className={`w-[18px] h-[18px] bg-white rounded-full shadow-sm transition-transform ${externalSources ? 'translate-x-[20px]' : 'translate-x-0'}`} />
                         </div>
                       </div>
@@ -3736,7 +3738,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                           <span className="text-[14px] font-bold text-white">Consider library sources</span>
                           <span className="text-[13px] text-gray-500">Upload PDFs to chat with, cite from or provide context to AI</span>
                         </div>
-                        <button onClick={() => setShowUploadModal(true)} className="px-3 py-1.5 border border-[#444] rounded-lg text-[13px] font-bold text-gray-200 flex items-center gap-2 hover:bg-[#2d2d2d] transition-colors cursor-pointer bg-transparent">
+                        <button onClick={() => setShowUploadModal(true)} className="px-3 py-1.5 border border-[#444] rounded-lg text-[13px] font-bold text-gray-200 flex items-center gap-2 hover:bg-[#0a1428] transition-colors cursor-pointer bg-transparent">
                           <Upload className="w-3.5 h-3.5" /> Add sources
                         </button>
                       </div>
@@ -3762,7 +3764,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
 
                       <div className="flex items-center justify-between">
                         <span className="text-[14px] font-bold text-white">Show page number in citations</span>
-                        <div onClick={() => setPageNumbers(!pageNumbers)} className={`w-[42px] h-[24px] rounded-full flex items-center px-0.5 cursor-pointer transition-colors ${pageNumbers ? 'bg-[#2563eb]' : 'bg-[#3d3d3d]'}`}>
+                        <div onClick={() => setPageNumbers(!pageNumbers)} className={`w-[42px] h-[24px] rounded-full flex items-center px-0.5 cursor-pointer transition-colors ${pageNumbers ? 'bg-[#2563eb]' : 'bg-[#1b2c4e]'}`}>
                           <div className={`w-[18px] h-[18px] bg-white rounded-full shadow-sm transition-transform ${pageNumbers ? 'translate-x-[20px]' : 'translate-x-0'}`} />
                         </div>
                       </div>
@@ -4140,7 +4142,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
            {!activeReviewTab && (
               <>
                  {/* Card 1: Citation Health */}
-                 <div className="bg-[#0f1d3d] border border-[#1b2c4e] rounded-xl p-5 flex flex-col gap-3">
+                 <div className="bg-[#0f1d3d] border border-[#1b2c4e] rounded-xl p-4 flex flex-col gap-2">
                    <div className="w-8 h-8 rounded-full bg-[#1b1c3a] flex items-center justify-center mb-1">
                      <Star className="w-4 h-4 text-[#7d84ff]" />
                    </div>
@@ -4212,7 +4214,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                  </div>
 
                  {/* Card: Expert Review */}
-                 <div className="bg-[#0f1d3d] border border-[#1b2c4e] rounded-xl p-5 flex flex-col gap-3">
+                 <div className="bg-[#0f1d3d] border border-[#1b2c4e] rounded-xl p-4 flex flex-col gap-2">
                    <div className="w-8 h-8 rounded-full bg-[#1b1c3a] flex items-center justify-center mb-1">
                      <Users className="w-4 h-4 text-[#7d84ff]" />
                    </div>
@@ -4229,7 +4231,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                  </div>
 
                  {/* Card 2: Manuscript Insights */}
-                 <div className="bg-[#0f1d3d] border border-[#1b2c4e] rounded-xl p-5 flex flex-col gap-3">
+                 <div className="bg-[#0f1d3d] border border-[#1b2c4e] rounded-xl p-4 flex flex-col gap-2">
                    <div className="w-8 h-8 rounded-full bg-[#1b1c3a] flex items-center justify-center mb-1">
                      <Users className="w-4 h-4 text-[#7d84ff]" />
                    </div>
@@ -4246,7 +4248,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                  </div>
 
                  {/* Card 3: Style & Tone */}
-                 <div className="bg-[#0f1d3d] border border-[#1b2c4e] rounded-xl p-5 flex flex-col gap-3">
+                 <div className="bg-[#0f1d3d] border border-[#1b2c4e] rounded-xl p-4 flex flex-col gap-2">
                    <div className="w-8 h-8 rounded-full bg-[#1b1c3a] flex items-center justify-center mb-1">
                      <MessageSquare className="w-4 h-4 text-[#7d84ff]" />
                    </div>
@@ -4266,7 +4268,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                  </div>
 
                  {/* Card 4: Proofread */}
-                 <div className="bg-[#0f1d3d] border border-[#1b2c4e] rounded-xl p-5 flex flex-col gap-3">
+                 <div className="bg-[#0f1d3d] border border-[#1b2c4e] rounded-xl p-4 flex flex-col gap-2">
                    <div className="w-8 h-8 rounded-full bg-[#1b1c3a] flex items-center justify-center mb-1">
                      <ListChecks className="w-4 h-4 text-[#7d84ff]" />
                    </div>
@@ -4733,8 +4735,8 @@ Required JSON structure:
         </div>
       )}
       {showCitationModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-[850px] max-w-[94vw] bg-[#151515] rounded-xl border border-[#333] shadow-2xl flex flex-col overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-[850px] max-w-[94vw] max-h-[90vh] overflow-y-auto bg-[#151515] rounded-xl border border-[#333] shadow-2xl flex flex-col">
             {/* Header */}
             <div className="px-6 py-5 border-b border-[#1b2c4e] flex justify-between items-center">
               <h2 className="text-xl font-bold text-white">Citation Style</h2>
@@ -5566,7 +5568,7 @@ Required JSON structure:
                     <span className="text-[15px] font-bold text-white">Consider external sources</span>
                     <span className="text-[13px] text-gray-400">Pinnovix will consider sources from the web</span>
                   </div>
-                  <div onClick={() => setExternalSources(!externalSources)} className={`w-11 h-6 rounded-full flex items-center px-1 cursor-pointer transition-colors ${externalSources ? 'bg-[#2563eb]' : 'bg-[#3d3d3d]'}`}>
+                  <div onClick={() => setExternalSources(!externalSources)} className={`w-11 h-6 rounded-full flex items-center px-1 cursor-pointer transition-colors ${externalSources ? 'bg-[#2563eb]' : 'bg-[#1b2c4e]'}`}>
                     <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${externalSources ? 'translate-x-[20px]' : 'translate-x-0'}`} />
                   </div>
                 </div>
@@ -5576,7 +5578,7 @@ Required JSON structure:
                     <span className="text-[15px] font-bold text-white">Consider library sources</span>
                     <span className="text-[13px] text-gray-400">Pinnovix will consider sources from your library</span>
                   </div>
-                  <div onClick={() => setLibrarySources(!librarySources)} className={`w-11 h-6 rounded-full flex items-center px-1 cursor-pointer transition-colors ${librarySources ? 'bg-[#2563eb]' : 'bg-[#3d3d3d]'}`}>
+                  <div onClick={() => setLibrarySources(!librarySources)} className={`w-11 h-6 rounded-full flex items-center px-1 cursor-pointer transition-colors ${librarySources ? 'bg-[#2563eb]' : 'bg-[#1b2c4e]'}`}>
                     <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${librarySources ? 'translate-x-[20px]' : 'translate-x-0'}`} />
                   </div>
                 </div>
