@@ -246,6 +246,12 @@ html.light body { background-color: #eef1f5; }
    the white editor page — sizes/spacing stay exactly as before. */
 .print-area .ProseMirror, .print-area > textarea { font-family: Georgia, 'Times New Roman', Charter, 'Liberation Serif', serif; }
 
+/* Inline AI suggestion preview — render headings/paragraphs like the document (no raw # ##). */
+.pending-suggestion h1 { font-size: 1.7em; font-weight: 800; line-height: 1.2; margin: 0.2em 0 0.3em; }
+.pending-suggestion h2 { font-size: 1.35em; font-weight: 700; line-height: 1.3; margin: 0.5em 0 0.3em; }
+.pending-suggestion h3 { font-size: 1.12em; font-weight: 700; margin: 0.4em 0 0.25em; }
+.pending-suggestion p { margin: 0.4em 0; font-size: 1rem; line-height: 1.65; }
+
 /* Document editor headings (paper title + section headings render big & bold) */
 .ProseMirror h1 { font-size: 1.7em; font-weight: 800; line-height: 1.2; margin: 0.7em 0 0.35em; letter-spacing: -0.01em; }
 .ProseMirror h2 { font-size: 1.35em; font-weight: 700; line-height: 1.3; margin: 1em 0 0.35em; }

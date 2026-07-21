@@ -3921,15 +3921,14 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                 <EditorContent editor={editor} />
 
                 {genMode === 'paragraph' && isEditing && !paperComplete && (
-                  <div className="not-prose my-6">
+                  <div className="not-prose my-4">
                     {pending ? (
-                      <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-4">
-                        <p className="text-[15px] leading-relaxed text-gray-500">
-                          {pending.text}{pending.cite ? <> <span className="text-blue-500 font-medium">{pending.cite}</span></> : null}
-                        </p>
-                        <div className="flex items-center gap-3 mt-3">
-                          <button onClick={acceptPending} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#2563eb] text-white font-bold text-[13px] hover:bg-[#3b82f6] transition-colors">Accept <Check className="w-4 h-4" /></button>
-                          <button onClick={() => generateNextSectionRef.current?.()} disabled={genBusy} className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 text-gray-700 font-semibold text-[13px] hover:bg-gray-100 disabled:opacity-50 transition-colors">{genBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} Refine suggestion</button>
+                      <div className="border-l-[3px] border-indigo-400 pl-4">
+                        <span className="inline-flex items-center gap-1 text-[10.5px] font-bold text-indigo-600 bg-indigo-100 rounded px-1.5 py-0.5 mb-1.5"><Sparkles className="w-3 h-3" /> Pinnovix AI</span>
+                        <div className="pending-suggestion text-gray-500" dangerouslySetInnerHTML={{ __html: marked.parse((pending.text || '') + (pending.cite ? ' ' + pending.cite : ''), { breaks: true, gfm: true }) as string }} />
+                        <div className="flex items-center gap-2 mt-2">
+                          <button onClick={acceptPending} className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-[#2563eb] text-white font-bold text-[13px] hover:bg-[#3b82f6] transition-colors">Accept <Check className="w-4 h-4" /></button>
+                          <button onClick={() => generateNextSectionRef.current?.()} disabled={genBusy} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 font-semibold text-[13px] hover:bg-gray-100 disabled:opacity-50 transition-colors">{genBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} Refine suggestion</button>
                           <button onClick={() => setPending(null)} className="text-gray-400 hover:text-gray-600" title="Dismiss"><X className="w-4 h-4" /></button>
                         </div>
                       </div>
