@@ -646,24 +646,47 @@ async def generate_paper(request: GeneratePaperRequest):
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
+_CITE_STOPWORDS = set("""a an the and or but of to in on for with as by that this these those is are was were be been being
+have has had do does did can could will would may might should must such which who whom whose their its from at into than then
+however often more most many some other another using used use based approach approaches method methods methodology model models
+study studies result results paper papers research researchers work works propose proposed present presents show shows shown
+we our it they them there here also both due within across various different several including include includes provide provides
+new novel recent recently current currently significant important key main major given while whereas thus therefore hence overall
+between among through over under about after before during each per via not no yes very much more less least first second third
+one two three data analysis system systems application applications field fields area areas because since although though even""".split())
+
+
+def _cite_keyterms(text: str):
+    import re as _re
+    words = _re.findall(r"[a-zA-Z][a-zA-Z\-]{2,}", (text or "").lower())
+    return set(w for w in words if w not in _CITE_STOPWORDS and len(w) > 3)
+
+
 def _best_source_for_claim(claim: str, from_year=None, min_cited=0, exclude=None):
-    """Find one real, verified paper (with DOI) that supports a claim sentence."""
+    """Find one real, verified paper (with DOI) that TOPICALLY supports a claim.
+    Ranks candidates by relevance (shared key terms + Crossref score), NOT by raw
+    citation count, and returns None when nothing is a confident match — a wrong
+    citation is worse than no citation."""
     q = (claim or "").strip()
     if len(q) < 25:
+        return None
+    claim_terms = _cite_keyterms(q)
+    if len(claim_terms) < 2:
         return None
     try:
         _filter = "type:journal-article"
         if from_year:
             _filter += f",from-pub-date:{from_year}-01-01"
         r = requests.get("https://api.crossref.org/works", params={
-            "query.bibliographic": q[:250], "rows": 8,
-            "select": "title,author,published,container-title,DOI,is-referenced-by-count",
+            "query.bibliographic": q[:300], "rows": 15,
+            "select": "title,author,published,container-title,DOI,is-referenced-by-count,score",
             "filter": _filter,
         }, headers={"User-Agent": "Pinnovix/1.0 (mailto:info@pinnovix.app)"}, timeout=10)
         if r.status_code != 200:
             return None
         best = None
-        best_cited = -1
+        best_rank = -1.0
+        best_overlap = 0
         for it in r.json().get("message", {}).get("items", []):
             doi = (it.get("DOI") or "").lower()
             if not doi:
@@ -680,17 +703,30 @@ def _best_source_for_claim(claim: str, from_year=None, min_cited=0, exclude=None
                 continue
             if min_cited and cited < min_cited:
                 continue
-            if cited > best_cited:
-                t = it.get("title") or [""]
-                title = t[0] if isinstance(t, list) and t else (t if isinstance(t, str) else "")
+            t = it.get("title") or [""]
+            title = t[0] if isinstance(t, list) and t else (t if isinstance(t, str) else "")
+            if not title:
+                continue
+            title_terms = _cite_keyterms(title)
+            overlap = len(claim_terms & title_terms)
+            cr_score = float(it.get("score", 0) or 0)
+            # Relevance-first ranking: topical overlap dominates, Crossref score breaks
+            # ties, citations only nudge among already-relevant papers.
+            rank = overlap * 1000.0 + cr_score + min(cited, 20000) / 10000.0
+            if rank > best_rank:
                 jc = it.get("container-title") or [""]
                 journal = jc[0] if isinstance(jc, list) and jc else (jc if isinstance(jc, str) else "")
-                best_cited = cited
+                best_rank = rank
+                best_overlap = overlap
                 best = {
                     "author": _format_authors_intext(authors), "surname": authors[0],
                     "families": authors, "year": str(year), "title": title,
                     "journal": journal, "doi": doi,
                 }
+        # Confidence gate: require at least 2 shared key terms with the title.
+        # If nothing clears the bar, cite nothing rather than something wrong.
+        if best is None or best_overlap < 2:
+            return None
         return best
     except Exception as e:
         print(f"_best_source_for_claim error: {e}")

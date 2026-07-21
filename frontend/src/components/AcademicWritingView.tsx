@@ -329,7 +329,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const [shareAccess, setShareAccess] = useState('Restricted');
   const [shareCopied, setShareCopied] = useState(false);
   const [collaborators, setCollaborators] = useState<any[]>([{ name: 'Zeeshan', email: 'zee12351@gmail.com', role: 'Owner' }]);
-  const [genMode, setGenMode] = useState<'full' | 'paragraph'>('full');
+  const [genMode, setGenMode] = useState<'full' | 'paragraph'>('paragraph');
   const [genBusy, setGenBusy] = useState(false);
   const [paperComplete, setPaperComplete] = useState(false);
   const [pending, setPending] = useState<any>(null);
@@ -649,7 +649,9 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     const isAcronym = /^[A-Z]{2,6}$/.test((surname || '').trim());
     const bib = [ctx, author].filter(Boolean).join(' ').trim() || segment;
     const q = [author, ctx].filter(Boolean).join(' ').slice(0, 200) || segment;
-    const ctxWords = new Set(ctx.toLowerCase().split(/[^a-z]+/).filter(w => w.length > 4));
+    // Fall back to the claim/segment's own key words when no surrounding context
+    // is supplied, so topical relevance can still be measured.
+    const ctxWords = new Set((ctx || segment).toLowerCase().split(/[^a-z]+/).filter(w => w.length > 4));
     const settled = await Promise.allSettled([
       crossrefCands(bib, author, isAcronym),
       openalexCands(q, year),
@@ -685,16 +687,24 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       if (year && c.year === year) sc += 6;
       else if (year && Math.abs(parseInt(c.year || '0', 10) - parseInt(year, 10)) <= 1) sc += 1;
       const tw = (c.title || '').toLowerCase().split(/[^a-z]+/);
-      sc += Math.min(tw.filter((w: string) => w.length > 4 && ctxWords.has(w)).length, 4);
-      sc += Math.min((c.citedBy || 0) / 500, 2);
+      const overlap = tw.filter((w: string) => w.length > 4 && ctxWords.has(w)).length;
+      // Topical relevance dominates; citations only nudge among relevant papers.
+      sc += Math.min(overlap * 3, 15);
+      sc += Math.min((c.citedBy || 0) / 2000, 1);
       if (c.doi) sc += 0.5;
       return sc;
     };
+    const overlapOf = (c: any) => { const tw = (c.title || '').toLowerCase().split(/[^a-z]+/); return tw.filter((w: string) => w.length > 4 && ctxWords.has(w)).length; };
     const best = uniq.slice().sort((a, b) => score(b) - score(a))[0];
+    const bestOverlap = overlapOf(best);
+    const bestSurnameMatch = !!(surname && !isAcronym && (best.authorsList || []).some((a: any) => { const f = (a.family || '').toLowerCase(); return f && (f.includes(surname.toLowerCase()) || surname.toLowerCase().includes(f)); }));
+    // Confidence gate: a wrong citation is worse than none. If the best candidate
+    // shares no key terms with the claim and the author doesn't match, cite nothing.
+    if (bestOverlap === 0 && !bestSurnameMatch) return { none: true, raw: segment };
     const meta: any = { ...best };
     meta.authors = (best.authorsList || []).map((a: any) => [a.given, a.family].filter(Boolean).join(' ')).filter(Boolean).slice(0, 8).join(', ');
     if (best.abstract && best.abstract.length > 320) { meta.abstract = best.abstract.slice(0, 320).trim(); meta.truncated = true; } else { meta.truncated = false; }
-    meta.weak = !!(year && best.year && best.year !== year) || score(best) < 4;
+    meta.weak = (bestOverlap < 2 && !bestSurnameMatch) || !!(year && best.year && best.year !== year) || score(best) < 4;
     if (meta.isOA === null && meta.doi) meta.isOA = await fetchOA(meta.doi);
     meta.impactFactor = await fetchImpactFactor(best.sourceId, best.issn, best.container);
     return meta;
@@ -3118,7 +3128,7 @@ Text to review: "${editor?.getText() || documentContent}"`, {
     });
   };
 
-  const handleProjectNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleProjectNameChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const newName = e.target.value;
     setChatHistory(prev => prev.map(chat => 
       chat.id === activeChatId ? { ...chat, title: newName } : chat
@@ -3550,10 +3560,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                 <button onClick={() => handleInsertEquation(true)} className="hover:text-white transition-colors" title="Insert inline math (LaTeX)">[x]</button>
                 <button onClick={() => handleInsertEquation(false)} className="hover:text-white transition-colors" title="Insert equation (LaTeX)">∑</button>
              </div>
-             <div className="ml-auto flex items-center gap-1 bg-[#0c1830] border border-[#333] rounded-lg p-0.5 mr-3">
-                <button onClick={() => setGenMode('full')} title="Generate the whole paper at once" className={`px-2.5 py-1 rounded-md text-[12px] font-bold transition-colors ${genMode === 'full' ? 'bg-[#2563eb] text-white' : 'text-gray-400 hover:text-white'}`}>Full paper</button>
-                <button onClick={() => setGenMode('paragraph')} title="Generate one section at a time, like jenni" className={`px-2.5 py-1 rounded-md text-[12px] font-bold transition-colors ${genMode === 'paragraph' ? 'bg-[#2563eb] text-white' : 'text-gray-400 hover:text-white'}`}>Paragraph</button>
-             </div>
+             <div className="ml-auto" />
              <button
                 onClick={() => {
                   const next = !autocompleteOn;
@@ -3885,12 +3892,13 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
             </div>
           ) : (
             <div className="w-full min-h-full p-10 bg-white text-black pb-32 relative print-area" onClick={handleEditorClick} onMouseOver={handleCitationHover} onMouseOut={handleCitationHoverOut}>
-              <input 
-                type="text" 
+              <textarea
                 value={projectName}
                 onChange={handleProjectNameChange}
-                placeholder="Untitled Document" 
-                className="w-full max-w-4xl mx-auto block text-4xl font-bold bg-transparent border-none outline-none text-black placeholder:text-gray-300 mb-8 font-sans"
+                placeholder="Untitled Document"
+                rows={1}
+                ref={(el) => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
+                className="w-full max-w-4xl mx-auto block text-4xl font-bold bg-transparent border-none outline-none text-black placeholder:text-gray-300 mb-8 font-sans resize-none overflow-hidden leading-tight"
               />
               <div className="max-w-4xl mx-auto">
                 <div className="flex flex-wrap items-center gap-2 mb-4 not-prose">
