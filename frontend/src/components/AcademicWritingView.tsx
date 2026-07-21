@@ -3149,7 +3149,7 @@ Text to review: "${editor?.getText() || documentContent}"`, {
         .replace(/[.?!]+$/, '')
         .trim();
       auto = auto.charAt(0).toUpperCase() + auto.slice(1);
-      auto = auto.slice(0, 70) || 'Untitled';
+      auto = auto.slice(0, 250) || 'Untitled';
       setChatHistory(prev => prev.map(c => (c.id === activeChatId ? { ...c, title: auto } : c)));
     }
 
@@ -3898,7 +3898,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                 placeholder="Untitled Document"
                 rows={1}
                 ref={(el) => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
-                className="w-full max-w-4xl mx-auto block text-4xl font-bold bg-transparent border-none outline-none text-black placeholder:text-gray-300 mb-8 font-sans resize-none overflow-hidden leading-tight"
+                className="w-full max-w-4xl mx-auto block text-4xl font-bold bg-transparent border-none outline-none text-black placeholder:text-gray-300 mb-8 resize-none overflow-hidden leading-tight"
               />
               <div className="max-w-4xl mx-auto">
                 <div className="flex flex-wrap items-center gap-2 mb-4 not-prose">
