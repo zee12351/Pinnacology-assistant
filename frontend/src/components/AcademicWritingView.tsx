@@ -336,6 +336,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   // Jenni-style section skeleton (headings dropped in first, filled in place).
   const [docSections, setDocSections] = useState<any[]>([]);
   const [expandedSecIdx, setExpandedSecIdx] = useState(0);
+  const [pendingSec, setPendingSec] = useState<null | { index: number; from: number; to: number }>(null);
   const docSectionsRef = useRef<any[]>([]);
   docSectionsRef.current = docSections;
   const fillSectionRef = useRef<null | ((i: number) => void)>(null);
@@ -1200,15 +1201,17 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         if (already) return false; // skip paragraphs that already have a citation
         const txt = node.textContent.trim();
         const sents = txt.match(/[^.!?]+[.!?]+/g) || (txt.length > 70 ? [txt] : []);
-        // Aim for one citation roughly every 4-5 lines (~45 words), not just once per paragraph.
-        let wc = 0;
+        // Cite every substantive claim sentence (jenni-style density). The backend
+        // returns no match for sentences it can't confidently support, so denser
+        // coverage never inserts a wrong citation — only fills real gaps.
+        let added = 0;
         sents.forEach((sRaw: string) => {
           const sentence = sRaw.trim();
           if (!sentence) return;
-          wc += sentence.split(/\s+/).length;
-          if (wc >= 45 && sentence.length > 40) { claims.push(sentence); wc = 0; }
+          const words = sentence.split(/\s+/).length;
+          if (sentence.length > 40 && words >= 8) { claims.push(sentence); added++; }
         });
-        if (claims.length === 0 && txt.length > 70) {
+        if (added === 0 && txt.length > 70) {
           const last = sents[sents.length - 1];
           if (last && last.trim().length > 40) claims.push(last.trim());
         }
@@ -1368,20 +1371,42 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       body = stripFakeCitations(stripPageMarkers(body.trim())).replace(/^#{1,3}\s+[^\n]*\n+/, '').trim();
       if (body) {
         const pos = headingEndPos(sec.heading);
+        let fromPos = pos != null ? pos : editor.state.selection.to;
         const html = marked.parse(body, { breaks: true, gfm: true }) as string;
         if (pos != null) editor.chain().focus().insertContentAt(pos, html).run();
         else editor.chain().focus('end').insertContent(html).run();
+        const toPos = editor.state.selection.to;
         isInternalUpdateRef.current = true;
         setDocumentContent(editor.getHTML());
         setTimeout(() => autoCiteRef.current?.(), 300);
+        // Show the jenni-style Accept / Refine bar for this section (do not auto-commit).
+        setPendingSec({ index, from: fromPos, to: toPos });
+        try { const c = editor.view.coordsAtPos(Math.min(toPos, editor.state.doc.content.size)); setPendingSecY(c.bottom); } catch { setPendingSecY(0); }
+      } else {
+        setDocSections((prev) => { const n = prev.map((s, i) => i === index ? { ...s, filled: true } : s); docSectionsRef.current = n; return n; });
       }
-      setDocSections((prev) => { const n = prev.map((s, i) => i === index ? { ...s, filled: true } : s); docSectionsRef.current = n; return n; });
-      setExpandedSecIdx(Math.min(index + 1, sections.length - 1));
-      if (index + 1 >= sections.length) setPaperComplete(true);
     } catch { /* ignore */ }
     finally { setGenBusy(false); }
   };
   fillSectionRef.current = fillSection;
+  // Accept the generated section: keep the text, mark filled, advance to the next.
+  const acceptSection = () => {
+    if (!pendingSec) return;
+    const idx = pendingSec.index;
+    const sections = docSectionsRef.current;
+    setDocSections((prev) => { const n = prev.map((s, i) => i === idx ? { ...s, filled: true } : s); docSectionsRef.current = n; return n; });
+    setPendingSec(null);
+    setExpandedSecIdx(Math.min(idx + 1, sections.length - 1));
+    if (sections.every((s: any, i: number) => i === idx || s.filled)) setPaperComplete(true);
+  };
+  // Refine: discard the generated text for this section and regenerate it.
+  const refineSection = () => {
+    if (!editor || !pendingSec) return;
+    const { index, from, to } = pendingSec;
+    try { editor.chain().focus().deleteRange({ from, to }).run(); isInternalUpdateRef.current = true; setDocumentContent(editor.getHTML()); } catch {}
+    setPendingSec(null);
+    setTimeout(() => fillSectionRef.current?.(index), 60);
+  };
   // "Continue writing" → fill the next unfilled section (or fall back to linear mode).
   const continueNextSection = () => {
     const sections = docSectionsRef.current;
@@ -3177,6 +3202,9 @@ Text to review: "${editor?.getText() || documentContent}"`, {
 
   // Load saved version history once.
   useEffect(() => { try { const raw = localStorage.getItem('pinnovix_aw_versions'); if (raw) setDocVersions(JSON.parse(raw)); } catch {} }, []);
+  // Restore + persist the section skeleton so the Sections panel survives page reloads.
+  useEffect(() => { try { const raw = localStorage.getItem('pinnovix_aw_sections'); if (raw) { const s = JSON.parse(raw); if (Array.isArray(s) && s.length) { setDocSections(s); docSectionsRef.current = s; } } } catch {} }, []);
+  useEffect(() => { try { if (docSections.length) localStorage.setItem('pinnovix_aw_sections', JSON.stringify(docSections)); else localStorage.removeItem('pinnovix_aw_sections'); } catch {} }, [docSections]);
   // Autosave the document (debounced) and snapshot a version at most every 45s.
   useEffect(() => {
     if (documentContent == null) return;
@@ -3984,7 +4012,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
               </div>
             </div>
           ) : (
-            <div className={`w-full min-h-full p-10 ${docSections.length > 0 && genMode === 'paragraph' ? 'xl:pl-[300px]' : ''} bg-white text-black pb-32 relative print-area`} onClick={handleEditorClick} onMouseOver={handleCitationHover} onMouseOut={handleCitationHoverOut}>
+            <div className={`editor-dark w-full min-h-full p-10 ${docSections.length > 0 && genMode === 'paragraph' ? 'xl:pl-[300px]' : ''} bg-[#18181b] text-zinc-100 pb-32 relative print-area`} onClick={handleEditorClick} onMouseOver={handleCitationHover} onMouseOut={handleCitationHoverOut}>
               {docSections.length > 0 && genMode === 'paragraph' && (
                 <aside onClick={(e) => e.stopPropagation()} className="hidden xl:flex flex-col absolute left-6 top-6 w-[256px] max-h-[calc(100vh-13rem)] overflow-y-auto bg-[#0f1730] text-gray-200 border border-[#1b2c4e] rounded-xl p-3 z-10 shadow-lg">
                   <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-2">Sections</div>
@@ -4010,7 +4038,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                 placeholder="Untitled Document"
                 rows={1}
                 ref={(el) => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
-                className="w-full max-w-4xl mx-auto block text-4xl font-bold bg-transparent border-none outline-none text-black placeholder:text-gray-300 mb-8 resize-none overflow-hidden leading-tight"
+                className="w-full max-w-4xl mx-auto block text-4xl font-bold bg-transparent border-none outline-none text-zinc-100 placeholder:text-zinc-500 mb-8 resize-none overflow-hidden leading-tight"
               />
               <div className="max-w-4xl mx-auto">
                 <div className="flex flex-wrap items-center gap-2 mb-4 not-prose">
@@ -4030,12 +4058,21 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                 </div>
                 <EditorContent editor={editor} />
 
-                {genMode === 'paragraph' && isEditing && !paperComplete && (
+                {genMode === 'paragraph' && isEditing && pendingSec && (
+                  <div className="not-prose mt-3 mb-2 flex items-center gap-2 flex-wrap rounded-xl border border-[#3f3f46] bg-[#232327] px-2 py-2 w-fit shadow-lg">
+                    <button onClick={acceptSection} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#4f46e5] hover:bg-[#4338ca] text-white text-[13px] font-bold transition-colors">Accept <span aria-hidden>→</span></button>
+                    <button onClick={refineSection} disabled={genBusy} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-zinc-200 hover:bg-[#2f2f36] text-[13px] font-semibold disabled:opacity-50 transition-colors"><Sparkles className="w-3.5 h-3.5" /> Refine suggestion</button>
+                    <div className="w-px h-5 bg-[#3f3f46] mx-0.5" />
+                    <button title="Good" className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-[#2f2f36] transition-colors"><ThumbsUp className="w-4 h-4" /></button>
+                    <button onClick={refineSection} title="Regenerate" className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-[#2f2f36] transition-colors"><ThumbsDown className="w-4 h-4" /></button>
+                  </div>
+                )}
+                {genMode === 'paragraph' && isEditing && !paperComplete && !pendingSec && (
                   <div className="not-prose mt-3 mb-2">
                     <button
                       onClick={() => continueNextSection()}
                       disabled={genBusy}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-60 text-[13.5px] font-bold transition-colors"
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[#3f3f46] bg-[#232327] text-zinc-100 hover:bg-[#2f2f36] disabled:opacity-60 text-[13.5px] font-bold transition-colors"
                     >
                       {genBusy ? <><Loader2 className="w-4 h-4 animate-spin" /> Pinnovix AI is writing…</> : <><Sparkles className="w-4 h-4" /> Continue writing</>}
                     </button>
@@ -4046,9 +4083,9 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                 )}
 
                 {citations.length > 0 && !docHasRefsSection && (
-                  <div className="mt-10 pt-6 border-t-2 border-gray-200 not-prose">
+                  <div className="mt-10 pt-6 border-t-2 border-zinc-700 not-prose">
                     <div className="flex items-center justify-between mb-3">
-                      <h2 className="text-2xl font-bold text-black flex items-center gap-2">References <span className="text-gray-400 text-base font-normal">({citations.length} · {citationStyle})</span>{cslBibLoading && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}</h2>
+                      <h2 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">References <span className="text-zinc-400 text-base font-normal">({citations.length} · {citationStyle})</span>{cslBibLoading && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}</h2>
                       <div className="flex items-center gap-2">
                         <button onClick={() => { setShowCitationModal(true); loadStyleIndex(); }} title="Choose from 2,600+ styles" className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors">Change style</button>
                         {genMode === 'paragraph' && <button onClick={insertBibliography} title="Insert this list into the document" className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors">Insert into document</button>}
@@ -4059,7 +4096,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                       </div>
                     </div>
                     {cslBib && cslBib.length ? (
-                      <div className="csl-bib flex flex-col gap-2 text-[14px] text-gray-800 leading-relaxed">
+                      <div className="csl-bib flex flex-col gap-2 text-[14px] text-zinc-300 leading-relaxed">
                         {cslBib.map((entry, i) => (
                           <div key={i} dangerouslySetInnerHTML={{ __html: entry }} />
                         ))}
@@ -4067,7 +4104,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                     ) : (
                       <ol className="flex flex-col gap-2 list-none pl-0">
                         {citations.map((c, i) => (
-                          <li key={(c.doi || c.intext || '') + i} className="text-[14px] text-gray-800 leading-relaxed">
+                          <li key={(c.doi || c.intext || '') + i} className="text-[14px] text-zinc-300 leading-relaxed">
                             {formatReference(c, citationStyle, i + 1)}
                             {c.doi && (
                               <a href={`https://doi.org/${c.doi}`} target="_blank" rel="noreferrer" className="ml-1 text-indigo-600 hover:underline">↗</a>

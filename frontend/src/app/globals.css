@@ -242,9 +242,33 @@ html.light body { background-color: #eef1f5; }
 .csl-bib .csl-entry { padding-left: 1.5em; text-indent: -1.5em; }
 .csl-bib .csl-entry i { font-style: italic; }
 
-/* Academic serif document look (matches jenni). Only changes the font family of
-   the white editor page — sizes/spacing stay exactly as before. */
-.print-area .ProseMirror, .print-area > textarea { font-family: Georgia, 'Times New Roman', Charter, 'Liberation Serif', serif; }
+/* Editor look matches jenni: dark canvas, Inter sans, light text. */
+.print-area .ProseMirror, .print-area > textarea {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+/* Dark editor canvas (jenni: bg #18181b, text #f4f4f5) */
+.editor-dark .ProseMirror { color: #f4f4f5; font-size: 15px; line-height: 1.6; }
+.editor-dark .ProseMirror h1,
+.editor-dark .ProseMirror h2,
+.editor-dark .ProseMirror h3,
+.editor-dark .ProseMirror h4 { color: #f4f4f5; }
+.editor-dark .ProseMirror p { color: #e4e4e7; }
+.editor-dark .ProseMirror strong { color: #ffffff; }
+.editor-dark .ProseMirror blockquote { color: #d4d4d8; border-left-color: #3f3f46; }
+.editor-dark .ProseMirror a { color: #93b4ff; }
+/* Citation marks (in-text citations) — jenni renders them in a light blue */
+.editor-dark .ProseMirror .citation,
+.editor-dark .ProseMirror [data-citation],
+.editor-dark .ProseMirror a[href*="doi.org"] { color: #8fb4ff; }
+.editor-dark .ProseMirror table td,
+.editor-dark .ProseMirror table th { border-color: #3f3f46; }
+.editor-dark .ProseMirror hr { border-color: #3f3f46; }
+/* Keep downloads/prints on white paper with black ink regardless of the dark UI */
+@media print {
+  .print-area { background: #ffffff !important; }
+  .print-area, .print-area * { color: #000000 !important; }
+  .print-area .ProseMirror a, .print-area .ProseMirror .citation { color: #1a56db !important; }
+}
 
 /* Inline AI suggestion preview — render headings/paragraphs like the document (no raw # ##). */
 .pending-suggestion h1 { font-size: 1.7em; font-weight: 800; line-height: 1.2; margin: 0.2em 0 0.3em; }
