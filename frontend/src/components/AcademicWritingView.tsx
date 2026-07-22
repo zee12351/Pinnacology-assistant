@@ -337,6 +337,8 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const [docSections, setDocSections] = useState<any[]>([]);
   const [expandedSecIdx, setExpandedSecIdx] = useState(0);
   const [pendingSec, setPendingSec] = useState<null | { index: number }>(null);
+  const [barPos, setBarPos] = useState<{ top: number; left: number } | null>(null);
+  const editorPageRef = useRef<HTMLDivElement>(null);
   const docSectionsRef = useRef<any[]>([]);
   docSectionsRef.current = docSections;
   const fillSectionRef = useRef<null | ((i: number) => void)>(null);
@@ -1397,6 +1399,20 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         // (jenni shows the citation already attached when you accept).
         try { await autoCiteRef.current?.(); } catch {}
         setPendingSec({ index });
+        // Float the Accept/Refine bar right under this section's last line (jenni-style).
+        requestAnimationFrame(() => {
+          try {
+            const r = sectionBodyRange(index);
+            const page = editorPageRef.current;
+            if (r && page && editor) {
+              const endPos = Math.max(r.from, Math.min(r.to - 1, editor.state.doc.content.size - 1));
+              const coords = editor.view.coordsAtPos(endPos);
+              const pageRect = page.getBoundingClientRect();
+              const pmRect = editor.view.dom.getBoundingClientRect();
+              setBarPos({ top: coords.bottom - pageRect.top + 6, left: pmRect.left - pageRect.left });
+            }
+          } catch { setBarPos(null); }
+        });
       } else {
         setDocSections((prev) => { const n = prev.map((s, i) => i === index ? { ...s, filled: true } : s); docSectionsRef.current = n; return n; });
       }
@@ -1427,7 +1443,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     const idx = pendingSec.index;
     const updated = docSectionsRef.current.map((s: any, i: number) => i === idx ? { ...s, filled: true } : s);
     setDocSections(updated); docSectionsRef.current = updated;
-    setPendingSec(null);
+    setPendingSec(null); setBarPos(null);
     const nextIdx = updated.findIndex((s: any) => !s.filled);
     if (nextIdx === -1) { setPaperComplete(true); setExpandedSecIdx(idx); return; }
     setExpandedSecIdx(nextIdx);
@@ -1439,7 +1455,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     const index = pendingSec.index;
     const r = sectionBodyRange(index);
     if (r && r.to > r.from) { try { editor.chain().focus().deleteRange(r).run(); isInternalUpdateRef.current = true; setDocumentContent(editor.getHTML()); } catch {} }
-    setPendingSec(null);
+    setPendingSec(null); setBarPos(null);
     setTimeout(() => fillSectionRef.current?.(index), 80);
   };
   // "Continue writing" → fill the next unfilled section (or fall back to linear mode).
@@ -4047,7 +4063,16 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
               </div>
             </div>
           ) : (
-            <div className={`editor-dark w-full min-h-full p-10 ${docSections.length > 0 && genMode === 'paragraph' ? 'xl:pl-[300px]' : ''} bg-[#18181b] text-zinc-100 pb-32 relative print-area`} onClick={handleEditorClick} onMouseOver={handleCitationHover} onMouseOut={handleCitationHoverOut}>
+            <div ref={editorPageRef} className={`editor-dark w-full min-h-full p-10 ${docSections.length > 0 && genMode === 'paragraph' ? 'xl:pl-[300px]' : ''} bg-[#18181b] text-zinc-100 pb-32 relative print-area`} onClick={handleEditorClick} onMouseOver={handleCitationHover} onMouseOut={handleCitationHoverOut}>
+              {pendingSec && barPos && (
+                <div className="not-prose absolute z-20 flex items-center gap-2 flex-wrap rounded-xl border border-[#3f3f46] bg-[#232327] px-2 py-2 w-fit shadow-xl" style={{ top: barPos.top, left: barPos.left }}>
+                  <button onClick={acceptSection} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#4f46e5] hover:bg-[#4338ca] text-white text-[13px] font-bold transition-colors">Accept <span aria-hidden>→</span></button>
+                  <button onClick={refineSection} disabled={genBusy} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-zinc-200 hover:bg-[#2f2f36] text-[13px] font-semibold disabled:opacity-50 transition-colors"><Sparkles className="w-3.5 h-3.5" /> Refine suggestion</button>
+                  <div className="w-px h-5 bg-[#3f3f46] mx-0.5" />
+                  <button title="Good" className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-[#2f2f36] transition-colors"><ThumbsUp className="w-4 h-4" /></button>
+                  <button onClick={refineSection} title="Regenerate" className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-[#2f2f36] transition-colors"><ThumbsDown className="w-4 h-4" /></button>
+                </div>
+              )}
               {docSections.length > 0 && genMode === 'paragraph' && (
                 <aside onClick={(e) => e.stopPropagation()} className="hidden xl:flex flex-col absolute left-6 top-6 w-[256px] max-h-[calc(100vh-13rem)] overflow-y-auto bg-[#0f1730] text-gray-200 border border-[#1b2c4e] rounded-xl p-3 z-10 shadow-lg">
                   <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-2">Sections</div>
@@ -4093,15 +4118,6 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                 </div>
                 <EditorContent editor={editor} />
 
-                {genMode === 'paragraph' && isEditing && pendingSec && (
-                  <div className="not-prose mt-3 mb-2 flex items-center gap-2 flex-wrap rounded-xl border border-[#3f3f46] bg-[#232327] px-2 py-2 w-fit shadow-lg">
-                    <button onClick={acceptSection} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#4f46e5] hover:bg-[#4338ca] text-white text-[13px] font-bold transition-colors">Accept <span aria-hidden>→</span></button>
-                    <button onClick={refineSection} disabled={genBusy} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-zinc-200 hover:bg-[#2f2f36] text-[13px] font-semibold disabled:opacity-50 transition-colors"><Sparkles className="w-3.5 h-3.5" /> Refine suggestion</button>
-                    <div className="w-px h-5 bg-[#3f3f46] mx-0.5" />
-                    <button title="Good" className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-[#2f2f36] transition-colors"><ThumbsUp className="w-4 h-4" /></button>
-                    <button onClick={refineSection} title="Regenerate" className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-[#2f2f36] transition-colors"><ThumbsDown className="w-4 h-4" /></button>
-                  </div>
-                )}
                 {genMode === 'paragraph' && isEditing && genBusy && !pendingSec && (
                   <div className="not-prose mt-3 mb-2 flex items-center gap-2 text-[13px] text-zinc-400 font-semibold">
                     <Loader2 className="w-4 h-4 animate-spin" /> Pinnovix AI is writing…
