@@ -3984,9 +3984,9 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
               </div>
             </div>
           ) : (
-            <div className="w-full min-h-full p-10 bg-white text-black pb-32 relative print-area" onClick={handleEditorClick} onMouseOver={handleCitationHover} onMouseOut={handleCitationHoverOut}>
+            <div className={`w-full min-h-full p-10 ${docSections.length > 0 && genMode === 'paragraph' ? 'xl:pl-[300px]' : ''} bg-white text-black pb-32 relative print-area`} onClick={handleEditorClick} onMouseOver={handleCitationHover} onMouseOut={handleCitationHoverOut}>
               {docSections.length > 0 && genMode === 'paragraph' && (
-                <aside onClick={(e) => e.stopPropagation()} className="hidden xl:flex flex-col absolute left-3 top-6 w-[240px] max-h-[calc(100%-3rem)] overflow-y-auto bg-[#0f1730] text-gray-200 border border-[#1b2c4e] rounded-xl p-3 z-10 shadow-lg">
+                <aside onClick={(e) => e.stopPropagation()} className="hidden xl:flex flex-col absolute left-6 top-6 w-[256px] max-h-[calc(100vh-13rem)] overflow-y-auto bg-[#0f1730] text-gray-200 border border-[#1b2c4e] rounded-xl p-3 z-10 shadow-lg">
                   <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-2">Sections</div>
                   {docSections.map((s: any, i: number) => (
                     <div key={i} className="mb-0.5">
@@ -3996,7 +3996,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                       </button>
                       {expandedSecIdx === i && (
                         <div className="px-2 pt-1 pb-2">
-                          {s.prompts && s.prompts.length ? <ul className="text-[11.5px] text-gray-400 list-disc pl-4 mb-2 space-y-0.5">{s.prompts.map((p: string, pi: number) => <li key={pi}>{p}</li>)}</ul> : <div className="text-[11.5px] text-gray-500 mb-2 italic">No guidance points.</div>}
+                          {s.prompts && s.prompts.length ? <ul className="text-[11.5px] text-gray-400 list-disc pl-4 mb-2 space-y-0.5 break-words">{s.prompts.map((p: string, pi: number) => <li key={pi}>{p}</li>)}</ul> : <div className="text-[11.5px] text-gray-500 mb-2 italic">No guidance points.</div>}
                           <button onClick={() => fillSectionRef.current?.(i)} disabled={genBusy} className="text-[11.5px] font-semibold bg-[#2563eb] hover:bg-[#3b82f6] text-white rounded-md px-2.5 py-1 disabled:opacity-50">{genBusy ? 'Writing…' : (s.filled ? 'Rewrite' : 'Generate')}</button>
                         </div>
                       )}
