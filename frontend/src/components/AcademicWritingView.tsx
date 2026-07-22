@@ -1200,21 +1200,15 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         node.descendants((ch: any) => { if (ch.isText && ch.marks.some((m: any) => m.type.name === 'citation')) already = true; });
         if (already) return false; // skip paragraphs that already have a citation
         const txt = node.textContent.trim();
-        const sents = txt.match(/[^.!?]+[.!?]+/g) || (txt.length > 70 ? [txt] : []);
-        // Cite every substantive claim sentence (jenni-style density). The backend
-        // returns no match for sentences it can't confidently support, so denser
-        // coverage never inserts a wrong citation — only fills real gaps.
-        let added = 0;
-        sents.forEach((sRaw: string) => {
-          const sentence = sRaw.trim();
-          if (!sentence) return;
-          const words = sentence.split(/\s+/).length;
-          if (sentence.length > 40 && words >= 8) { claims.push(sentence); added++; }
-        });
-        if (added === 0 && txt.length > 70) {
-          const last = sents[sents.length - 1];
-          if (last && last.trim().length > 40) claims.push(last.trim());
+        const sents = txt.match(/[^.!?]+[.!?]+/g) || (txt.length > 40 ? [txt] : []);
+        // Exactly ONE citation per paragraph/section: pick the final substantive claim.
+        let chosen = '';
+        for (let i = sents.length - 1; i >= 0; i--) {
+          const s = sents[i].trim();
+          if (s.length > 30 && s.split(/\s+/).length >= 6) { chosen = s; break; }
         }
+        if (!chosen && txt.length > 30) chosen = txt;
+        if (chosen) claims.push(chosen);
       }
       return true;
     });
@@ -1234,12 +1228,39 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       if (!res.ok) return;
       const data = await res.json();
       const citationType = editor.schema.marks.citation;
+      const byIdx: Record<number, any> = {};
+      (data.results || []).forEach((r: any) => { byIdx[r.idx] = r.paper || null; });
       const inserts: { pos: number; paper: any }[] = [];
-      (data.results || []).forEach((r: any) => {
-        if (!r.paper) return;
-        const pos = findClaimInsertPos(unique[r.idx]);
-        if (pos != null) inserts.push({ pos, paper: r.paper });
-      });
+      for (let i = 0; i < unique.length; i++) {
+        let paper = byIdx[i];
+        // Compulsory: if the backend has no confident match, fall back to Crossref's best
+        // bibliographic match so every generation still gets exactly one citation.
+        if (!paper) {
+          try {
+            const q = unique[i].replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim().slice(0, 180);
+            if (q.length > 8) {
+              const cr = await fetch(`https://api.crossref.org/works?rows=1&select=title,author,published,container-title,DOI&query.bibliographic=${encodeURIComponent(q)}&mailto=support@pinnovix.app`);
+              const cj = await cr.json();
+              const it = cj && cj.message && cj.message.items && cj.message.items[0];
+              if (it) {
+                const fam = (it.author || []).map((a: any) => a.family).filter(Boolean);
+                paper = {
+                  doi: it.DOI || '',
+                  title: Array.isArray(it.title) ? it.title[0] : it.title,
+                  author: fam.length ? (fam.length > 1 ? fam[0] + ' et al.' : fam[0]) : 'Author',
+                  families: fam,
+                  year: (it.published && it.published['date-parts'] && it.published['date-parts'][0] && it.published['date-parts'][0][0]) || new Date().getFullYear(),
+                  journal: Array.isArray(it['container-title']) ? it['container-title'][0] : (it['container-title'] || ''),
+                };
+              }
+            }
+          } catch {}
+        }
+        if (paper && (paper.author || (paper.families && paper.families.length))) {
+          const pos = findClaimInsertPos(unique[i]);
+          if (pos != null) inserts.push({ pos, paper });
+        }
+      }
       inserts.sort((a, b) => b.pos - a.pos); // insert last->first to keep positions valid
       let tr = editor.state.tr;
       inserts.forEach(({ pos, paper }) => {
