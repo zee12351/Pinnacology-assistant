@@ -1381,7 +1381,6 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         setTimeout(() => autoCiteRef.current?.(), 300);
         // Show the jenni-style Accept / Refine bar for this section (do not auto-commit).
         setPendingSec({ index, from: fromPos, to: toPos });
-        try { const c = editor.view.coordsAtPos(Math.min(toPos, editor.state.doc.content.size)); setPendingSecY(c.bottom); } catch { setPendingSecY(0); }
       } else {
         setDocSections((prev) => { const n = prev.map((s, i) => i === index ? { ...s, filled: true } : s); docSectionsRef.current = n; return n; });
       }
