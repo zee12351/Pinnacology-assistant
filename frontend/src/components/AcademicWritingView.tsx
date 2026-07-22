@@ -96,11 +96,24 @@ function toCsv(cites: any[]): string {
   return rows.map((r) => r.map(esc).join(',')).join('\r\n');
 }
 
+function cleanRefText(t: any): string {
+  let s = String(t == null ? '' : t)
+    .replace(/&#(\d+);/g, (_m: string, n: string) => String.fromCharCode(parseInt(n, 10)))
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  // Cut off scraped-webpage boilerplate that some sources bake into the title/abstract.
+  s = s.replace(/\s*(Authors?\s*-?\s*sphere of activity|PDF PDF|print print|post comment|Rate article|Read more|show contents|zobrazit obsah|previous article|next article|Number of articles|Category:|Key ?words?:|The authors declare|Editorial Board declares)[\s\S]*$/i, '').trim();
+  if (s.length > 400) { const cut = s.slice(0, 400); const lastDot = cut.lastIndexOf('. '); s = (lastDot > 80 ? cut.slice(0, lastDot + 1) : cut.trim() + '…'); }
+  return s;
+}
+
 function formatReference(meta: any, style: string, index: number) {
   const authors = citeAuthorList(meta.authors);
   const year = meta.year || 'n.d.';
-  const title = meta.title || meta.intext || 'Untitled';
-  const journal = meta.container || '';
+  const title = cleanRefText(meta.title || meta.intext || 'Untitled');
+  const journal = cleanRefText(meta.container || '');
   const doi = meta.doi ? `https://doi.org/${meta.doi}` : '';
   const apaAuthors = () => {
     if (!authors.length) return '';
@@ -1859,7 +1872,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       editor.view.dispatch(editor.state.tr.delete(refStart, editor.state.doc.content.size));
     }
     const items = (cslBib && cslBib.length)
-      ? cslBib.map(stripHtml)
+      ? cslBib.map((x: any) => cleanRefText(stripHtml(x)))
       : citations.map((c, i) => formatReference(c, citationStyle, i + 1));
     const html = '<h2>References</h2>' + items.map(t => `<p>${t.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`).join('');
     editor.chain().focus('end').insertContent(html).run();

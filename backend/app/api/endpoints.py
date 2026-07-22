@@ -780,15 +780,19 @@ async def continue_paper(request: ContinuePaperRequest):
         )
     elif smart:
         first_struct = (
-            "Write ONLY: the title as a Markdown '# ' heading, then the FIRST section heading as a '## ' "
-            "heading whose wording is tailored to THIS specific topic (not a fixed template), then ONE complete "
-            "opening claim (one or two sentences, ~35-60 words)."
+            "Write ONLY: the title as a Markdown '# ' heading, then the FIRST section heading as a '## ' heading, "
+            "then ONE complete opening claim (one or two sentences, ~35-60 words).\n"
+            "CRITICAL: Section headings MUST be SPECIFIC to this exact topic — descriptive, subject-matter section "
+            "names (e.g. for a topic on drug discovery: 'Multi-Omics Data Integration', 'Target Identification', "
+            "'Deep Learning Architectures'). Do NOT use the generic template words Introduction, Methods, "
+            "Methodology, Results, Discussion, or Conclusion as headings."
         )
         next_struct = (
             "- If the most recent section has fewer than 5 sentences, continue THAT section with one more claim (no heading).\n"
-            "- If it already has about 5-6 sentences, start the next section: output a '## ' heading whose wording "
-            "is tailored to this topic (choose the most natural next section for this subject), followed by ONE opening paragraph.\n"
-            "- Once the paper has a natural concluding section with 2+ paragraphs, reply with exactly: DONE"
+            "- If it already has about 5-6 sentences, start the next section: output a '## ' heading that is a "
+            "SPECIFIC, descriptive section name tailored to this exact topic (NOT generic words like Introduction, "
+            "Methods, Results, Discussion, Conclusion), followed by ONE opening paragraph.\n"
+            "- After 6-8 topic-specific sections, reply with exactly: DONE"
         )
     else:  # Standard IMRaD
         first_struct = (
