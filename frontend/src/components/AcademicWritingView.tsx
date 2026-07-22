@@ -1275,31 +1275,22 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         }
       }
       section = stripFakeCitations(stripPageMarkers(section.trim())).trim();
+      // The title already lives in the document-title field at the top, so drop a leading
+      // '# Title' line the model may emit (keeps the body starting at the first '## ' heading).
+      section = section.replace(/^#\s+[^\n]*\n+/, '').trim();
       if (!section || /^DONE\b/i.test(section)) { setPaperComplete(true); setPending(null); return; }
-      // Heading-only chunk (e.g. "## Methodology"): commit it directly, no citation needed.
+      // Write the generated content DIRECTLY into the document (jenni-style: it appears
+      // in place under the current heading — no separate preview box, no gap).
+      const html = marked.parse(section, { breaks: true, gfm: true }) as string;
+      editor.chain().focus('end').insertContent(html).run();
+      isInternalUpdateRef.current = true;
+      setDocumentContent(editor.getHTML());
+      setPending(null);
+      // Attach a real, verified citation to the just-written claim(s).
       const isHeadingOnly = /^#{1,3}\s+\S/.test(section) && section.split('\n').filter((l) => l.trim()).length <= 1;
-      if (isHeadingOnly) {
-        const h = marked.parse(section, { breaks: true, gfm: true }) as string;
-        editor.chain().focus('end').insertContent(h).run();
-        isInternalUpdateRef.current = true;
-        setDocumentContent(editor.getHTML());
-        setPending(null);
-        return;
+      if (!isHeadingOnly) {
+        setTimeout(() => { autoCiteRef.current?.(); }, 250);
       }
-      // Find a real supporting citation for the chunk.
-      let cite = '', paper: any = null;
-      try {
-        const sents = section.match(/[^.!?]+[.!?]+/g) || [section];
-        const claimSent = (sents[sents.length - 1] || section).trim();
-        const cres = await fetch(`${API}/api/cite-claims`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ claims: [claimSent] }),
-        });
-        const cdata = await cres.json();
-        const rr = (cdata.results || [])[0];
-        if (rr && rr.paper) { paper = rr.paper; cite = `(${paper.author}, ${paper.year})`; }
-      } catch { /* ignore */ }
-      setPending({ text: section, cite, paper });
     } catch { /* ignore */ }
     finally { setGenBusy(false); }
   };
@@ -3921,28 +3912,14 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                 <EditorContent editor={editor} />
 
                 {genMode === 'paragraph' && isEditing && !paperComplete && (
-                  <div className="not-prose my-4">
-                    {pending ? (
-                      <div className="border-l-[3px] border-indigo-400 pl-4">
-                        <span className="inline-flex items-center gap-1 text-[10.5px] font-bold text-indigo-600 bg-indigo-100 rounded px-1.5 py-0.5 mb-1.5"><Sparkles className="w-3 h-3" /> Pinnovix AI</span>
-                        <div className="pending-suggestion text-gray-500" dangerouslySetInnerHTML={{ __html: marked.parse((pending.text || '') + (pending.cite ? ' ' + pending.cite : ''), { breaks: true, gfm: true }) as string }} />
-                        <div className="flex items-center gap-2 mt-2">
-                          <button onClick={acceptPending} className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-[#2563eb] text-white font-bold text-[13px] hover:bg-[#3b82f6] transition-colors">Accept <Check className="w-4 h-4" /></button>
-                          <button onClick={() => generateNextSectionRef.current?.()} disabled={genBusy} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 font-semibold text-[13px] hover:bg-gray-100 disabled:opacity-50 transition-colors">{genBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} Refine suggestion</button>
-                          <button onClick={() => setPending(null)} className="text-gray-400 hover:text-gray-600" title="Dismiss"><X className="w-4 h-4" /></button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex justify-center">
-                        <button
-                          onClick={() => generateNextSectionRef.current?.()}
-                          disabled={genBusy}
-                          className="flex items-center gap-2 px-5 py-2.5 rounded-full border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 text-[14px] font-bold transition-colors shadow-sm"
-                        >
-                          {genBusy ? <><Loader2 className="w-4 h-4 animate-spin" /> Writing suggestion…</> : <>Continue writing <ChevronRight className="w-4 h-4" /></>}
-                        </button>
-                      </div>
-                    )}
+                  <div className="not-prose mt-3 mb-2">
+                    <button
+                      onClick={() => generateNextSectionRef.current?.()}
+                      disabled={genBusy}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-60 text-[13.5px] font-bold transition-colors"
+                    >
+                      {genBusy ? <><Loader2 className="w-4 h-4 animate-spin" /> Pinnovix AI is writing…</> : <><Sparkles className="w-4 h-4" /> Continue writing</>}
+                    </button>
                   </div>
                 )}
                 {genMode === 'paragraph' && isEditing && paperComplete && (
