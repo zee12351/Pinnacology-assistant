@@ -757,16 +757,48 @@ class ContinuePaperRequest(BaseModel):
     topic: str
     existing: str = ""
     headings: str = "Standard headings (IMRaD)"
+    section: str = ""
 
 @router.post("/continue-paper")
 async def continue_paper(request: ContinuePaperRequest):
-    """Paragraph-by-paragraph (jenni-style) generation: write only the NEXT section each call.
-    Respects the heading style: Standard (IMRaD), Smart (topic-tailored), or No headings."""
+    """Paragraph-by-paragraph (jenni-style) generation. If `section` is given, write the
+    body for THAT specific section (no heading). Otherwise write the next section, respecting
+    the heading style: Standard (IMRaD), Smart (topic-tailored), or No headings."""
     topic = (request.topic or "").strip()
     existing = (request.existing or "").strip()
+    section = (request.section or "").strip()
     mode = (request.headings or "Standard headings (IMRaD)").lower()
     no_headings = "no heading" in mode
     smart = "smart" in mode
+
+    # Section-fill mode: write the body for one given section, in place.
+    if section:
+        async def section_gen():
+            try:
+                from app.agents.workflow import get_model
+                model = get_model()
+                if not model:
+                    yield f"data: {json.dumps({'error': 'GEMINI_API_KEY not set'})}\n\n"
+                    return
+                instruction = (
+                    f"You are writing a research paper on: \"{topic}\".\n"
+                    + (f"=== PAPER SO FAR ===\n{existing[-2500:]}\n=== END ===\n\n" if existing else "")
+                    + f"Write the body content for the section titled \"{section}\". "
+                    "Write 2 to 4 complete, substantive sentences (about 60-110 words) specific to this section. "
+                    "Do NOT output any heading or the section title. Do NOT include any in-text citations, bracketed "
+                    "numbers, or a References section (they are added separately). Output only the paragraph text."
+                )
+                async for chunk in model.astream([HumanMessage(content=instruction)]):
+                    content = getattr(chunk, "content", "")
+                    if isinstance(content, list):
+                        content = "".join(str(c) for c in content)
+                    if content:
+                        yield f"data: {json.dumps({'type': 'token', 'content': content})}\n\n"
+                yield "data: [DONE]\n\n"
+            except Exception as e:
+                print(f"continue-paper section error: {e}")
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        return StreamingResponse(section_gen(), media_type="text/event-stream")
 
     if no_headings:
         first_struct = (
@@ -841,6 +873,69 @@ async def continue_paper(request: ContinuePaperRequest):
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+class OutlineRequest(BaseModel):
+    topic: str
+    headings: str = "Standard headings (IMRaD)"
+
+_STD_HEADINGS = ["Introduction", "Literature Review", "Methodology", "Results", "Discussion", "Conclusion"]
+
+@router.post("/outline")
+async def outline(request: OutlineRequest):
+    """Return the section skeleton for a paper: a list of headings, each with 2-3
+    short guidance bullets. Standard = fixed IMRaD headings; Smart = AI-generated,
+    topic-specific headings that change with the topic."""
+    topic = (request.topic or "").strip() or "this topic"
+    mode = (request.headings or "").lower()
+    smart = "smart" in mode
+    fallback = [{"heading": h, "prompts": []} for h in _STD_HEADINGS]
+    try:
+        from app.agents.workflow import get_model
+        model = get_model()
+        if not model:
+            return {"sections": fallback}
+        if smart:
+            instruction = (
+                f'Create a section outline for a research paper on: "{topic}".\n'
+                "Return ONLY a valid JSON array (no code fences, no commentary) of 6 to 12 objects. Each object: "
+                '{"heading": "a SPECIFIC, descriptive section name tailored to THIS exact topic (do NOT use the generic '
+                'words Introduction, Methods, Methodology, Results, Discussion or Conclusion)", '
+                '"prompts": ["2 or 3 short guidance bullets, each under 10 words"]}. '
+                "The first section should be an opener named specifically for the topic; the last should be a closing/outlook section."
+            )
+        else:
+            instruction = (
+                f'For a research paper on: "{topic}", use EXACTLY these section headings in this order: '
+                f'{", ".join(_STD_HEADINGS)}.\n'
+                "Return ONLY a valid JSON array (no code fences, no commentary) with one object per heading: "
+                '{"heading": "<the heading>", "prompts": ["2 or 3 short topic-specific guidance bullets, each under 10 words"]}.'
+            )
+        result = await model.ainvoke([HumanMessage(content=instruction)])
+        text = getattr(result, "content", "")
+        if isinstance(text, list):
+            text = "".join(part.get("text", "") for part in text if isinstance(part, dict) and "text" in part)
+        s = str(text).strip()
+        a = s.find("["); b = s.rfind("]")
+        if a != -1 and b != -1:
+            s = s[a:b + 1]
+        arr = json.loads(s)
+        sections = []
+        for x in arr:
+            h = str((x or {}).get("heading", "")).strip()
+            if not h:
+                continue
+            prompts = [str(p).strip() for p in ((x or {}).get("prompts") or []) if str(p).strip()][:3]
+            sections.append({"heading": h, "prompts": prompts})
+        if not smart:
+            # Enforce the fixed heading set regardless of what the model returned.
+            by_h = {sec["heading"].lower(): sec.get("prompts", []) for sec in sections}
+            sections = [{"heading": h, "prompts": by_h.get(h.lower(), [])} for h in _STD_HEADINGS]
+        if sections:
+            return {"sections": sections[:14]}
+    except Exception as e:
+        print(f"outline error: {e}")
+    return {"sections": fallback}
 
 
 # ---------------- Literature Review sharing ----------------

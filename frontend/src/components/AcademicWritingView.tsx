@@ -333,6 +333,12 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const [citeSaved, setCiteSaved] = useState(false);
   const [autoCiting, setAutoCiting] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  // Jenni-style section skeleton (headings dropped in first, filled in place).
+  const [docSections, setDocSections] = useState<any[]>([]);
+  const [expandedSecIdx, setExpandedSecIdx] = useState(0);
+  const docSectionsRef = useRef<any[]>([]);
+  docSectionsRef.current = docSections;
+  const fillSectionRef = useRef<null | ((i: number) => void)>(null);
   const [autocompleteOn, setAutocompleteOn] = useState(true);
   const [savedCitations, setSavedCitations] = useState<any[]>([]);
   const [showSavedModal, setShowSavedModal] = useState(false);
@@ -1308,6 +1314,82 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     finally { setGenBusy(false); }
   };
   generateNextSectionRef.current = generateNextSection;
+
+  // ---- Jenni-style skeleton-first generation ----
+  const escapeHtmlLocal = (s: any) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // Position right after a heading node with the given text.
+  const headingEndPos = (headingText: string): number | null => {
+    if (!editor) return null;
+    let res: number | null = null;
+    const want = (headingText || '').trim().toLowerCase();
+    editor.state.doc.descendants((node: any, pos: number) => {
+      if (res != null) return false;
+      if (node.type.name === 'heading' && (node.textContent || '').trim().toLowerCase() === want) res = pos + node.nodeSize;
+      return true;
+    });
+    return res;
+  };
+  // Build the full heading skeleton for the topic, then fill the first section.
+  const buildSkeletonAndStart = async () => {
+    if (!editor) return;
+    setGenBusy(true);
+    const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    let sections: any[] = [];
+    try {
+      const r = await fetch(`${API}/api/outline`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ topic: paperTopicRef.current, headings: paperHeadingsRef.current }) });
+      const j = await r.json();
+      sections = (j.sections || []).map((s: any) => ({ heading: s.heading, prompts: s.prompts || [], filled: false }));
+    } catch { /* ignore */ }
+    if (!sections.length) sections = ['Introduction', 'Literature Review', 'Methodology', 'Results', 'Discussion', 'Conclusion'].map((h) => ({ heading: h, prompts: [], filled: false }));
+    setDocSections(sections); docSectionsRef.current = sections; setExpandedSecIdx(0);
+    const html = sections.map((s: any) => `<h2>${escapeHtmlLocal(s.heading)}</h2>`).join('');
+    editor.commands.setContent(html, { emitUpdate: false });
+    isInternalUpdateRef.current = true;
+    setDocumentContent(editor.getHTML());
+    setGenBusy(false);
+    setTimeout(() => fillSectionRef.current?.(0), 250);
+  };
+  // Generate and insert the body for one section, in place under its heading.
+  const fillSection = async (index: number) => {
+    if (!editor || genBusy) return;
+    const sections = docSectionsRef.current;
+    if (!sections.length || index >= sections.length) { setPaperComplete(true); return; }
+    const sec = sections[index];
+    setGenBusy(true); setExpandedSecIdx(index);
+    try {
+      const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const existing = editor.getText().slice(0, 3000);
+      const promptCtx = (sec.prompts && sec.prompts.length) ? (' Cover these points: ' + sec.prompts.join('; ') + '.') : '';
+      const res = await fetch(`${API}/api/continue-paper`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ topic: paperTopicRef.current, existing, headings: paperHeadingsRef.current, section: sec.heading + promptCtx }) });
+      if (!res.ok) { setGenBusy(false); return; }
+      const reader = res.body?.getReader(); const dec = new TextDecoder();
+      let buffer = '', body = '';
+      if (reader) { while (true) { const { value, done } = await reader.read(); if (done) break; buffer += dec.decode(value, { stream: true }); const lines = buffer.split('\n'); buffer = lines.pop() || ''; for (const line of lines) { if (line.startsWith('data: ')) { const d = line.slice(6); if (d === '[DONE]') continue; try { const j = JSON.parse(d); if (j.type === 'token') body += j.content; } catch {} } } } }
+      body = stripFakeCitations(stripPageMarkers(body.trim())).replace(/^#{1,3}\s+[^\n]*\n+/, '').trim();
+      if (body) {
+        const pos = headingEndPos(sec.heading);
+        const html = marked.parse(body, { breaks: true, gfm: true }) as string;
+        if (pos != null) editor.chain().focus().insertContentAt(pos, html).run();
+        else editor.chain().focus('end').insertContent(html).run();
+        isInternalUpdateRef.current = true;
+        setDocumentContent(editor.getHTML());
+        setTimeout(() => autoCiteRef.current?.(), 300);
+      }
+      setDocSections((prev) => { const n = prev.map((s, i) => i === index ? { ...s, filled: true } : s); docSectionsRef.current = n; return n; });
+      setExpandedSecIdx(Math.min(index + 1, sections.length - 1));
+      if (index + 1 >= sections.length) setPaperComplete(true);
+    } catch { /* ignore */ }
+    finally { setGenBusy(false); }
+  };
+  fillSectionRef.current = fillSection;
+  // "Continue writing" → fill the next unfilled section (or fall back to linear mode).
+  const continueNextSection = () => {
+    const sections = docSectionsRef.current;
+    if (!sections.length) { generateNextSectionRef.current?.(); return; }
+    const nextIdx = sections.findIndex((s: any) => !s.filled);
+    if (nextIdx === -1) { setPaperComplete(true); return; }
+    fillSectionRef.current?.(nextIdx);
+  };
 
   // Accept the pending suggestion: commit it to the document and attach the real citation.
   const acceptPending = () => {
@@ -3158,15 +3240,20 @@ Text to review: "${editor?.getText() || documentContent}"`, {
       setChatHistory(prev => prev.map(c => (c.id === activeChatId ? { ...c, title: auto } : c)));
     }
 
-    // Paragraph-by-paragraph mode: generate the first section, then let the user click Continue.
+    // Paragraph-by-paragraph mode: build the heading skeleton, then fill sections in place.
     if (genMode === 'paragraph' && hasPrompt) {
       paperTopicRef.current = promptInput.trim();
       paperHeadingsRef.current = headingsOption;
       setPaperComplete(false);
       setPending(null);
       setDocumentContent('');
+      setDocSections([]); docSectionsRef.current = [];
       if (editor) editor.commands.setContent('<p></p>', { emitUpdate: false });
-      setTimeout(() => generateNextSectionRef.current?.(), 150);
+      if (/no heading/i.test(headingsOption)) {
+        setTimeout(() => generateNextSectionRef.current?.(), 150);
+      } else {
+        setTimeout(() => buildSkeletonAndStart(), 150);
+      }
       return;
     }
 
@@ -3898,6 +3985,25 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
             </div>
           ) : (
             <div className="w-full min-h-full p-10 bg-white text-black pb-32 relative print-area" onClick={handleEditorClick} onMouseOver={handleCitationHover} onMouseOut={handleCitationHoverOut}>
+              {docSections.length > 0 && genMode === 'paragraph' && (
+                <aside onClick={(e) => e.stopPropagation()} className="hidden xl:flex flex-col absolute left-3 top-6 w-[240px] max-h-[calc(100%-3rem)] overflow-y-auto bg-[#0f1730] text-gray-200 border border-[#1b2c4e] rounded-xl p-3 z-10 shadow-lg">
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-2">Sections</div>
+                  {docSections.map((s: any, i: number) => (
+                    <div key={i} className="mb-0.5">
+                      <button onClick={() => setExpandedSecIdx(expandedSecIdx === i ? -1 : i)} className={'w-full text-left flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg text-[12.5px] hover:bg-[#1b2c4e] transition-colors ' + (s.filled ? 'text-gray-400' : 'text-white font-semibold')}>
+                        <span className="truncate flex items-center gap-1.5">{s.filled ? <Check className="w-3 h-3 text-green-400 shrink-0" /> : null}{s.heading}</span>
+                        <ChevronDown className={'w-3.5 h-3.5 shrink-0 transition-transform ' + (expandedSecIdx === i ? 'rotate-180' : '')} />
+                      </button>
+                      {expandedSecIdx === i && (
+                        <div className="px-2 pt-1 pb-2">
+                          {s.prompts && s.prompts.length ? <ul className="text-[11.5px] text-gray-400 list-disc pl-4 mb-2 space-y-0.5">{s.prompts.map((p: string, pi: number) => <li key={pi}>{p}</li>)}</ul> : <div className="text-[11.5px] text-gray-500 mb-2 italic">No guidance points.</div>}
+                          <button onClick={() => fillSectionRef.current?.(i)} disabled={genBusy} className="text-[11.5px] font-semibold bg-[#2563eb] hover:bg-[#3b82f6] text-white rounded-md px-2.5 py-1 disabled:opacity-50">{genBusy ? 'Writing…' : (s.filled ? 'Rewrite' : 'Generate')}</button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </aside>
+              )}
               <textarea
                 value={projectName}
                 onChange={handleProjectNameChange}
@@ -3927,7 +4033,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                 {genMode === 'paragraph' && isEditing && !paperComplete && (
                   <div className="not-prose mt-3 mb-2">
                     <button
-                      onClick={() => generateNextSectionRef.current?.()}
+                      onClick={() => continueNextSection()}
                       disabled={genBusy}
                       className="flex items-center gap-2 px-4 py-2 rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-60 text-[13.5px] font-bold transition-colors"
                     >
