@@ -1199,30 +1199,17 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         let already = false;
         node.descendants((ch: any) => { if (ch.isText && ch.marks.some((m: any) => m.type.name === 'citation')) already = true; });
         if (already) return false; // skip paragraphs that already have a citation
-        // jenni-style: ONE citation per SENTENCE/line, inserted just before the sentence's
-        // ending period. Char offsets map 1:1 to doc positions in a fresh plain paragraph.
+        // Exactly ONE citation per section/paragraph, placed just before the paragraph's
+        // final period (so nothing follows it). Char offsets map 1:1 to doc positions.
         const pStart = pos + 1;
         const txt = node.textContent;
-        const re = /[^.!?]+[.!?]+/g;
-        let m: RegExpExecArray | null;
-        let any = false;
-        while ((m = re.exec(txt)) !== null) {
-          const sentence = m[0].trim();
-          if (sentence.length > 25 && sentence.split(/\s+/).length >= 5) {
-            const trail = m[0].match(/[.!?]+\s*$/);
-            const punctLen = trail ? trail[0].length : 0;
-            const insertOffset = m.index + m[0].length - punctLen;
-            claims.push({ text: sentence, endPos: pStart + insertOffset });
-            any = true;
-          }
-        }
-        if (!any && txt.trim().length > 25) {
-          claims.push({ text: txt.trim(), endPos: pStart + txt.replace(/[.!?]+\s*$/, '').length });
-        }
+        if (txt.trim().length < 25) return false;
+        const insertOffset = txt.replace(/[.!?]+\s*$/, '').length; // before trailing period
+        claims.push({ text: txt.trim(), endPos: pStart + insertOffset });
       }
       return true;
     });
-    const unique = claims.slice(0, 40);
+    const unique = claims.slice(0, 30);
     if (!unique.length) return;
     setAutoCiting(true);
     try {

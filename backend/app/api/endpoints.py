@@ -786,8 +786,8 @@ async def continue_paper(request: ContinuePaperRequest):
                     f"You are writing a research paper on: \"{topic}\".\n"
                     + (f"=== PAPER SO FAR ===\n{existing[-2500:]}\n=== END ===\n\n" if existing else "")
                     + f"Write the body content for the section titled \"{section}\". "
-                    "Write 2 to 3 complete sentences (about 45-75 words) specific to this section. Each sentence must "
-                    "make its OWN distinct factual claim that a published paper would support (so each line can carry a citation). "
+                    "Write just 1 sentence (2 at the very most), about 20-40 words total, specific to this section, "
+                    "making ONE clear factual claim a published paper would support. Be concise - do not exceed two sentences. "
                     "Do NOT output any heading or the section title. Do NOT include any in-text citations, bracketed "
                     "numbers, or a References section (they are added separately). Output only the paragraph text."
                 )
