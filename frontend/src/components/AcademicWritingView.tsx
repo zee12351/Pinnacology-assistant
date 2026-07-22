@@ -1186,9 +1186,9 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   // claim via the backend and insert a verified, DOI-bound citation at the end of that sentence.
   const autoCiteDocument = async () => {
     if (!editor) return;
-    const claims: string[] = [];
+    const claims: { text: string; endPos: number }[] = [];
     let inRefs = false;
-    editor.state.doc.descendants((node: any) => {
+    editor.state.doc.descendants((node: any, pos: number) => {
       if (node.type.name === 'heading') {
         const h = (node.textContent || '').toLowerCase();
         inRefs = h.includes('reference') || h.includes('bibliograph');
@@ -1199,20 +1199,30 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         let already = false;
         node.descendants((ch: any) => { if (ch.isText && ch.marks.some((m: any) => m.type.name === 'citation')) already = true; });
         if (already) return false; // skip paragraphs that already have a citation
-        const txt = node.textContent.trim();
-        const sents = txt.match(/[^.!?]+[.!?]+/g) || (txt.length > 40 ? [txt] : []);
-        // Exactly ONE citation per paragraph/section: pick the final substantive claim.
-        let chosen = '';
-        for (let i = sents.length - 1; i >= 0; i--) {
-          const s = sents[i].trim();
-          if (s.length > 30 && s.split(/\s+/).length >= 6) { chosen = s; break; }
+        // jenni-style: ONE citation per SENTENCE/line, inserted just before the sentence's
+        // ending period. Char offsets map 1:1 to doc positions in a fresh plain paragraph.
+        const pStart = pos + 1;
+        const txt = node.textContent;
+        const re = /[^.!?]+[.!?]+/g;
+        let m: RegExpExecArray | null;
+        let any = false;
+        while ((m = re.exec(txt)) !== null) {
+          const sentence = m[0].trim();
+          if (sentence.length > 25 && sentence.split(/\s+/).length >= 5) {
+            const trail = m[0].match(/[.!?]+\s*$/);
+            const punctLen = trail ? trail[0].length : 0;
+            const insertOffset = m.index + m[0].length - punctLen;
+            claims.push({ text: sentence, endPos: pStart + insertOffset });
+            any = true;
+          }
         }
-        if (!chosen && txt.length > 30) chosen = txt;
-        if (chosen) claims.push(chosen);
+        if (!any && txt.trim().length > 25) {
+          claims.push({ text: txt.trim(), endPos: pStart + txt.replace(/[.!?]+\s*$/, '').length });
+        }
       }
       return true;
     });
-    const unique = Array.from(new Set(claims)).slice(0, 30);
+    const unique = claims.slice(0, 40);
     if (!unique.length) return;
     setAutoCiting(true);
     try {
@@ -1223,7 +1233,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       const minCited = citedBy === '5+' ? 5 : citedBy === '20+' ? 20 : citedBy === '50+' ? 50 : 0;
       const res = await fetch(`${API}/api/cite-claims`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ claims: unique, from_year: fromYear || undefined, min_cited: minCited || undefined }),
+        body: JSON.stringify({ claims: unique.map((c) => c.text), from_year: fromYear || undefined, min_cited: minCited || undefined }),
       });
       if (!res.ok) return;
       const data = await res.json();
@@ -1237,7 +1247,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         // bibliographic match so every generation still gets exactly one citation.
         if (!paper) {
           try {
-            const q = unique[i].replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim().slice(0, 180);
+            const q = unique[i].text.replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim().slice(0, 180);
             if (q.length > 8) {
               const cr = await fetch(`https://api.crossref.org/works?rows=1&select=title,author,published,container-title,DOI&query.bibliographic=${encodeURIComponent(q)}&mailto=support@pinnovix.app`);
               const cj = await cr.json();
@@ -1257,8 +1267,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
           } catch {}
         }
         if (paper && (paper.author || (paper.families && paper.families.length))) {
-          const pos = findClaimInsertPos(unique[i]);
-          if (pos != null) inserts.push({ pos, paper });
+          inserts.push({ pos: unique[i].endPos, paper });
         }
       }
       inserts.sort((a, b) => b.pos - a.pos); // insert last->first to keep positions valid

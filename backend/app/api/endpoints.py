@@ -391,10 +391,12 @@ async def autocomplete(request: AutocompleteRequest):
             return {"completion": ""}
         prompt = (
             "You are an inline autocomplete for an academic writing editor. "
-            "Continue the text below naturally, matching its tone, tense and style. "
-            "Return ONLY the continuation that should come immediately next - do NOT repeat "
-            "any of the existing text, do not add quotes, labels or explanations. "
-            "Keep it concise: at most one sentence or clause (about 6-18 words).\n\n"
+            "Continue the text below with ONE complete sentence that makes a factual claim, matching its tone, "
+            "tense and style. End that sentence with a realistic in-text citation in parentheses, for example "
+            "(Smith et al., 2024). "
+            "Return ONLY the continuation (the new sentence followed by its citation) - do NOT repeat any of the "
+            "existing text, and do not add quotes, labels or explanations. "
+            "Keep it concise: about 10-22 words plus the citation.\n\n"
             f"TEXT:\n{text[-1500:]}\n\nCONTINUATION:"
         )
         resp = await model.ainvoke([HumanMessage(content=prompt)])
@@ -784,8 +786,8 @@ async def continue_paper(request: ContinuePaperRequest):
                     f"You are writing a research paper on: \"{topic}\".\n"
                     + (f"=== PAPER SO FAR ===\n{existing[-2500:]}\n=== END ===\n\n" if existing else "")
                     + f"Write the body content for the section titled \"{section}\". "
-                    "Write just 1 to 2 complete sentences (about 25-45 words) specific to this section that make ONE "
-                    "clear factual claim a published paper would support. Keep it concise. "
+                    "Write 2 to 3 complete sentences (about 45-75 words) specific to this section. Each sentence must "
+                    "make its OWN distinct factual claim that a published paper would support (so each line can carry a citation). "
                     "Do NOT output any heading or the section title. Do NOT include any in-text citations, bracketed "
                     "numbers, or a References section (they are added separately). Output only the paragraph text."
                 )
