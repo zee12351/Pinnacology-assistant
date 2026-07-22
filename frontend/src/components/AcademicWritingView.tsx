@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTheme } from 'next-themes';
-import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Upload, X, Search, Check, Star, Users, ListChecks, Play, SlidersHorizontal, ChevronsRight, ChevronsLeft, Type, Home, Settings2, Download, ThumbsUp, ThumbsDown, Info, ChevronDown, GraduationCap, FlaskConical, Feather, CheckCircle2, ChevronLeft, RotateCcw, Loader2, Sparkles, Trash2, Moon, Sun, Pencil, ArrowLeftRight, ExternalLink, Bookmark, Menu, Link2, ArrowUpDown, ArrowUp, Globe, Folder, FileText, Paperclip, Undo2, Redo2, MessageCircle, Archive, CheckCheck, AlertTriangle, SquarePen, Library as LibraryIcon } from 'lucide-react';
+import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Upload, X, Search, Check, Star, Users, ListChecks, Play, SlidersHorizontal, ChevronsRight, ChevronsLeft, Type, Home, Settings2, Download, ThumbsUp, ThumbsDown, Info, ChevronDown, GraduationCap, FlaskConical, Feather, CheckCircle2, ChevronLeft, RotateCcw, Loader2, Sparkles, Trash2, Moon, Sun, Pencil, ArrowLeftRight, ExternalLink, Bookmark, Menu, Link2, ArrowUpDown, ArrowUp, ArrowDown, Globe, Folder, FileText, Paperclip, Undo2, Redo2, MessageCircle, Archive, CheckCheck, AlertTriangle, SquarePen, GripVertical, Quote, Minus, List, ListOrdered, Code2, Image as ImageIcon, Sigma, Copy, Library as LibraryIcon } from 'lucide-react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
@@ -339,6 +339,20 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const [pendingSec, setPendingSec] = useState<null | { index: number }>(null);
   const [barPos, setBarPos] = useState<{ top: number; left: number } | null>(null);
   const editorPageRef = useRef<HTMLDivElement>(null);
+  // Jenni-style per-block hover toolbar (insert / move / AI edit).
+  const [blockTool, setBlockTool] = useState<{ pos: number; top: number; left: number } | null>(null);
+  const [blockMenu, setBlockMenu] = useState<null | 'insert' | 'move' | 'ai'>(null);
+  const [blockTenseOpen, setBlockTenseOpen] = useState(false);
+  const [blockAiBusy, setBlockAiBusy] = useState(false);
+  const blockMenuRef = useRef<string | null>(null);
+  const hoverBarRef = useRef(false);
+  useEffect(() => { blockMenuRef.current = blockMenu; }, [blockMenu]);
+  useEffect(() => {
+    if (!blockMenu) return;
+    const onDown = (e: MouseEvent) => { const t = e.target as HTMLElement; if (!t.closest || !t.closest('[data-block-toolbar]')) { setBlockMenu(null); setBlockTenseOpen(false); } };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [blockMenu]);
   const docSectionsRef = useRef<any[]>([]);
   docSectionsRef.current = docSections;
   const fillSectionRef = useRef<null | ((i: number) => void)>(null);
@@ -2937,6 +2951,148 @@ Text to review: "${editor?.getText() || documentContent}"`, {
     }
   }, [editorClickPos]);
 
+  // ===== Jenni-style per-block hover toolbar =====
+  // Track which top-level block the cursor is over and place the toolbar to its left.
+  useEffect(() => {
+    if (!editor) return;
+    const dom = editor.view.dom as HTMLElement;
+    let raf = 0;
+    const onMove = (e: MouseEvent) => {
+      if (blockMenuRef.current) return; // freeze while a menu is open
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        try {
+          const dr = dom.getBoundingClientRect();
+          const info = editor.view.posAtCoords({ left: dr.left + 24, top: e.clientY });
+          if (!info) return;
+          const $p = editor.state.doc.resolve(info.pos);
+          const bpos = $p.depth >= 1 ? $p.before(1) : 0;
+          const node = editor.state.doc.nodeAt(bpos);
+          if (!node) return;
+          const domNode = editor.view.nodeDOM(bpos) as HTMLElement | null;
+          if (!domNode || !(domNode instanceof HTMLElement) || !domNode.getBoundingClientRect) return;
+          const r = domNode.getBoundingClientRect();
+          const page = editorPageRef.current; if (!page) return;
+          const pr = page.getBoundingClientRect();
+          setBlockTool({ pos: bpos, top: r.top - pr.top, left: (dr.left - pr.left) - 84 });
+        } catch { /* ignore */ }
+      });
+    };
+    const onLeave = () => { setTimeout(() => { if (!blockMenuRef.current && !hoverBarRef.current) setBlockTool(null); }, 60); };
+    dom.addEventListener('mousemove', onMove);
+    dom.addEventListener('mouseleave', onLeave);
+    return () => { dom.removeEventListener('mousemove', onMove); dom.removeEventListener('mouseleave', onLeave); cancelAnimationFrame(raf); };
+  }, [editor]);
+
+  // Insert a new block right after the hovered block.
+  const insertBlockAfter = (content: any) => {
+    if (!editor || !blockTool) return;
+    const node = editor.state.doc.nodeAt(blockTool.pos);
+    if (!node) return;
+    const at = blockTool.pos + node.nodeSize;
+    editor.chain().focus().insertContentAt(at, content).run();
+    isInternalUpdateRef.current = true; setDocumentContent(editor.getHTML());
+    setBlockMenu(null); setBlockTool(null);
+  };
+  const insertTocAfter = () => {
+    if (!editor) return;
+    const heads: string[] = [];
+    editor.state.doc.descendants((n: any) => { if (n.type.name === 'heading' && (n.textContent || '').trim()) heads.push(n.textContent.trim()); });
+    const items = heads.length ? heads.map((t) => ({ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: t }] }] })) : [{ type: 'listItem', content: [{ type: 'paragraph' }] }];
+    insertBlockAfter([{ type: 'heading', attrs: { level: 3 }, content: [{ type: 'text', text: 'Contents' }] }, { type: 'bulletList', content: items }]);
+  };
+  const insertPlaceholderCitation = () => {
+    if (!editor || !blockTool) return;
+    const node = editor.state.doc.nodeAt(blockTool.pos);
+    if (!node) return;
+    const end = blockTool.pos + node.nodeSize - 1;
+    const citationType = editor.schema.marks.citation;
+    try { editor.view.dispatch(editor.state.tr.insert(end, editor.schema.text(' (Author, year)', citationType ? [citationType.create({})] : []))); } catch {}
+    isInternalUpdateRef.current = true; setDocumentContent(editor.getHTML());
+    setBlockMenu(null); setBlockTool(null);
+  };
+  // Move / duplicate / delete the hovered block.
+  const moveBlock = (dir: 'up' | 'down') => {
+    if (!editor || !blockTool) return;
+    const doc = editor.state.doc;
+    let pos = blockTool.pos;
+    const $at = doc.resolve(pos);
+    const idx = $at.index(0);
+    const cur = doc.child(idx);
+    const tr = editor.state.tr;
+    if (dir === 'up') {
+      if (idx <= 0) return;
+      const prev = doc.child(idx - 1);
+      const prevStart = pos - prev.nodeSize;
+      tr.delete(pos, pos + cur.nodeSize);
+      tr.insert(prevStart, cur);
+    } else {
+      if (idx >= doc.childCount - 1) return;
+      const next = doc.child(idx + 1);
+      tr.delete(pos + cur.nodeSize, pos + cur.nodeSize + next.nodeSize);
+      tr.insert(pos, next);
+    }
+    editor.view.dispatch(tr);
+    isInternalUpdateRef.current = true; setDocumentContent(editor.getHTML());
+    setBlockMenu(null); setBlockTool(null);
+  };
+  const duplicateBlock = () => {
+    if (!editor || !blockTool) return;
+    const node = editor.state.doc.nodeAt(blockTool.pos);
+    if (!node) return;
+    editor.chain().focus().insertContentAt(blockTool.pos + node.nodeSize, node.toJSON()).run();
+    isInternalUpdateRef.current = true; setDocumentContent(editor.getHTML());
+    setBlockMenu(null); setBlockTool(null);
+  };
+  const deleteBlock = () => {
+    if (!editor || !blockTool) return;
+    const node = editor.state.doc.nodeAt(blockTool.pos);
+    if (!node) return;
+    editor.view.dispatch(editor.state.tr.delete(blockTool.pos, blockTool.pos + node.nodeSize));
+    isInternalUpdateRef.current = true; setDocumentContent(editor.getHTML());
+    setBlockMenu(null); setBlockTool(null);
+  };
+  const convertBlockToList = (kind: 'bullet' | 'numbered') => {
+    if (!editor || !blockTool) return;
+    const chain = editor.chain().focus().setTextSelection(blockTool.pos + 1);
+    (kind === 'bullet' ? chain.toggleBulletList() : chain.toggleOrderedList()).run();
+    isInternalUpdateRef.current = true; setDocumentContent(editor.getHTML());
+    setBlockMenu(null); setBlockTool(null);
+  };
+  // AI-edit the hovered block's text and replace it in place.
+  const blockAiEdit = async (action: string) => {
+    if (!editor || !blockTool || blockAiBusy) return;
+    const node = editor.state.doc.nodeAt(blockTool.pos);
+    if (!node) return;
+    const from = blockTool.pos + 1, to = blockTool.pos + node.nodeSize - 1;
+    const selected = editor.state.doc.textBetween(from, to, ' ').trim();
+    if (!selected) { setBlockMenu(null); return; }
+    const verbs: Record<string, string> = {
+      fluency: 'Improve the fluency, grammar, clarity and academic tone of the following text',
+      paraphrase: 'Paraphrase the following text while fully preserving its meaning',
+      simplify: 'Simplify the following text so it is clearer and easier to read',
+      strengthen: 'Strengthen the argument in the following text with more persuasive, evidence-based reasoning',
+      counter: 'Rewrite the following text and append a balanced counter-argument that acknowledges an opposing view',
+      tense_past: 'Rewrite the following text in the past tense',
+      tense_present: 'Rewrite the following text in the present tense',
+      tense_future: 'Rewrite the following text in the future tense',
+    };
+    setBlockMenu(null); setBlockTenseOpen(false); setBlockAiBusy(true);
+    const prompt = `${verbs[action] || verbs.fluency}. Preserve any in-text citations like (Author, Year) exactly. Return ONLY the rewritten text as plain prose - no preamble, no quotes, no markdown:\n\n"${selected}"`;
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/chat`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: prompt, agent_type: 'review', use_rag: false, persona: 'DOCUMENT ANALYST' }),
+      });
+      const reader = response.body?.getReader(); const decoder = new TextDecoder();
+      let buffer = '', result = '';
+      while (reader) { const { value, done } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); const lines = buffer.split('\n'); buffer = lines.pop() || ''; for (const line of lines) { if (line.startsWith('data: ')) { const d = line.slice(6); if (d === '[DONE]') continue; try { const j = JSON.parse(d); if (j.type === 'token') result += j.content; } catch {} } } }
+      const clean = (result || '').trim().replace(/^"|"$/g, '');
+      if (clean) { editor.chain().focus().insertContentAt({ from, to }, clean).run(); isInternalUpdateRef.current = true; setDocumentContent(editor.getHTML()); }
+    } catch { /* ignore */ }
+    finally { setBlockAiBusy(false); setBlockTool(null); }
+  };
+
   // AI autocomplete: debounce after typing, fetch a short continuation, show as ghost text
   useEffect(() => {
     if (!editor) return;
@@ -4111,6 +4267,75 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                   <div className="w-px h-5 bg-[#3f3f46] mx-0.5" />
                   <button title="Good" className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-[#2f2f36] transition-colors"><ThumbsUp className="w-4 h-4" /></button>
                   <button onClick={refineSection} title="Regenerate" className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-[#2f2f36] transition-colors"><ThumbsDown className="w-4 h-4" /></button>
+                </div>
+              )}
+              {/* Jenni-style per-block hover toolbar: insert / move / AI edit */}
+              {blockTool && (
+                <div data-block-toolbar className="not-prose absolute z-30 select-none" style={{ top: blockTool.top, left: blockTool.left }}
+                     onMouseEnter={() => { hoverBarRef.current = true; }}
+                     onMouseLeave={() => { hoverBarRef.current = false; if (!blockMenu) setBlockTool(null); }}>
+                  <div className="flex items-center gap-0.5 text-zinc-500">
+                    <button title="Insert block below" onClick={(e) => { e.stopPropagation(); setBlockMenu(blockMenu === 'insert' ? null : 'insert'); }} className="p-1 rounded hover:bg-[#2f2f36] hover:text-zinc-100 transition-colors"><Plus className="w-4 h-4" /></button>
+                    <button title="Move block" onClick={(e) => { e.stopPropagation(); setBlockMenu(blockMenu === 'move' ? null : 'move'); }} className="p-1 rounded hover:bg-[#2f2f36] hover:text-zinc-100 transition-colors cursor-grab"><GripVertical className="w-4 h-4" /></button>
+                    <button title="Ask AI to edit" onClick={(e) => { e.stopPropagation(); setBlockMenu(blockMenu === 'ai' ? null : 'ai'); }} className="p-1 rounded hover:bg-[#2f2f36] hover:text-indigo-300 transition-colors">{blockAiBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}</button>
+                  </div>
+                  {blockMenu === 'insert' && (
+                    <div className="absolute left-0 top-8 w-56 max-h-[340px] overflow-y-auto rounded-xl border border-[#3f3f46] bg-[#1c1c20] py-1.5 shadow-2xl text-[13px] text-zinc-200 custom-scrollbar">
+                      <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-zinc-500">Blocks</div>
+                      {[
+                        { icon: <Type className="w-4 h-4" />, label: 'Text', fn: () => insertBlockAfter({ type: 'paragraph' }) },
+                        { icon: <span className="text-[11px] font-bold w-4 text-center">H1</span>, label: 'Heading 1', fn: () => insertBlockAfter({ type: 'heading', attrs: { level: 1 } }) },
+                        { icon: <span className="text-[11px] font-bold w-4 text-center">H2</span>, label: 'Heading 2', fn: () => insertBlockAfter({ type: 'heading', attrs: { level: 2 } }) },
+                        { icon: <span className="text-[11px] font-bold w-4 text-center">H3</span>, label: 'Heading 3', fn: () => insertBlockAfter({ type: 'heading', attrs: { level: 3 } }) },
+                        { icon: <span className="text-[11px] font-bold w-4 text-center">H4</span>, label: 'Heading 4', fn: () => insertBlockAfter({ type: 'heading', attrs: { level: 4 } }) },
+                        { icon: <List className="w-4 h-4" />, label: 'Bulleted List', fn: () => insertBlockAfter({ type: 'bulletList', content: [{ type: 'listItem', content: [{ type: 'paragraph' }] }] }) },
+                        { icon: <ListOrdered className="w-4 h-4" />, label: 'Numbered List', fn: () => insertBlockAfter({ type: 'orderedList', content: [{ type: 'listItem', content: [{ type: 'paragraph' }] }] }) },
+                        { icon: <Code2 className="w-4 h-4" />, label: 'Code Block', fn: () => insertBlockAfter({ type: 'codeBlock' }) },
+                        { icon: <ImageIcon className="w-4 h-4" />, label: 'Image', fn: () => { setBlockMenu(null); setBlockTool(null); imageInputRef.current?.click(); } },
+                        { icon: <Sigma className="w-4 h-4" />, label: 'Equation', fn: () => insertBlockAfter({ type: 'paragraph', content: [{ type: 'text', text: 'E = mc²' }] }) },
+                        { icon: <Quote className="w-4 h-4" />, label: 'Block Quote', fn: () => insertBlockAfter({ type: 'blockquote', content: [{ type: 'paragraph' }] }) },
+                        { icon: <Minus className="w-4 h-4" />, label: 'Horizontal Rule', fn: () => insertBlockAfter({ type: 'horizontalRule' }) },
+                        { icon: <ListChecks className="w-4 h-4" />, label: 'Table of Contents', fn: insertTocAfter },
+                        { icon: <Info className="w-4 h-4" />, label: 'AI Declaration', fn: () => insertBlockAfter({ type: 'paragraph', content: [{ type: 'text', text: 'AI Declaration: The author used AI-assisted tools to support drafting and editing of this document. All content was reviewed and verified by the author.' }] }) },
+                      ].map((it, i) => (
+                        <button key={i} onClick={(e) => { e.stopPropagation(); it.fn(); }} className="w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-[#2f2f36] text-left transition-colors">{it.icon}<span>{it.label}</span></button>
+                      ))}
+                      <div className="px-3 py-1 mt-1 text-[10px] font-bold uppercase tracking-wide text-zinc-500 border-t border-[#3f3f46]">Actions</div>
+                      <button onClick={(e) => { e.stopPropagation(); insertPlaceholderCitation(); }} className="w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-[#2f2f36] text-left transition-colors"><Bookmark className="w-4 h-4" /><span>Placeholder Citation</span></button>
+                      <button onClick={(e) => { e.stopPropagation(); setBlockMenu(null); setBlockTool(null); setShowCitationModal(true); loadStyleIndex(); }} className="w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-[#2f2f36] text-left transition-colors"><Quote className="w-4 h-4" /><span>Cite</span></button>
+                    </div>
+                  )}
+                  {blockMenu === 'move' && (
+                    <div className="absolute left-0 top-8 w-44 rounded-xl border border-[#3f3f46] bg-[#1c1c20] py-1.5 shadow-2xl text-[13px] text-zinc-200">
+                      <button onClick={(e) => { e.stopPropagation(); moveBlock('up'); }} className="w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-[#2f2f36] text-left transition-colors"><ArrowUp className="w-4 h-4" /><span>Move up</span></button>
+                      <button onClick={(e) => { e.stopPropagation(); moveBlock('down'); }} className="w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-[#2f2f36] text-left transition-colors"><ArrowDown className="w-4 h-4" /><span>Move down</span></button>
+                      <button onClick={(e) => { e.stopPropagation(); duplicateBlock(); }} className="w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-[#2f2f36] text-left transition-colors"><Copy className="w-4 h-4" /><span>Duplicate</span></button>
+                      <button onClick={(e) => { e.stopPropagation(); deleteBlock(); }} className="w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-[#2f2f36] text-left text-red-300 transition-colors"><Trash2 className="w-4 h-4" /><span>Delete</span></button>
+                    </div>
+                  )}
+                  {blockMenu === 'ai' && (
+                    <div className="absolute left-0 top-8 w-52 rounded-xl border border-[#3f3f46] bg-[#1c1c20] py-1.5 shadow-2xl text-[13px] text-zinc-200">
+                      <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-zinc-500">Strengthen writing</div>
+                      <button onClick={(e) => { e.stopPropagation(); blockAiEdit('fluency'); }} className="w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-[#2f2f36] text-left transition-colors"><Sparkles className="w-4 h-4" /><span>Improve fluency</span></button>
+                      <button onClick={(e) => { e.stopPropagation(); blockAiEdit('paraphrase'); }} className="w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-[#2f2f36] text-left transition-colors"><RotateCcw className="w-4 h-4" /><span>Paraphrase</span></button>
+                      <button onClick={(e) => { e.stopPropagation(); blockAiEdit('simplify'); }} className="w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-[#2f2f36] text-left transition-colors"><Feather className="w-4 h-4" /><span>Simplify</span></button>
+                      <button onClick={(e) => { e.stopPropagation(); blockAiEdit('strengthen'); }} className="w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-[#2f2f36] text-left transition-colors"><ArrowUp className="w-4 h-4" /><span>Strengthen argument</span></button>
+                      <button onClick={(e) => { e.stopPropagation(); blockAiEdit('counter'); }} className="w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-[#2f2f36] text-left transition-colors"><ArrowLeftRight className="w-4 h-4" /><span>Add a counter argument</span></button>
+                      <div className="px-3 py-1 mt-1 text-[10px] font-bold uppercase tracking-wide text-zinc-500 border-t border-[#3f3f46]">Transform</div>
+                      <div className="relative" onMouseEnter={() => setBlockTenseOpen(true)} onMouseLeave={() => setBlockTenseOpen(false)}>
+                        <button onClick={(e) => { e.stopPropagation(); setBlockTenseOpen(!blockTenseOpen); }} className="w-full flex items-center justify-between gap-2.5 px-3 py-1.5 hover:bg-[#2f2f36] text-left transition-colors"><span className="flex items-center gap-2.5"><Clock className="w-4 h-4" />Change tense</span><ChevronRight className="w-3.5 h-3.5" /></button>
+                        {blockTenseOpen && (
+                          <div className="absolute left-full top-0 ml-0.5 w-32 rounded-xl border border-[#3f3f46] bg-[#1c1c20] py-1.5 shadow-2xl">
+                            <button onClick={(e) => { e.stopPropagation(); blockAiEdit('tense_past'); }} className="w-full px-3 py-1.5 hover:bg-[#2f2f36] text-left transition-colors">Past</button>
+                            <button onClick={(e) => { e.stopPropagation(); blockAiEdit('tense_present'); }} className="w-full px-3 py-1.5 hover:bg-[#2f2f36] text-left transition-colors">Present</button>
+                            <button onClick={(e) => { e.stopPropagation(); blockAiEdit('tense_future'); }} className="w-full px-3 py-1.5 hover:bg-[#2f2f36] text-left transition-colors">Future</button>
+                          </div>
+                        )}
+                      </div>
+                      <button onClick={(e) => { e.stopPropagation(); convertBlockToList('bullet'); }} className="w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-[#2f2f36] text-left transition-colors"><List className="w-4 h-4" /><span>Convert to bullet list</span></button>
+                      <button onClick={(e) => { e.stopPropagation(); convertBlockToList('numbered'); }} className="w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-[#2f2f36] text-left transition-colors"><ListOrdered className="w-4 h-4" /><span>Convert to numbered list</span></button>
+                    </div>
+                  )}
                 </div>
               )}
               {docSections.length > 0 && genMode === 'paragraph' && (
