@@ -29,16 +29,16 @@ if (-not $SkipBuild) {
     Write-Host "==> Build OK." -ForegroundColor Green
 }
 
-# Stop early if there is nothing to commit
+# Commit any new changes (skip commit if there are none), then ALWAYS push so that
+# already-committed-but-unpushed commits still reach GitHub (and trigger Vercel).
 $changes = git status --porcelain
 if ([string]::IsNullOrWhiteSpace($changes)) {
-    Write-Host "==> Nothing to commit. Working tree is clean." -ForegroundColor Yellow
-    exit 0
+    Write-Host "==> Nothing new to commit — pushing any pending commits..." -ForegroundColor Yellow
+} else {
+    Write-Host "==> Committing changes..." -ForegroundColor Cyan
+    git add backend frontend
+    git commit -m $Message
 }
-
-Write-Host "==> Committing changes..." -ForegroundColor Cyan
-git add backend frontend
-git commit -m $Message
 
 Write-Host "==> Pushing to GitHub..." -ForegroundColor Cyan
 git push
