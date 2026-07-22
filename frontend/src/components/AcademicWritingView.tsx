@@ -1198,16 +1198,24 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       }
       if (inRefs) return false;
       if (node.type.name === 'paragraph' && node.textContent) {
-        let already = false;
-        node.descendants((ch: any) => { if (ch.isText && ch.marks.some((m: any) => m.type.name === 'citation')) already = true; });
-        if (already) return false; // skip paragraphs that already have a citation
-        // Exactly ONE citation per section/paragraph, placed just before the paragraph's
-        // final period (so nothing follows it). Char offsets map 1:1 to doc positions.
+        // Cite the LAST sentence of the paragraph, only if it isn't already cited. This adds
+        // a citation to each newly appended sentence while leaving earlier ones untouched.
         const pStart = pos + 1;
         const txt = node.textContent;
         if (txt.trim().length < 25) return false;
-        const insertOffset = txt.replace(/[.!?]+\s*$/, '').length; // before trailing period
-        claims.push({ text: txt.trim(), endPos: pStart + insertOffset });
+        const ms = [...txt.matchAll(/[^.!?]+[.!?]+/g)];
+        let lastStart = 0, insertOffset = txt.replace(/[.!?]+\s*$/, '').length, lastText = txt.trim();
+        if (ms.length) {
+          const m = ms[ms.length - 1];
+          lastStart = m.index || 0;
+          const trail = m[0].match(/[.!?]+\s*$/);
+          insertOffset = (m.index || 0) + m[0].length - (trail ? trail[0].length : 0);
+          lastText = m[0].trim();
+        }
+        let lastCited = false;
+        node.descendants((ch: any, off: number) => { if (ch.isText && off >= lastStart && ch.marks.some((m: any) => m.type.name === 'citation')) lastCited = true; });
+        if (lastCited || lastText.length < 20) return false;
+        claims.push({ text: lastText, endPos: pStart + insertOffset });
       }
       return true;
     });
@@ -1371,54 +1379,69 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     setGenBusy(false);
     setTimeout(() => fillSectionRef.current?.(0), 250);
   };
-  // Generate and insert the body for one section, in place under its heading.
-  const fillSection = async (index: number) => {
+  // Float the Accept/Refine bar right under a section's last line (jenni-style).
+  const positionAcceptBar = (index: number) => {
+    requestAnimationFrame(() => {
+      try {
+        const r = sectionBodyRange(index);
+        const page = editorPageRef.current;
+        if (r && page && editor) {
+          const endPos = Math.max(r.from, Math.min(r.to - 1, editor.state.doc.content.size - 1));
+          const coords = editor.view.coordsAtPos(endPos);
+          const pageRect = page.getBoundingClientRect();
+          const pmRect = editor.view.dom.getBoundingClientRect();
+          setBarPos({ top: coords.bottom - pageRect.top + 6, left: pmRect.left - pageRect.left });
+        }
+      } catch { setBarPos(null); }
+    });
+  };
+  // Generate ONE sentence for a section. append=false starts the section (new paragraph
+  // under the heading); append=true continues the SAME paragraph with the next sentence.
+  const generateSentence = async (index: number, append: boolean) => {
     if (!editor || genBusy) return;
     const sections = docSectionsRef.current;
-    if (!sections.length || index >= sections.length) { setPaperComplete(true); return; }
+    if (!sections.length || index >= sections.length) return;
     const sec = sections[index];
-    setGenBusy(true); setExpandedSecIdx(index);
+    setGenBusy(true); setExpandedSecIdx(index); setPendingSec(null); setBarPos(null);
     try {
       const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       const existing = editor.getText().slice(0, 3000);
-      const promptCtx = (sec.prompts && sec.prompts.length) ? (' Cover these points: ' + sec.prompts.join('; ') + '.') : '';
-      const res = await fetch(`${API}/api/continue-paper`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ topic: paperTopicRef.current, existing, headings: paperHeadingsRef.current, section: sec.heading + promptCtx }) });
+      const promptCtx = (sec.prompts && sec.prompts.length) ? (' Points this section should cover: ' + sec.prompts.join('; ') + '.') : '';
+      const mode = append ? ' Continue this SAME section with only the NEXT single sentence; do not repeat anything already written above.' : '';
+      const res = await fetch(`${API}/api/continue-paper`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ topic: paperTopicRef.current, existing, headings: paperHeadingsRef.current, section: sec.heading + promptCtx + mode }) });
       if (!res.ok) { setGenBusy(false); return; }
       const reader = res.body?.getReader(); const dec = new TextDecoder();
       let buffer = '', body = '';
       if (reader) { while (true) { const { value, done } = await reader.read(); if (done) break; buffer += dec.decode(value, { stream: true }); const lines = buffer.split('\n'); buffer = lines.pop() || ''; for (const line of lines) { if (line.startsWith('data: ')) { const d = line.slice(6); if (d === '[DONE]') continue; try { const j = JSON.parse(d); if (j.type === 'token') body += j.content; } catch {} } } } }
       body = stripFakeCitations(stripPageMarkers(body.trim())).replace(/^#{1,3}\s+[^\n]*\n+/, '').trim();
       if (body) {
-        const pos = headingEndPos(sec.heading);
-        const html = marked.parse(body, { breaks: true, gfm: true }) as string;
-        if (pos != null) editor.chain().focus().insertContentAt(pos, html).run();
-        else editor.chain().focus('end').insertContent(html).run();
+        const range = sectionBodyRange(index);
+        let lastParaEnd: number | null = null, lastHasText = false;
+        if (range) {
+          editor.state.doc.nodesBetween(range.from, Math.max(range.from, range.to), (n: any, p: number) => {
+            if (n.type.name === 'paragraph') { lastParaEnd = p + n.nodeSize - 1; lastHasText = !!(n.textContent || '').trim(); }
+          });
+        }
+        if (append && lastParaEnd != null && lastHasText) {
+          editor.chain().focus().insertContentAt(lastParaEnd, ' ' + body).run();
+        } else {
+          const pos = headingEndPos(sec.heading);
+          const html = marked.parse(body, { breaks: true, gfm: true }) as string;
+          if (pos != null) editor.chain().focus().insertContentAt(pos, html).run();
+          else editor.chain().focus('end').insertContent(html).run();
+        }
         isInternalUpdateRef.current = true;
         setDocumentContent(editor.getHTML());
-        // Insert real, verified citations for this section BEFORE showing the accept bar
-        // (jenni shows the citation already attached when you accept).
+        // Attach a real, verified citation to the new sentence before showing the bar.
         try { await autoCiteRef.current?.(); } catch {}
-        setPendingSec({ index });
-        // Float the Accept/Refine bar right under this section's last line (jenni-style).
-        requestAnimationFrame(() => {
-          try {
-            const r = sectionBodyRange(index);
-            const page = editorPageRef.current;
-            if (r && page && editor) {
-              const endPos = Math.max(r.from, Math.min(r.to - 1, editor.state.doc.content.size - 1));
-              const coords = editor.view.coordsAtPos(endPos);
-              const pageRect = page.getBoundingClientRect();
-              const pmRect = editor.view.dom.getBoundingClientRect();
-              setBarPos({ top: coords.bottom - pageRect.top + 6, left: pmRect.left - pageRect.left });
-            }
-          } catch { setBarPos(null); }
-        });
-      } else {
         setDocSections((prev) => { const n = prev.map((s, i) => i === index ? { ...s, filled: true } : s); docSectionsRef.current = n; return n; });
+        setPendingSec({ index });
+        positionAcceptBar(index);
       }
     } catch { /* ignore */ }
     finally { setGenBusy(false); }
   };
+  const fillSection = (index: number) => generateSentence(index, false);
   fillSectionRef.current = fillSection;
   // Range of the body under a section heading (heading end -> next heading / doc end).
   const sectionBodyRange = (index: number): { from: number; to: number } | null => {
@@ -1436,27 +1459,44 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     });
     return { from: start, to: Math.max(start, end) };
   };
-  // Accept the generated section: keep the text, mark filled, auto-advance to the next
-  // section and start generating it (jenni-style — no separate "continue" button).
+  // Accept the current suggestion: keep it and write the NEXT sentence of the SAME section
+  // (jenni-style). To move to another section, use its Generate button in the Sections panel.
   const acceptSection = () => {
     if (!pendingSec) return;
     const idx = pendingSec.index;
-    const updated = docSectionsRef.current.map((s: any, i: number) => i === idx ? { ...s, filled: true } : s);
-    setDocSections(updated); docSectionsRef.current = updated;
     setPendingSec(null); setBarPos(null);
-    const nextIdx = updated.findIndex((s: any) => !s.filled);
-    if (nextIdx === -1) { setPaperComplete(true); setExpandedSecIdx(idx); return; }
-    setExpandedSecIdx(nextIdx);
-    setTimeout(() => fillSectionRef.current?.(nextIdx), 150);
+    setTimeout(() => generateSentence(idx, true), 60);
   };
-  // Refine: discard this section's body and regenerate it.
+  // Refine: discard the current suggestion (the last sentence) and regenerate it. If the
+  // section had only one sentence, clear the whole section body and start it fresh.
   const refineSection = () => {
     if (!editor || !pendingSec) return;
     const index = pendingSec.index;
     const r = sectionBodyRange(index);
-    if (r && r.to > r.from) { try { editor.chain().focus().deleteRange(r).run(); isInternalUpdateRef.current = true; setDocumentContent(editor.getHTML()); } catch {} }
     setPendingSec(null); setBarPos(null);
-    setTimeout(() => fillSectionRef.current?.(index), 80);
+    let multi = false;
+    if (r) {
+      let lastPara: { node: any; pos: number } | null = null;
+      editor.state.doc.nodesBetween(r.from, Math.max(r.from, r.to), (n: any, p: number) => {
+        if (n.type.name === 'paragraph' && (n.textContent || '').trim()) lastPara = { node: n, pos: p };
+      });
+      try {
+        if (lastPara) {
+          const lp = lastPara as { node: any; pos: number };
+          const txt = lp.node.textContent as string;
+          const ms = [...txt.matchAll(/[^.!?]+[.!?]+/g)];
+          if (ms.length >= 2) {
+            multi = true;
+            const m = ms[ms.length - 1];
+            editor.chain().focus().deleteRange({ from: lp.pos + 1 + (m.index || 0), to: lp.pos + lp.node.nodeSize - 1 }).run();
+          } else {
+            editor.chain().focus().deleteRange({ from: r.from, to: r.to }).run();
+          }
+          isInternalUpdateRef.current = true; setDocumentContent(editor.getHTML());
+        }
+      } catch {}
+    }
+    setTimeout(() => generateSentence(index, multi), 80);
   };
   // "Continue writing" → fill the next unfilled section (or fall back to linear mode).
   const continueNextSection = () => {
