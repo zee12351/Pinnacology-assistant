@@ -2706,7 +2706,7 @@ Text to review: "${editor?.getText() || documentContent}"`, {
     onSelectionUpdate: () => { setEditorTick(t => t + 1); },
     editorProps: {
       attributes: {
-        class: 'prose prose-sm dark:prose-invert max-w-none focus:outline-none min-h-[500px] text-[15px] leading-relaxed',
+        class: 'prose prose-sm dark:prose-invert max-w-none focus:outline-none min-h-[120px] text-[15px] leading-relaxed',
       },
       handleClick: (view, pos, event) => {
         const target = event.target as HTMLElement;
