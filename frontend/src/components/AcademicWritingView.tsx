@@ -336,7 +336,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   // Jenni-style section skeleton (headings dropped in first, filled in place).
   const [docSections, setDocSections] = useState<any[]>([]);
   const [expandedSecIdx, setExpandedSecIdx] = useState(0);
-  const [pendingSec, setPendingSec] = useState<null | { index: number; from: number; to: number }>(null);
+  const [pendingSec, setPendingSec] = useState<null | { index: number }>(null);
   const docSectionsRef = useRef<any[]>([]);
   docSectionsRef.current = docSections;
   const fillSectionRef = useRef<null | ((i: number) => void)>(null);
@@ -1371,16 +1371,15 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       body = stripFakeCitations(stripPageMarkers(body.trim())).replace(/^#{1,3}\s+[^\n]*\n+/, '').trim();
       if (body) {
         const pos = headingEndPos(sec.heading);
-        let fromPos = pos != null ? pos : editor.state.selection.to;
         const html = marked.parse(body, { breaks: true, gfm: true }) as string;
         if (pos != null) editor.chain().focus().insertContentAt(pos, html).run();
         else editor.chain().focus('end').insertContent(html).run();
-        const toPos = editor.state.selection.to;
         isInternalUpdateRef.current = true;
         setDocumentContent(editor.getHTML());
-        setTimeout(() => autoCiteRef.current?.(), 300);
-        // Show the jenni-style Accept / Refine bar for this section (do not auto-commit).
-        setPendingSec({ index, from: fromPos, to: toPos });
+        // Insert real, verified citations for this section BEFORE showing the accept bar
+        // (jenni shows the citation already attached when you accept).
+        try { await autoCiteRef.current?.(); } catch {}
+        setPendingSec({ index });
       } else {
         setDocSections((prev) => { const n = prev.map((s, i) => i === index ? { ...s, filled: true } : s); docSectionsRef.current = n; return n; });
       }
@@ -1388,23 +1387,43 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     finally { setGenBusy(false); }
   };
   fillSectionRef.current = fillSection;
-  // Accept the generated section: keep the text, mark filled, advance to the next.
+  // Range of the body under a section heading (heading end -> next heading / doc end).
+  const sectionBodyRange = (index: number): { from: number; to: number } | null => {
+    if (!editor) return null;
+    const sec = docSectionsRef.current[index];
+    if (!sec) return null;
+    const start = headingEndPos(sec.heading);
+    if (start == null) return null;
+    let end = editor.state.doc.content.size;
+    let found = false;
+    editor.state.doc.descendants((node: any, pos: number) => {
+      if (found) return false;
+      if (pos >= start && node.type.name === 'heading') { end = pos; found = true; return false; }
+      return true;
+    });
+    return { from: start, to: Math.max(start, end) };
+  };
+  // Accept the generated section: keep the text, mark filled, auto-advance to the next
+  // section and start generating it (jenni-style — no separate "continue" button).
   const acceptSection = () => {
     if (!pendingSec) return;
     const idx = pendingSec.index;
-    const sections = docSectionsRef.current;
-    setDocSections((prev) => { const n = prev.map((s, i) => i === idx ? { ...s, filled: true } : s); docSectionsRef.current = n; return n; });
+    const updated = docSectionsRef.current.map((s: any, i: number) => i === idx ? { ...s, filled: true } : s);
+    setDocSections(updated); docSectionsRef.current = updated;
     setPendingSec(null);
-    setExpandedSecIdx(Math.min(idx + 1, sections.length - 1));
-    if (sections.every((s: any, i: number) => i === idx || s.filled)) setPaperComplete(true);
+    const nextIdx = updated.findIndex((s: any) => !s.filled);
+    if (nextIdx === -1) { setPaperComplete(true); setExpandedSecIdx(idx); return; }
+    setExpandedSecIdx(nextIdx);
+    setTimeout(() => fillSectionRef.current?.(nextIdx), 150);
   };
-  // Refine: discard the generated text for this section and regenerate it.
+  // Refine: discard this section's body and regenerate it.
   const refineSection = () => {
     if (!editor || !pendingSec) return;
-    const { index, from, to } = pendingSec;
-    try { editor.chain().focus().deleteRange({ from, to }).run(); isInternalUpdateRef.current = true; setDocumentContent(editor.getHTML()); } catch {}
+    const index = pendingSec.index;
+    const r = sectionBodyRange(index);
+    if (r && r.to > r.from) { try { editor.chain().focus().deleteRange(r).run(); isInternalUpdateRef.current = true; setDocumentContent(editor.getHTML()); } catch {} }
     setPendingSec(null);
-    setTimeout(() => fillSectionRef.current?.(index), 60);
+    setTimeout(() => fillSectionRef.current?.(index), 80);
   };
   // "Continue writing" → fill the next unfilled section (or fall back to linear mode).
   const continueNextSection = () => {
@@ -4066,14 +4085,19 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                     <button onClick={refineSection} title="Regenerate" className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-[#2f2f36] transition-colors"><ThumbsDown className="w-4 h-4" /></button>
                   </div>
                 )}
-                {genMode === 'paragraph' && isEditing && !paperComplete && !pendingSec && (
+                {genMode === 'paragraph' && isEditing && genBusy && !pendingSec && (
+                  <div className="not-prose mt-3 mb-2 flex items-center gap-2 text-[13px] text-zinc-400 font-semibold">
+                    <Loader2 className="w-4 h-4 animate-spin" /> Pinnovix AI is writing…
+                  </div>
+                )}
+                {genMode === 'paragraph' && isEditing && !paperComplete && !pendingSec && !genBusy && docSections.length === 0 && (
                   <div className="not-prose mt-3 mb-2">
                     <button
                       onClick={() => continueNextSection()}
                       disabled={genBusy}
                       className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[#3f3f46] bg-[#232327] text-zinc-100 hover:bg-[#2f2f36] disabled:opacity-60 text-[13.5px] font-bold transition-colors"
                     >
-                      {genBusy ? <><Loader2 className="w-4 h-4 animate-spin" /> Pinnovix AI is writing…</> : <><Sparkles className="w-4 h-4" /> Continue writing</>}
+                      <Sparkles className="w-4 h-4" /> Continue writing
                     </button>
                   </div>
                 )}
