@@ -2478,7 +2478,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                 </div>
               </div>
               {gaps ? (
-                <div className="p-4 max-h-[460px] overflow-y-auto custom-scrollbar prose prose-sm dark:prose-invert max-w-none text-[13.5px] leading-relaxed [&_h2]:text-[13px] [&_h2]:font-bold [&_h2]:text-foreground [&_h2]:mt-3 [&_h2]:mb-1 [&_h2]:flex [&_h2]:items-center"><ReactMarkdown>{gaps}</ReactMarkdown></div>
+                <div style={{ maxHeight: 340, overflowY: 'auto' }} className="p-4 prose prose-sm dark:prose-invert max-w-none text-[13.5px] leading-relaxed [&_h2]:text-[13px] [&_h2]:font-bold [&_h2]:text-foreground [&_h2]:mt-3 [&_h2]:mb-1"><ReactMarkdown>{gaps}</ReactMarkdown></div>
               ) : gapsBusy ? (
                 <div className="p-4 text-[13px] text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Detecting themes, unanswered questions, conflicts, methodological and geographic gaps, trends, saturation, future directions, and next searches…</div>
               ) : (
