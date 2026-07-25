@@ -2657,10 +2657,10 @@ export function LiteratureReviewView({ messages, onHome }: any) {
               </tbody>
             </table>
           )}
-          {papers.length > 0 && mode === 'find' && !busy ? (
+          {papers.length > 0 && mode === 'find' ? (
             <div className="flex justify-center py-5">
-              <button onClick={loadMorePapers} disabled={loadingMore} className="text-[13px] font-semibold border border-border rounded-lg px-5 py-2 hover:bg-muted disabled:opacity-50 flex items-center gap-2 transition-colors">
-                {loadingMore ? <><Loader2 className="w-4 h-4 animate-spin" /> Loading more papers…</> : <><Plus className="w-4 h-4" /> Load more papers</>}
+              <button onClick={loadMorePapers} disabled={loadingMore || busy} className="text-[13px] font-semibold border border-border rounded-lg px-5 py-2 hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors">
+                {loadingMore ? <><Loader2 className="w-4 h-4 animate-spin" /> Loading more papers…</> : busy ? <><Loader2 className="w-4 h-4 animate-spin" /> Finishing summaries…</> : <><Plus className="w-4 h-4" /> Load more papers</>}
               </button>
             </div>
           ) : null}
