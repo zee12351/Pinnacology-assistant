@@ -596,6 +596,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState('');
   const [synthesis, setSynthesis] = useState('');
+  const [gaps, setGaps] = useState('');
+  const [gapsBusy, setGapsBusy] = useState(false);
   const [searchTerms, setSearchTerms] = useState([] as string[]);
   const [columns, setColumns] = useState([] as any[]);
   const [filter, setFilter] = useState('');
@@ -826,7 +828,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     runReview(q);
   }
   function resetSearch() {
-    setQuestion(''); setPapers([]); setSynthesis(''); setColumns([]); setSearchTerms([]); setInput(''); setFollowups([]); setChatThread([]); setChatInput(''); lastQRef.current = '';
+    setQuestion(''); setPapers([]); setSynthesis(''); setGaps(''); setColumns([]); setSearchTerms([]); setInput(''); setFollowups([]); setChatThread([]); setChatInput(''); lastQRef.current = '';
     setChatStarted(false); setPaperChat([]); setChatSources([]); setSrcSel({});
     setReport(null); setReportInput(''); setDetailsOpen(false); setReportChat([]);
     setSysStep(0); setSysQ(''); setSysPapers([]); setSysCols([]);
@@ -1088,6 +1090,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setPhase('Searching academic databases...');
     setPapers([]);
     setSynthesis('');
+    setGaps(''); setGapsBusy(false);
     setColumns([]);
     setSearchTerms([]);
     setFollowups([]);
@@ -1155,6 +1158,27 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       }
     } catch { /* ignore */ }
     finally { setLoadingMore(false); }
+  }
+
+  // #97 Research-gap detection / Literature intelligence across the found papers.
+  async function findGaps() {
+    if (gapsBusy || !papers.length) return;
+    setGapsBusy(true); setGaps('');
+    try {
+      const list = papers.slice(0, 25).map((p: any, i: number) => `[${i + 1}] ${p.title} (${p.authorStr || 'Unknown'}, ${p.year || 'n.d.'}; ${p.venue || ''}; cited ${p.cited || 0}). ${(p.abstract || p.summary || '').slice(0, 500)}`).join('\n\n');
+      const prompt = 'You are a research-gap and literature-intelligence analyst. Research question: "' + (question || 'the topic') + '".\n\n'
+        + 'Below are ' + Math.min(papers.length, 25) + ' papers from the literature. Analyse them TOGETHER and produce a concise Literature Intelligence report in Markdown using these exact "## " section headings:\n'
+        + '## Unanswered questions\n(3-5 bullets: specific questions the literature has NOT resolved)\n'
+        + '## Conflicting or inconsistent evidence\n(where findings disagree; name the papers as (Author, Year))\n'
+        + '## Methodological gaps\n(recurring limitations in design, sample size, or rigor)\n'
+        + '## Population and geographic gaps\n(under-studied populations, regions, or settings)\n'
+        + '## Temporal trends\n(how the topic shifted over time; what is newest vs dated)\n'
+        + '## Promising future directions\n(3-5 concrete, high-impact directions)\n\n'
+        + 'Ground every claim in the papers below and cite them as (Author, Year). Be specific; avoid generic filler.\n\nPapers:\n' + list;
+      const text = await callChat(prompt, false, 'LITERATURE REVIEW');
+      setGaps(text && text.trim() ? text : 'No analysis was returned. Please try again.');
+    } catch { setGaps('Could not analyse research gaps right now. Please try again in a moment.'); }
+    finally { setGapsBusy(false); }
   }
 
   async function runReport(q: string, source: string, rtype?: string) {
@@ -2438,6 +2462,21 @@ export function LiteratureReviewView({ messages, onHome }: any) {
               <span className="text-[12.5px] border border-border rounded-lg px-3 py-1.5 flex items-center gap-1.5"><BookOpen className="w-3.5 h-3.5" /> {papers.length} cited sources</span>
               <button onClick={copyReport} title="Copy" className="w-8 h-8 rounded-lg border border-border flex items-center justify-center hover:bg-muted"><Copy className="w-3.5 h-3.5" /></button>
               <button onClick={downloadReport} title="Download report" className="w-8 h-8 rounded-lg border border-border flex items-center justify-center hover:bg-muted"><Download className="w-3.5 h-3.5" /></button>
+            </div>
+          ) : null}
+          {papers.length > 0 ? (
+            <div className="border border-border rounded-xl overflow-hidden">
+              <div className="px-4 py-2.5 bg-muted/40 flex items-center justify-between gap-2 border-b border-border">
+                <span className="text-[12px] font-bold text-muted-foreground flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" /> Research Gaps &amp; Literature Intelligence</span>
+                <button onClick={findGaps} disabled={gapsBusy} className="text-[12px] font-semibold border border-border rounded-lg px-3 py-1 hover:bg-muted disabled:opacity-50 flex items-center gap-1.5 transition-colors">{gapsBusy ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Analysing…</> : (gaps ? 'Re-analyse' : 'Find gaps')}</button>
+              </div>
+              {gaps ? (
+                <div className="p-4 prose prose-sm dark:prose-invert max-w-none text-[13.5px] leading-relaxed"><ReactMarkdown>{gaps}</ReactMarkdown></div>
+              ) : gapsBusy ? (
+                <div className="p-4 text-[13px] text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Detecting unanswered questions, conflicts, methodological and geographic gaps, trends, and future directions…</div>
+              ) : (
+                <div className="p-4 text-[12.5px] text-muted-foreground">Analyse your results to surface unanswered questions, conflicting evidence, methodological and geographic gaps, temporal trends, and promising future directions.</div>
+              )}
             </div>
           ) : null}
           {followups.length > 0 ? (
