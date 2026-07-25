@@ -596,6 +596,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       citedBy: typeof c.citedBy === 'number' ? c.citedBy : null,
       abstract: c.abstract || '',
       url: c.url || (doi ? `https://doi.org/${doi}` : ''),
+      pdfUrl: c.pdfUrl || '',
       type: c.type || 'article',
       isOA: (c.isOA === true || c.isOA === false) ? c.isOA : null,
       source: c.source || '',
@@ -644,6 +645,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         container: it.primary_location?.source?.display_name || it.host_venue?.display_name || '',
         citedBy: it.cited_by_count, abstract: openAlexAbstract(it.abstract_inverted_index),
         url: it.doi || it.primary_location?.landing_page_url || '',
+        pdfUrl: it.best_oa_location?.pdf_url || it.primary_location?.pdf_url || (it.open_access?.is_oa ? (it.open_access?.oa_url || '') : ''),
         type: it.type || 'article', isOA: it.open_access?.is_oa, source: 'OpenAlex', sourceId: it.primary_location?.source?.id || '', issn: it.primary_location?.source?.issn_l || '',
       }));
     } catch { return []; }
@@ -661,6 +663,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         citedBy: typeof it.citedByCount === 'number' ? it.citedByCount : null,
         abstract: it.abstractText ? String(it.abstractText).replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim() : '',
         url: it.doi ? `https://doi.org/${it.doi}` : (it.fullTextUrlList?.fullTextUrl?.[0]?.url || ''),
+        pdfUrl: ((it.fullTextUrlList?.fullTextUrl) || []).find((u: any) => String(u.documentStyle || '').toLowerCase() === 'pdf' || /\.pdf($|\?)/i.test(u.url || ''))?.url || '',
         type: it.pubTypeList?.pubType?.[0] || 'article',
         isOA: it.isOpenAccess === 'Y' ? true : (it.isOpenAccess === 'N' ? false : null),
         source: srcMap[it.source] || it.source || 'Europe PMC',
@@ -680,7 +683,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         doi: it.doi, title: it.title,
         authorsList: (it.authors || []).map((n: string) => splitName(n)),
         year: it.year, container: it.venue, citedBy: it.citedBy,
-        abstract: it.abstract, url: it.url, type: 'article', isOA: it.isOA,
+        abstract: it.abstract, url: it.url, pdfUrl: it.openAccessPdf || it.pdfUrl || '', type: 'article', isOA: it.isOA,
         source: 'Semantic Scholar',
       }));
     } catch { return []; }
@@ -719,6 +722,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         if ((e.citedBy == null) && c.citedBy != null) e.citedBy = c.citedBy;
         if (!e.doi && c.doi) e.doi = c.doi;
         if (e.isOA == null && c.isOA != null) e.isOA = c.isOA;
+        if (!e.pdfUrl && c.pdfUrl) e.pdfUrl = c.pdfUrl;
         if (!e.container && c.container) e.container = c.container;
         if (!e.sourceId && c.sourceId) e.sourceId = c.sourceId;
         if (!e.issn && c.issn) e.issn = c.issn;
@@ -2375,9 +2379,11 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
       const srcBlock = sources.length
         ? sources.map((sr, i) => `[${i + 1}] (${sr.firstAuthor}, ${sr.year}) ${sr.title}. ${sr.container}.`).join('\n')
         : '';
+      const docCtx = (aiChatContexts.includes('Current document') && editor) ? (editor.getText() || '').trim().slice(0, 6000) : '';
+      const docBlock = docCtx ? `\n\nThe user's current document (use it as context for the answer):\n"""\n${docCtx}\n"""` : '';
       const message = sources.length
-        ? `${q}\n\nWrite a clear, well-structured answer in Markdown (use short headings, **bold** key terms, and bullet points where useful). Support factual claims with inline citations in (Author, Year) form, using ONLY the verified sources below. Do not invent citations or sources.\n\nVerified sources:\n${srcBlock}`
-        : q;
+        ? `${q}\n\nWrite a clear, well-structured answer in Markdown (use short headings, **bold** key terms, and bullet points where useful). Support factual claims with inline citations in (Author, Year) form, using ONLY the verified sources below. Do not invent citations or sources.\n\nVerified sources:\n${srcBlock}${docBlock}`
+        : `${q}${docBlock}`;
       const res = await fetch(`${API}/api/chat`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message, agent_type: 'research', use_rag: aiChatLibSearch !== 'off' || aiChatContexts.some(c => c !== 'Current document') || !!aiChatDoc, persona: 'DOCUMENT ANALYST' }),
@@ -2435,6 +2441,18 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
     const k = 'chatcite:' + (doi || title);
     if (lastCiteRef.current !== k) { lastCiteRef.current = k; fetchCitationCards(title, doi ? { singleDoi: doi } : { context: title }); }
   };
+
+  // Insert an AI-chat answer straight into the document (jenni "Add to document").
+  const addChatAnswerToDocument = (text: string) => {
+    if (!editor || !text) return;
+    const clean = String(text).replace(/\[(\d+)\]/g, '').trim();
+    const html = marked.parse(clean, { breaks: true, gfm: true }) as string;
+    editor.chain().focus('end').insertContent(html).run();
+    isInternalUpdateRef.current = true; setDocumentContent(editor.getHTML());
+    setTimeout(() => autoCiteRef.current?.(), 250);
+    setShowAiChat(false);
+  };
+  const copyChatAnswer = (text: string) => { try { navigator.clipboard?.writeText(String(text || '').replace(/<[^>]+>/g, '')); } catch {} };
 
   const handleAiChatUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -3424,8 +3442,7 @@ Text to review: "${editor?.getText() || documentContent}"`, {
         URL.revokeObjectURL(url);
       } catch (error) {
         console.error("PDF download failed", error);
-        // fallback to browser print if the server is unavailable
-        window.print();
+        alert('Could not generate the PDF just now — the export server may be waking up. Please wait a few seconds and click PDF again.');
       }
       return;
     }
@@ -4597,9 +4614,10 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                       <button onClick={narrativeCitation} title="Switch between parenthetical and narrative form" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] font-bold hover:bg-[#1b2c4e] transition-colors">
                         <ArrowLeftRight className="w-3.5 h-3.5" /> Narrative
                       </button>
-                      <button onClick={() => openCitationQuote(citationMeta.items.find((i: any) => i && !i.none) || { title: citationPopup.text })} title="Open the paper's PDF" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] font-bold hover:bg-[#1b2c4e] transition-colors">
+                      {(() => { const it = citationMeta.items.find((i: any) => i && !i.none); const hasPdf = it && (it.pdfUrl || /\.pdf($|\?)/i.test(it.url || '')); return hasPdf ? (
+                      <button onClick={() => openCitationQuote(it)} title="Open the paper's PDF" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] font-bold hover:bg-[#1b2c4e] transition-colors">
                         <FileText className="w-3.5 h-3.5" /> Open quote
-                      </button>
+                      </button>) : null; })()}
                       <button onClick={viewCitationSource} title="Open the source page" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] font-bold hover:bg-[#1b2c4e] transition-colors">
                         <ExternalLink className="w-3.5 h-3.5" /> View
                       </button>
@@ -5656,6 +5674,14 @@ Required JSON structure:
                   ) : (
                     <div key={i} className="self-start max-w-[92%] flex flex-col gap-2">
                       <div className="ai-md rounded-2xl px-3.5 py-2 text-[13.5px] leading-relaxed bg-[#222] text-gray-200 border border-[#1b2c4e]" onMouseOver={handleChatCiteHover} onMouseOut={handleCitationHoverOut} dangerouslySetInnerHTML={{ __html: m.text ? linkifyChatCitations(m.text, m.sources || []) : ('<span style=\"color:#6b7280\">' + (m.status || 'Thinking…') + '</span>') }} />
+                      {m.text ? (
+                        <div className="flex items-center gap-1 px-1 text-gray-400">
+                          <button onClick={() => copyChatAnswer(m.text)} title="Copy" className="flex items-center gap-1 px-2 py-1 rounded-md text-[11.5px] font-semibold hover:bg-[#1b2c4e] hover:text-white transition-colors"><Copy className="w-3.5 h-3.5" /> Copy</button>
+                          {isEditing && <button onClick={() => addChatAnswerToDocument(m.text)} title="Insert this answer into your document" className="flex items-center gap-1 px-2 py-1 rounded-md text-[11.5px] font-semibold hover:bg-[#1b2c4e] hover:text-white transition-colors"><Plus className="w-3.5 h-3.5" /> Add to document</button>}
+                          <button title="Good" className="p-1 rounded-md hover:bg-[#1b2c4e] hover:text-white transition-colors"><ThumbsUp className="w-3.5 h-3.5" /></button>
+                          <button title="Bad" className="p-1 rounded-md hover:bg-[#1b2c4e] hover:text-white transition-colors"><ThumbsDown className="w-3.5 h-3.5" /></button>
+                        </div>
+                      ) : null}
                       {Array.isArray(m.sources) && m.sources.length > 0 && m.text ? (
                         <div className="flex flex-col gap-1">
                           <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wide px-1">Sources</div>
