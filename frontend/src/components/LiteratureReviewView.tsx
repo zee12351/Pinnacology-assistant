@@ -592,6 +592,7 @@ function refToRis(sources: any[]): string {
 export function LiteratureReviewView({ messages, onHome }: any) {
   const [question, setQuestion] = useState('');
   const [papers, setPapers] = useState([] as any[]);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState('');
   const [synthesis, setSynthesis] = useState('');
@@ -1122,6 +1123,38 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       setBusy(false);
       setPhase('');
     }
+  }
+
+  // Fetch the next batch of papers and append them (like Persona 1's "Load more").
+  async function loadMorePapers() {
+    if (loadingMore || busy || !question) return;
+    setLoadingMore(true);
+    const keyOf = (p: any) => (p.id || '') + '|' + normTitleKey(p.title || '');
+    try {
+      const want = papers.length + 12;
+      const all = await searchPapers(question, paperSource, want);
+      const seen = new Set(papers.map(keyOf));
+      const fresh = all.filter((p: any) => !seen.has(keyOf(p)));
+      if (!fresh.length) { setLoadingMore(false); return; }
+      const startIdx = papers.length;
+      const added = fresh.map((p: any, i: number) => ({ ...p, idx: startIdx + i, rel: -1 - startIdx - i }));
+      const addedKeys = new Set(added.map(keyOf));
+      setPapers((prev: any[]) => [...prev, ...added]);
+      try {
+        const list = added.map((p: any, i: number) => '[' + i + '] ' + p.title + '. ABSTRACT: ' + (p.abstract || 'No abstract').slice(0, 900)).join('\n\n');
+        const prompt = 'You are a systematic literature-review assistant. Research question: "' + question + '".\n\n'
+          + 'Below are ' + added.length + ' more papers. For EACH paper (in order), write a 1-2 sentence summary of what it found that is RELEVANT to the research question, with specific numbers/outcomes if present.\n\n'
+          + 'Return ONLY valid JSON, no markdown fences, in exactly this shape: {"summaries": ["one short summary per paper in order"]}\n\nPapers:\n' + list;
+        const rawText = await callChat(prompt);
+        const parsed = extractJSON(rawText);
+        const byKey: Record<string, string> = {};
+        if (parsed && Array.isArray(parsed.summaries)) added.forEach((p: any, i: number) => { byKey[keyOf(p)] = parsed.summaries[i] || (p.abstract || '').slice(0, 220); });
+        setPapers((prev: any[]) => prev.map((p: any) => addedKeys.has(keyOf(p)) && !p.summary ? { ...p, summary: byKey[keyOf(p)] || (p.abstract ? p.abstract.slice(0, 240) + '...' : 'No abstract available.') } : p));
+      } catch {
+        setPapers((prev: any[]) => prev.map((p: any) => addedKeys.has(keyOf(p)) && !p.summary ? { ...p, summary: p.abstract ? p.abstract.slice(0, 240) + '...' : '' } : p));
+      }
+    } catch { /* ignore */ }
+    finally { setLoadingMore(false); }
   }
 
   async function runReport(q: string, source: string, rtype?: string) {
@@ -2585,6 +2618,13 @@ export function LiteratureReviewView({ messages, onHome }: any) {
               </tbody>
             </table>
           )}
+          {papers.length > 0 && mode === 'find' && !busy ? (
+            <div className="flex justify-center py-5">
+              <button onClick={loadMorePapers} disabled={loadingMore} className="text-[13px] font-semibold border border-border rounded-lg px-5 py-2 hover:bg-muted disabled:opacity-50 flex items-center gap-2 transition-colors">
+                {loadingMore ? <><Loader2 className="w-4 h-4 animate-spin" /> Loading more papers…</> : <><Plus className="w-4 h-4" /> Load more papers</>}
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

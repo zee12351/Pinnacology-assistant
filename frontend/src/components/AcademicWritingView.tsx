@@ -347,6 +347,13 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const blockMenuRef = useRef<string | null>(null);
   const hoverBarRef = useRef(false);
   useEffect(() => { blockMenuRef.current = blockMenu; }, [blockMenu]);
+  // "Open quote" PDF viewer panel (jenni-style) for a citation.
+  const [citationPdf, setCitationPdf] = useState<any>(null);
+  // Floating text-selection menu (Find citations / AI Chat / AI Edit / Comment / Review).
+  const [selMenu, setSelMenu] = useState<{ top: number; left: number; from: number; to: number; text: string } | null>(null);
+  const [selCommentOpen, setSelCommentOpen] = useState(false);
+  const selCommentOpenRef = useRef(false);
+  useEffect(() => { selCommentOpenRef.current = selCommentOpen; }, [selCommentOpen]);
   useEffect(() => {
     if (!blockMenu) return;
     const onDown = (e: MouseEvent) => { const t = e.target as HTMLElement; if (!t.closest || !t.closest('[data-block-toolbar]')) { setBlockMenu(null); setBlockTenseOpen(false); } };
@@ -2509,6 +2516,43 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
   };
   const updateComment = (id: number, patch: any) => persistComments(comments.map(c => c.id === id ? { ...c, ...patch, updatedAt: Date.now() } : c));
   const deleteComment = (id: number) => persistComments(comments.filter(c => c.id !== id));
+
+  // ---- #1 Open quote: open the cited paper's PDF in a side panel ----
+  const openCitationQuote = (it: any) => {
+    const pdf = it.pdfUrl || it.oaUrl || it.oa_url || it.pdf || '';
+    const cleanDoi = it.doi ? String(it.doi).replace(/^https?:\/\/(dx\.)?doi\.org\//i, '') : '';
+    const doiUrl = cleanDoi ? ('https://doi.org/' + cleanDoi) : '';
+    const src = it.url || doiUrl || '';
+    const rawPdf = pdf || (/\.pdf($|\?)/i.test(src) ? src : '');
+    const viewUrl = rawPdf ? ('https://docs.google.com/viewer?embedded=true&url=' + encodeURIComponent(rawPdf)) : src;
+    setCitationPdf({ ...it, viewUrl, srcUrl: src, hasPdf: !!rawPdf });
+    setCitationPopup(prev => prev.visible ? { ...prev, visible: false } : prev);
+  };
+  const addCitationToLibrary = (it: any) => {
+    const entry = { title: it.title || '', authors: it.authors || '', year: it.year || '', container: it.container || '', doi: it.doi || '', url: it.url || '' };
+    setSavedCitations((prev: any[]) => { const exists = prev.some((x: any) => (entry.doi && x.doi === entry.doi) || (x.title && x.title === entry.title)); const next = exists ? prev : [entry, ...prev]; try { localStorage.setItem('pinnovix_saved_citations', JSON.stringify(next)); } catch {} return next; });
+  };
+  const chatAboutCitation = (it: any) => {
+    setCitationPdf(null); setShowComments(false); setShowAiChat(true);
+    setAiChatInput('Summarise the key findings of "' + (it.title || 'this paper') + '"' + (it.authors ? (' by ' + it.authors) : '') + (it.year ? (' (' + it.year + ')') : '') + ' and how it is relevant.');
+  };
+
+  // ---- #2 Text-selection menu actions ----
+  const runSelAction = (action: string) => {
+    if (!editor || !selMenu) return;
+    const { from, to, text } = selMenu;
+    try { editor.commands.setTextSelection({ from, to }); } catch {}
+    if (action === 'cite') { setSelMenu(null); handleSuggestCitations(); }
+    else if (action === 'chat') { setSelMenu(null); setShowComments(false); setShowAiChat(true); setAiChatInput('Explain and expand on: "' + text.slice(0, 300) + '"'); }
+    else if (action === 'edit') { setSelMenu(null); handleInlineAi('improve'); }
+    else if (action === 'comment') { setCommentQuote(text.length > 240 ? text.slice(0, 240) + '…' : text); setSelCommentOpen(true); }
+    else if (action === 'review') { setSelMenu(null); setIsRightPanelOpen(true); }
+  };
+  const submitSelComment = () => {
+    if (!commentDraft.trim()) return;
+    addComment();
+    setSelCommentOpen(false); setSelMenu(null); setShowComments(true);
+  };
   const visibleComments = () => {
     let list = comments.filter(c => {
       if (c.archived) return commentFilters.archived;
@@ -2982,6 +3026,26 @@ Text to review: "${editor?.getText() || documentContent}"`, {
     dom.addEventListener('mousemove', onMove);
     dom.addEventListener('mouseleave', onLeave);
     return () => { dom.removeEventListener('mousemove', onMove); dom.removeEventListener('mouseleave', onLeave); cancelAnimationFrame(raf); };
+  }, [editor]);
+
+  // Show the floating selection menu (Find citations / AI Chat / AI Edit / Comment / Review).
+  useEffect(() => {
+    if (!editor) return;
+    const update = () => {
+      if (selCommentOpenRef.current) return; // keep the menu while composing a comment
+      const { from, to, empty } = editor.state.selection;
+      if (empty) { setSelMenu(null); return; }
+      const text = editor.state.doc.textBetween(from, to, ' ').trim();
+      if (text.length < 2) { setSelMenu(null); return; }
+      try {
+        const c = editor.view.coordsAtPos(from);
+        const page = editorPageRef.current; if (!page) return;
+        const pr = page.getBoundingClientRect();
+        setSelMenu({ top: Math.max(4, c.top - pr.top - 48), left: Math.max(4, c.left - pr.left), from, to, text });
+      } catch {}
+    };
+    editor.on('selectionUpdate', update);
+    return () => { editor.off('selectionUpdate', update); };
   }, [editor]);
 
   // Insert a new block right after the hovered block.
@@ -4338,6 +4402,26 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                   )}
                 </div>
               )}
+              {/* #2 Floating text-selection menu (jenni-style) */}
+              {selMenu && (
+                <div data-sel-menu className="not-prose absolute z-40" style={{ top: selMenu.top, left: selMenu.left }}>
+                  {!selCommentOpen ? (
+                    <div className="flex flex-col w-44 rounded-xl border border-[#3f3f46] bg-[#1c1c20] py-1.5 shadow-2xl text-[13px] text-zinc-200" onMouseDown={(e) => e.preventDefault()}>
+                      <button onClick={() => runSelAction('cite')} className="w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-[#2f2f36] text-left transition-colors"><Search className="w-4 h-4" /> Find citations</button>
+                      <button onClick={() => runSelAction('chat')} className="w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-[#2f2f36] text-left transition-colors"><MessageCircle className="w-4 h-4" /> AI Chat</button>
+                      <button onClick={() => runSelAction('edit')} className="w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-[#2f2f36] text-left transition-colors"><Sparkles className="w-4 h-4" /> AI Edit</button>
+                      <button onClick={() => runSelAction('comment')} className="w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-[#2f2f36] text-left transition-colors"><MessageSquare className="w-4 h-4" /> Comment</button>
+                      <button onClick={() => runSelAction('review')} className="w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-[#2f2f36] text-left transition-colors"><CheckCircle2 className="w-4 h-4" /> Review</button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 w-[330px] rounded-xl border border-[#3f3f46] bg-[#1c1c20] p-2 shadow-2xl">
+                      <div className="w-6 h-6 rounded-full bg-gradient-to-br from-teal-400 to-blue-500 text-white text-[10px] font-bold flex items-center justify-center shrink-0">You</div>
+                      <input autoFocus value={commentDraft} onChange={(e) => setCommentDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submitSelComment(); if (e.key === 'Escape') { setSelCommentOpen(false); setSelMenu(null); setCommentDraft(''); } }} placeholder="Add a comment..." className="flex-1 bg-transparent outline-none text-[13px] text-zinc-100 placeholder:text-zinc-500" />
+                      <button onClick={submitSelComment} disabled={!commentDraft.trim()} className="text-indigo-400 hover:text-indigo-300 disabled:opacity-40 disabled:text-zinc-500"><ArrowUp className="w-4 h-4" /></button>
+                    </div>
+                  )}
+                </div>
+              )}
               {docSections.length > 0 && genMode === 'paragraph' && (
                 <aside onClick={(e) => e.stopPropagation()} className="hidden xl:flex flex-col absolute left-6 top-6 w-[256px] max-h-[calc(100vh-13rem)] overflow-y-auto bg-[#0f1730] text-gray-200 border border-[#1b2c4e] rounded-xl p-3 z-10 shadow-lg">
                   <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-2">Sections</div>
@@ -4512,6 +4596,9 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                       </button>
                       <button onClick={narrativeCitation} title="Switch between parenthetical and narrative form" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] font-bold hover:bg-[#1b2c4e] transition-colors">
                         <ArrowLeftRight className="w-3.5 h-3.5" /> Narrative
+                      </button>
+                      <button onClick={() => openCitationQuote(citationMeta.items.find((i: any) => i && !i.none) || { title: citationPopup.text })} title="Open the paper's PDF" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] font-bold hover:bg-[#1b2c4e] transition-colors">
+                        <FileText className="w-3.5 h-3.5" /> Open quote
                       </button>
                       <button onClick={viewCitationSource} title="Open the source page" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] font-bold hover:bg-[#1b2c4e] transition-colors">
                         <ExternalLink className="w-3.5 h-3.5" /> View
@@ -5740,6 +5827,33 @@ Required JSON structure:
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* #1 Open quote: PDF viewer panel */}
+      {citationPdf && (
+        <div className="fixed inset-0 z-[130] flex justify-end bg-black/50" onClick={() => setCitationPdf(null)}>
+          <div className="w-full max-w-3xl h-full bg-[#1a1a1a] border-l border-[#333] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-[#333]">
+              <button onClick={() => setCitationPdf(null)} className="text-gray-300 hover:text-white shrink-0"><ChevronsRight className="w-5 h-5" /></button>
+              <h3 className="flex-1 truncate text-[14px] font-bold text-white">{citationPdf.title || 'Reference'}</h3>
+              <button onClick={() => addCitationToLibrary(citationPdf)} className="flex items-center gap-1.5 bg-[#4f46e5] hover:bg-[#4338ca] text-white text-[12.5px] font-bold rounded-lg px-3 py-1.5 shrink-0 transition-colors"><Bookmark className="w-3.5 h-3.5" /> Add to Library</button>
+              <button onClick={() => chatAboutCitation(citationPdf)} className="flex items-center gap-1.5 text-gray-200 hover:text-white text-[12.5px] font-bold rounded-lg px-2.5 py-1.5 hover:bg-[#2f2f36] shrink-0 transition-colors"><MessageCircle className="w-3.5 h-3.5" /> Chat</button>
+              {citationPdf.srcUrl ? <a href={citationPdf.srcUrl} target="_blank" rel="noreferrer" className="text-gray-300 hover:text-white p-1.5 shrink-0" title="Open in new tab"><ExternalLink className="w-4 h-4" /></a> : null}
+            </div>
+            <div className="flex-1 bg-[#0f0f0f] min-h-0">
+              {citationPdf.viewUrl ? (
+                <iframe src={citationPdf.viewUrl} title="Reference PDF" className="w-full h-full border-0" />
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full text-center p-8 text-gray-400">
+                  <FileText className="w-10 h-10 mb-3" />
+                  <p className="text-[13px]">No open-access PDF is available for this reference.</p>
+                  {citationPdf.srcUrl ? <a href={citationPdf.srcUrl} target="_blank" rel="noreferrer" className="mt-2 text-[13px] font-semibold text-[#7fa3ff] hover:text-white">Open the source page</a> : null}
+                </div>
+              )}
+            </div>
+            {citationPdf.viewUrl ? <div className="px-4 py-2 text-[11px] text-gray-500 border-t border-[#333]">If the PDF doesn't load, the publisher may block embedding — use the open-in-new-tab icon above.</div> : null}
           </div>
         </div>
       )}

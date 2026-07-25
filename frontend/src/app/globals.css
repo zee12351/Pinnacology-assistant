@@ -260,6 +260,8 @@ html.light body { background-color: #eef1f5; }
 .editor-dark .ProseMirror .citation,
 .editor-dark .ProseMirror [data-citation],
 .editor-dark .ProseMirror a[href*="doi.org"] { color: #8fb4ff; }
+/* #3 Always keep a visible space between the text and an in-text citation. */
+.ProseMirror span[data-citation] { margin-left: 0.18em; }
 .editor-dark .ProseMirror table td,
 .editor-dark .ProseMirror table th { border-color: #3f3f46; }
 .editor-dark .ProseMirror hr { border-color: #3f3f46; }
