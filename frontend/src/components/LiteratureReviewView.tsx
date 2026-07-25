@@ -1168,12 +1168,15 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       const list = papers.slice(0, 25).map((p: any, i: number) => `[${i + 1}] ${p.title} (${p.authorStr || 'Unknown'}, ${p.year || 'n.d.'}; ${p.venue || ''}; cited ${p.cited || 0}). ${(p.abstract || p.summary || '').slice(0, 500)}`).join('\n\n');
       const prompt = 'You are a research-gap and literature-intelligence analyst. Research question: "' + (question || 'the topic') + '".\n\n'
         + 'Below are ' + Math.min(papers.length, 25) + ' papers from the literature. Analyse them TOGETHER and produce a concise Literature Intelligence report in Markdown using these exact "## " section headings:\n'
+        + '## Key themes and clusters\n(group the papers into 3-5 thematic clusters; name the papers in each)\n'
         + '## Unanswered questions\n(3-5 bullets: specific questions the literature has NOT resolved)\n'
         + '## Conflicting or inconsistent evidence\n(where findings disagree; name the papers as (Author, Year))\n'
         + '## Methodological gaps\n(recurring limitations in design, sample size, or rigor)\n'
         + '## Population and geographic gaps\n(under-studied populations, regions, or settings)\n'
-        + '## Temporal trends\n(how the topic shifted over time; what is newest vs dated)\n'
-        + '## Promising future directions\n(3-5 concrete, high-impact directions)\n\n'
+        + '## Temporal trends\n(how the topic shifted over time; what is newest vs dated; note the most-cited vs most-recent)\n'
+        + '## Saturation vs opportunity\n(which sub-areas are over-studied/saturated vs wide open)\n'
+        + '## Promising future directions\n(3-5 concrete, high-impact directions)\n'
+        + '## Suggested next searches\n(3-5 specific search queries the user should run to fill the biggest gaps)\n\n'
         + 'Ground every claim in the papers below and cite them as (Author, Year). Be specific; avoid generic filler.\n\nPapers:\n' + list;
       const text = await callChat(prompt, false, 'LITERATURE REVIEW');
       setGaps(text && text.trim() ? text : 'No analysis was returned. Please try again.');
@@ -2468,14 +2471,18 @@ export function LiteratureReviewView({ messages, onHome }: any) {
             <div className="border border-border rounded-xl overflow-hidden">
               <div className="px-4 py-2.5 bg-muted/40 flex items-center justify-between gap-2 border-b border-border">
                 <span className="text-[12px] font-bold text-muted-foreground flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" /> Research Gaps &amp; Literature Intelligence</span>
-                <button onClick={findGaps} disabled={gapsBusy} className="text-[12px] font-semibold border border-border rounded-lg px-3 py-1 hover:bg-muted disabled:opacity-50 flex items-center gap-1.5 transition-colors">{gapsBusy ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Analysing…</> : (gaps ? 'Re-analyse' : 'Find gaps')}</button>
+                <div className="flex items-center gap-1.5">
+                  {gaps ? <button onClick={() => { try { navigator.clipboard?.writeText(gaps); } catch {} }} title="Copy analysis" className="w-7 h-7 rounded-lg border border-border flex items-center justify-center hover:bg-muted"><Copy className="w-3.5 h-3.5" /></button> : null}
+                  {gaps ? <button onClick={() => doDownload(`# Research Gaps & Literature Intelligence\n\nResearch question: ${question}\n\n${gaps}`, (question || 'research-gaps').slice(0, 40) + '-gaps.md', 'text/markdown')} title="Download analysis" className="w-7 h-7 rounded-lg border border-border flex items-center justify-center hover:bg-muted"><Download className="w-3.5 h-3.5" /></button> : null}
+                  <button onClick={findGaps} disabled={gapsBusy} className="text-[12px] font-semibold border border-border rounded-lg px-3 py-1 hover:bg-muted disabled:opacity-50 flex items-center gap-1.5 transition-colors">{gapsBusy ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Analysing…</> : (gaps ? 'Re-analyse' : 'Find gaps')}</button>
+                </div>
               </div>
               {gaps ? (
-                <div className="p-4 prose prose-sm dark:prose-invert max-w-none text-[13.5px] leading-relaxed"><ReactMarkdown>{gaps}</ReactMarkdown></div>
+                <div className="p-4 max-h-[460px] overflow-y-auto custom-scrollbar prose prose-sm dark:prose-invert max-w-none text-[13.5px] leading-relaxed [&_h2]:text-[13px] [&_h2]:font-bold [&_h2]:text-foreground [&_h2]:mt-3 [&_h2]:mb-1 [&_h2]:flex [&_h2]:items-center"><ReactMarkdown>{gaps}</ReactMarkdown></div>
               ) : gapsBusy ? (
-                <div className="p-4 text-[13px] text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Detecting unanswered questions, conflicts, methodological and geographic gaps, trends, and future directions…</div>
+                <div className="p-4 text-[13px] text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Detecting themes, unanswered questions, conflicts, methodological and geographic gaps, trends, saturation, future directions, and next searches…</div>
               ) : (
-                <div className="p-4 text-[12.5px] text-muted-foreground">Analyse your results to surface unanswered questions, conflicting evidence, methodological and geographic gaps, temporal trends, and promising future directions.</div>
+                <div className="p-4 text-[12.5px] text-muted-foreground">Analyse your results to surface key themes, unanswered questions, conflicting evidence, methodological and geographic gaps, temporal trends, saturated vs open areas, future directions, and suggested next searches.</div>
               )}
             </div>
           ) : null}
