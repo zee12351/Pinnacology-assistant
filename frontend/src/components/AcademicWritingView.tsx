@@ -2510,10 +2510,20 @@ MANDATORY: Generate ONLY the new text to be appended or inserted based on the in
   };
 
 
+  // Comments are stored PER chat/document (keyed by activeChatId), not globally.
   useEffect(() => {
-    try { const raw = localStorage.getItem('pinnovix_comments'); if (raw) setComments(JSON.parse(raw)); } catch {}
-  }, []);
-  const persistComments = (list: any[]) => { setComments(list); try { localStorage.setItem('pinnovix_comments', JSON.stringify(list)); } catch {} };
+    try {
+      const key = 'pinnovix_comments_' + activeChatId;
+      let raw = localStorage.getItem(key);
+      if (raw == null) {
+        // One-time migration: move any old global comments into the current chat.
+        const legacy = localStorage.getItem('pinnovix_comments');
+        if (legacy) { raw = legacy; localStorage.setItem(key, legacy); localStorage.removeItem('pinnovix_comments'); }
+      }
+      setComments(raw ? JSON.parse(raw) : []);
+    } catch { setComments([]); }
+  }, [activeChatId]);
+  const persistComments = (list: any[]) => { setComments(list); try { localStorage.setItem('pinnovix_comments_' + activeChatId, JSON.stringify(list)); } catch {} };
   const startComment = () => {
     if (!editor) return;
     const { from, to } = editor.state.selection;
