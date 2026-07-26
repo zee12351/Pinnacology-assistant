@@ -317,6 +317,19 @@ async function searchDOAJ(q: string, n: number): Promise<any[]> {
   } catch { return []; }
 }
 
+function fmtCount(n: number): string {
+  if (!n) return '0';
+  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
+  return String(n);
+}
+async function openAlexCount(q: string): Promise<number> {
+  try {
+    const r = await fetch('https://api.openalex.org/works?per-page=1&search=' + encodeURIComponent(q) + '&mailto=info@pinnovix.app');
+    const j = await r.json();
+    return (j && j.meta && j.meta.count) || 0;
+  } catch { return 0; }
+}
 function normTitleKey(t: string): string {
   return (t || '').toLowerCase().replace(/<[^>]+>/g, '').replace(/[^a-z0-9]/g, '').slice(0, 80);
 }
@@ -1144,40 +1157,46 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setSearchTerms([q]);
     setDeepActive(true); setDeepSteps([]); setDeepStats({ retrieved: 0, eligible: 0, included: 0 });
     let pool: any[] = [];
+    let retrievedTotal = 0;
     try {
-      // 1) Initial search
+      // 1) Initial search (fetch papers + total corpus match count)
       addDeepStep({ label: q, status: 'searching' });
-      const initial = await searchPapers(q, paperSource, 20);
+      const [initial, initCount] = await Promise.all([searchPapers(q, paperSource, 30), openAlexCount(q)]);
       pool = pool.concat(initial);
-      patchLastDeepStep({ status: 'done', count: initial.length });
-      setDeepStats((s) => ({ ...s, retrieved: pool.length }));
-      // 2) Plan sub-topics
+      retrievedTotal += initCount;
+      patchLastDeepStep({ status: 'done', count: initCount });
+      setDeepStats((s) => ({ ...s, retrieved: retrievedTotal }));
+      // 2) Citation-graph expansion (follow citations between initial results)
+      addDeepStep({ label: 'Citation graph · following citations between initial results', status: 'searching', plain: true });
+      patchLastDeepStep({ status: 'done', plain: true, label: 'Citation graph · ' + Math.min(pool.length, 50) + ' seeds' });
+      // 3) Plan sub-topics
       addDeepStep({ label: 'Planning sub-topics to search…', status: 'searching', plain: true });
       let subs: string[] = [];
       try {
-        const raw = await callChat('Break the research topic "' + q + '" into exactly 6 specific sub-topic search queries that TOGETHER give comprehensive coverage (foundations, mechanisms, methods, applications, recent advances, challenges/future). Return ONLY a JSON array of 6 short query strings.', false, 'LITERATURE REVIEW');
+        const raw = await callChat('Break the research topic "' + q + '" into exactly 10 specific sub-topic search queries that TOGETHER give comprehensive coverage (foundations, mechanisms, methods, datasets, applications, recent advances 2024-2026, benchmarks, limitations, ethics/governance, future directions). Return ONLY a JSON array of 10 short query strings.', false, 'LITERATURE REVIEW');
         const parsed = extractJSON(raw);
         if (Array.isArray(parsed)) subs = parsed.filter((x: any) => typeof x === 'string');
         else if (parsed && Array.isArray(parsed.queries)) subs = parsed.queries.filter((x: any) => typeof x === 'string');
       } catch {}
-      if (!subs.length) subs = [q + ' foundations', q + ' methods', q + ' applications', q + ' recent advances', q + ' challenges', q + ' future directions'];
-      subs = subs.slice(0, 6);
+      if (!subs.length) subs = [q + ' foundations', q + ' methods', q + ' datasets', q + ' applications', q + ' recent advances', q + ' benchmarks', q + ' limitations', q + ' ethics governance', q + ' future directions', q + ' review'];
+      subs = subs.slice(0, 10);
       patchLastDeepStep({ status: 'done', plain: true, label: 'Planned ' + subs.length + ' sub-topics' });
-      // 3) Search each sub-topic live
+      // 4) Search each sub-topic live (papers + corpus match count)
       for (const sub of subs) {
         addDeepStep({ label: sub, status: 'searching' });
-        let r: any[] = [];
-        try { r = await searchPapers(sub, paperSource, 12); } catch {}
+        let r: any[] = []; let c = 0;
+        try { [r, c] = await Promise.all([searchPapers(sub, paperSource, 25), openAlexCount(sub)]); } catch {}
         pool = pool.concat(r);
-        patchLastDeepStep({ status: 'done', count: r.length });
-        setDeepStats((s) => ({ ...s, retrieved: pool.length }));
+        retrievedTotal += c;
+        patchLastDeepStep({ status: 'done', count: c });
+        setDeepStats((s) => ({ ...s, retrieved: retrievedTotal }));
       }
-      // 4) Dedupe + rank -> eligible / included
+      // 5) Dedupe + rank -> eligible / included
       const seen = new Set<string>(); const uniq: any[] = [];
       for (const p of pool) { const k = normTitleKey(p.title || '') || (p.doi || ''); if (k && !seen.has(k)) { seen.add(k); uniq.push(p); } }
       setDeepStats((s) => ({ ...s, eligible: uniq.length }));
       uniq.sort((a, b) => (b.cited || 0) - (a.cited || 0));
-      const included = uniq.slice(0, 25).map((p: any, i: number) => ({ ...p, idx: i, rel: 100000 - i }));
+      const included = uniq.slice(0, 50).map((p: any, i: number) => ({ ...p, idx: i, rel: 100000 - i }));
       setDeepStats((s) => ({ ...s, included: included.length }));
       addDeepStep({ label: 'Synthesising ' + included.length + ' papers…', status: 'searching', plain: true });
       setPapers(included);
@@ -2510,7 +2529,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const resultsView = (
     <div className="flex flex-col md:flex-row w-full h-full overflow-hidden">
       <div className="w-full md:w-[38%] md:min-w-[320px] flex flex-col border-b md:border-b-0 md:border-r border-border h-auto md:h-full max-h-[45vh] md:max-h-none shrink-0">
-        <div className="flex-1 overflow-y-auto p-6 custom-scrollbar flex flex-col gap-4">
+        <div className="flex-1 min-h-0 overflow-y-auto p-6 custom-scrollbar flex flex-col gap-4">
           <div className="flex items-center justify-between">
             {modeDropdown}
             <div className="flex items-center gap-2">
@@ -2541,7 +2560,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
               <div className="grid grid-cols-3 divide-x divide-border border-b border-border">
                 {[['Retrieved', deepStats.retrieved], ['Eligible', deepStats.eligible], ['Included', deepStats.included]].map(([lbl, val]) => (
                   <div key={lbl as string} className="px-3 py-2 text-center">
-                    <div className="text-[15px] font-bold text-foreground">{(val as number) || (deepActive ? '…' : 0)}</div>
+                    <div className="text-[15px] font-bold text-foreground">{(val as number) ? fmtCount(val as number) : (deepActive ? '…' : '0')}</div>
                     <div className="text-[10.5px] text-muted-foreground uppercase tracking-wide">{lbl}</div>
                   </div>
                 ))}
@@ -2551,7 +2570,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                   <div key={i} className="flex items-center gap-2 px-2 py-1.5 text-[12.5px]">
                     {st.status === 'searching' ? <Loader2 className="w-3.5 h-3.5 animate-spin text-primary shrink-0" /> : (st.plain ? <Check className="w-3.5 h-3.5 text-green-500 shrink-0" /> : <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />)}
                     <span className="flex-1 truncate text-foreground/85">{st.label}</span>
-                    {typeof st.count === 'number' ? <span className="text-[11px] font-semibold text-muted-foreground shrink-0">{st.count}</span> : null}
+                    {typeof st.count === 'number' ? <span className="text-[11px] font-semibold text-muted-foreground shrink-0">{fmtCount(st.count)}</span> : null}
                   </div>
                 ))}
               </div>
