@@ -350,12 +350,22 @@ function linkifyReportCitations(md: string, papers: any[]): string {
     return m;
   });
 }
-async function openAlexCount(q: string): Promise<number> {
-  try {
-    const r = await fetch('https://api.openalex.org/works?per-page=1&search=' + encodeURIComponent(broadenForCount(q)) + '&mailto=info@pinnovix.app');
-    const j = await r.json();
-    return (j && j.meta && j.meta.count) || 0;
-  } catch { return 0; }
+async function openAlexCount(q: string, opts?: { broaden?: boolean; filter?: string }): Promise<number> {
+  const term = (opts && opts.broaden) ? broadenForCount(q) : String(q || '').trim();
+  if (!term) return 0;
+  const build = (t: string) => {
+    let u = 'https://api.openalex.org/works?per-page=1&search=' + encodeURIComponent(t) + '&mailto=support@pinnovix.app';
+    if (opts && opts.filter) u += '&filter=' + opts.filter;
+    return u;
+  };
+  const once = async (t: string) => {
+    try { const r = await fetch(build(t)); if (!r.ok) return -1; const j = await r.json(); const c = j && j.meta && typeof j.meta.count === 'number' ? j.meta.count : -1; return c; }
+    catch { return -1; }
+  };
+  let c = await once(term);
+  if (c < 0) { await new Promise((res) => setTimeout(res, 400)); c = await once(term); } // one retry
+  if (c <= 0 && opts && opts.broaden) c = await once(String(q || '').trim()); // fallback to raw query
+  return c > 0 ? c : 0;
 }
 function normTitleKey(t: string): string {
   return (t || '').toLowerCase().replace(/<[^>]+>/g, '').replace(/[^a-z0-9]/g, '').slice(0, 80);
@@ -646,6 +656,16 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [deepStepsExpanded, setDeepStepsExpanded] = useState(false);
   const [deepStats, setDeepStats] = useState({ retrieved: 0, eligible: 0, included: 0, searches: 0 });
   const [deepTables, setDeepTables] = useState<any>(null);
+  // Resizable divider between the report (left) and references (right) panels.
+  const [leftW, setLeftW] = useState(38);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const draggingDivRef = useRef(false);
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => { if (!draggingDivRef.current || !resultsRef.current) return; const r = resultsRef.current.getBoundingClientRect(); const pct = ((e.clientX - r.left) / r.width) * 100; setLeftW(Math.min(72, Math.max(24, pct))); };
+    const onUp = () => { if (draggingDivRef.current) { draggingDivRef.current = false; document.body.style.userSelect = ''; document.body.style.cursor = ''; } };
+    window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp);
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+  }, []);
   const [searchTerms, setSearchTerms] = useState([] as string[]);
   const [columns, setColumns] = useState([] as any[]);
   const [filter, setFilter] = useState('');
@@ -1224,7 +1244,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     try {
       // 1) Initial search (fetch papers + total corpus match count)
       addDeepStep({ label: q, status: 'searching' });
-      const [initial, initCount] = await Promise.all([searchPapers(q, paperSource, 45), openAlexCount(q)]);
+      const [initial, initCount] = await Promise.all([searchPapers(q, paperSource, 45), openAlexCount(q, { broaden: true })]);
       pool = pool.concat(initial);
       retrievedTotal += initCount;
       patchLastDeepStep({ status: 'done', count: initCount });
@@ -1248,16 +1268,21 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       for (const sub of subs) {
         addDeepStep({ label: sub, status: 'searching' });
         let r: any[] = []; let c = 0;
-        try { [r, c] = await Promise.all([searchPapers(sub, paperSource, 40), openAlexCount(sub)]); } catch {}
+        try { [r, c] = await Promise.all([searchPapers(sub, paperSource, 40), openAlexCount(sub, { broaden: true })]); } catch {}
         pool = pool.concat(r);
         retrievedTotal += c;
         patchLastDeepStep({ status: 'done', count: c });
         setDeepStats((s) => ({ ...s, retrieved: retrievedTotal }));
       }
+      // Guarantee Retrieved is never 0: fall back to the real fetched pool size.
+      if (!retrievedTotal) { retrievedTotal = pool.length; setDeepStats((s) => ({ ...s, retrieved: retrievedTotal })); }
       // 5) Dedupe + rank -> eligible / included
       const seen = new Set<string>(); const uniq: any[] = [];
       for (const p of pool) { const k = normTitleKey(p.title || '') || (p.doi || ''); if (k && !seen.has(k)) { seen.add(k); uniq.push(p); } }
-      setDeepStats((s) => ({ ...s, eligible: uniq.length }));
+      // Eligible = a REAL, topic-specific count of relevant papers (with abstracts), varies per query.
+      let eligibleReal = 0;
+      try { eligibleReal = await openAlexCount(q, { filter: 'has_abstract:true' }); } catch {}
+      setDeepStats((s) => ({ ...s, eligible: eligibleReal || uniq.length }));
       uniq.sort((a, b) => (b.cited || 0) - (a.cited || 0));
       const included = uniq.slice(0, 50).map((p: any, i: number) => ({ ...p, idx: i, rel: 100000 - i }));
       setDeepStats((s) => ({ ...s, included: included.length, searches: subs.length + 1 }));
@@ -2617,8 +2642,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
 
   // ---- FIND RESULTS SPLIT VIEW ----
   const resultsView = (
-    <div className="flex flex-col md:flex-row w-full h-full overflow-hidden">
-      <div className="w-full md:w-[38%] md:min-w-[320px] flex flex-col border-b md:border-b-0 md:border-r border-border h-auto md:h-full max-h-[45vh] md:max-h-none shrink-0">
+    <div ref={resultsRef} className="flex flex-col md:flex-row w-full h-full overflow-hidden">
+      <div style={{ width: leftW + '%' }} className="max-md:!w-full flex flex-col border-b md:border-b-0 border-border h-auto md:h-full max-h-[45vh] md:max-h-none shrink-0">
         <div className="flex-1 min-h-0 overflow-y-auto p-6 custom-scrollbar flex flex-col gap-4">
           <div className="flex items-center justify-between">
             {modeDropdown}
@@ -2845,6 +2870,10 @@ export function LiteratureReviewView({ messages, onHome }: any) {
             </div>
           </div>
         ) : null}
+      </div>
+
+      <div onMouseDown={(e) => { draggingDivRef.current = true; document.body.style.userSelect = 'none'; document.body.style.cursor = 'col-resize'; e.preventDefault(); }} title="Drag to resize" className="hidden md:flex items-center justify-center w-2 shrink-0 cursor-col-resize bg-border hover:bg-primary/60 active:bg-primary transition-colors">
+        <div className="w-0.5 h-8 bg-muted-foreground/40 rounded" />
       </div>
 
       <div className="flex-1 min-h-0 bg-card flex flex-col md:h-full overflow-hidden">
