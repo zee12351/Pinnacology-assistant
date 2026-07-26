@@ -598,6 +598,11 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [synthesis, setSynthesis] = useState('');
   const [gaps, setGaps] = useState('');
   const [gapsBusy, setGapsBusy] = useState(false);
+  // Deep research mode (consensus-style multi-step agent).
+  const [deepMode, setDeepMode] = useState(false);
+  const [deepActive, setDeepActive] = useState(false);
+  const [deepSteps, setDeepSteps] = useState<any[]>([]);
+  const [deepStats, setDeepStats] = useState({ retrieved: 0, eligible: 0, included: 0 });
   const [searchTerms, setSearchTerms] = useState([] as string[]);
   const [columns, setColumns] = useState([] as any[]);
   const [filter, setFilter] = useState('');
@@ -825,10 +830,11 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     const q = input.trim();
     if (!q) return;
     lastQRef.current = q;
-    runReview(q);
+    if (deepMode) runDeepReview(q); else runReview(q);
   }
   function resetSearch() {
     setQuestion(''); setPapers([]); setSynthesis(''); setGaps(''); setColumns([]); setSearchTerms([]); setInput(''); setFollowups([]); setChatThread([]); setChatInput(''); lastQRef.current = '';
+    setDeepActive(false); setDeepSteps([]); setDeepStats({ retrieved: 0, eligible: 0, included: 0 });
     setChatStarted(false); setPaperChat([]); setChatSources([]); setSrcSel({});
     setReport(null); setReportInput(''); setDetailsOpen(false); setReportChat([]);
     setSysStep(0); setSysQ(''); setSysPapers([]); setSysCols([]);
@@ -1126,6 +1132,76 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       setBusy(false);
       setPhase('');
     }
+  }
+
+  // Deep research (consensus-style): plan sub-topics, search each live, expand, synthesise.
+  const addDeepStep = (step: any) => setDeepSteps((prev) => [...prev, step]);
+  const patchLastDeepStep = (patch: any) => setDeepSteps((prev) => prev.length ? prev.map((s, i) => i === prev.length - 1 ? { ...s, ...patch } : s) : prev);
+  async function runDeepReview(q: string) {
+    setMode('find'); setNavView('search'); setQuestion(q); pushRecent(q, 'Deep research');
+    setBusy(true); setPhase('Running deep research…');
+    setPapers([]); setSynthesis(''); setGaps(''); setGapsBusy(false); setColumns([]); setFollowups([]); setChatThread([]);
+    setSearchTerms([q]);
+    setDeepActive(true); setDeepSteps([]); setDeepStats({ retrieved: 0, eligible: 0, included: 0 });
+    let pool: any[] = [];
+    try {
+      // 1) Initial search
+      addDeepStep({ label: q, status: 'searching' });
+      const initial = await searchPapers(q, paperSource, 20);
+      pool = pool.concat(initial);
+      patchLastDeepStep({ status: 'done', count: initial.length });
+      setDeepStats((s) => ({ ...s, retrieved: pool.length }));
+      // 2) Plan sub-topics
+      addDeepStep({ label: 'Planning sub-topics to search…', status: 'searching', plain: true });
+      let subs: string[] = [];
+      try {
+        const raw = await callChat('Break the research topic "' + q + '" into exactly 6 specific sub-topic search queries that TOGETHER give comprehensive coverage (foundations, mechanisms, methods, applications, recent advances, challenges/future). Return ONLY a JSON array of 6 short query strings.', false, 'LITERATURE REVIEW');
+        const parsed = extractJSON(raw);
+        if (Array.isArray(parsed)) subs = parsed.filter((x: any) => typeof x === 'string');
+        else if (parsed && Array.isArray(parsed.queries)) subs = parsed.queries.filter((x: any) => typeof x === 'string');
+      } catch {}
+      if (!subs.length) subs = [q + ' foundations', q + ' methods', q + ' applications', q + ' recent advances', q + ' challenges', q + ' future directions'];
+      subs = subs.slice(0, 6);
+      patchLastDeepStep({ status: 'done', plain: true, label: 'Planned ' + subs.length + ' sub-topics' });
+      // 3) Search each sub-topic live
+      for (const sub of subs) {
+        addDeepStep({ label: sub, status: 'searching' });
+        let r: any[] = [];
+        try { r = await searchPapers(sub, paperSource, 12); } catch {}
+        pool = pool.concat(r);
+        patchLastDeepStep({ status: 'done', count: r.length });
+        setDeepStats((s) => ({ ...s, retrieved: pool.length }));
+      }
+      // 4) Dedupe + rank -> eligible / included
+      const seen = new Set<string>(); const uniq: any[] = [];
+      for (const p of pool) { const k = normTitleKey(p.title || '') || (p.doi || ''); if (k && !seen.has(k)) { seen.add(k); uniq.push(p); } }
+      setDeepStats((s) => ({ ...s, eligible: uniq.length }));
+      uniq.sort((a, b) => (b.cited || 0) - (a.cited || 0));
+      const included = uniq.slice(0, 25).map((p: any, i: number) => ({ ...p, idx: i, rel: 100000 - i }));
+      setDeepStats((s) => ({ ...s, included: included.length }));
+      addDeepStep({ label: 'Synthesising ' + included.length + ' papers…', status: 'searching', plain: true });
+      setPapers(included);
+      // 5) Summarise + synthesise
+      const list = included.map((p: any, i: number) => '[' + i + '] ' + p.title + '. ABSTRACT: ' + (p.abstract || 'No abstract').slice(0, 700)).join('\n\n');
+      const jsonShape = '{"summaries": ["one short summary per paper in order"], "synthesis": "4-6 sentence overall synthesis", "followups": ["2-3 short next-step suggestions"]}';
+      const prompt = 'You are a deep-research literature analyst. Research question: "' + q + '".\n\nBelow are ' + included.length + ' papers found via multi-query deep search. For EACH paper (in order) write a 1-2 sentence summary relevant to the question with specific numbers if present. Then write a 4-6 sentence synthesis across all papers. Finally propose 2-3 short next steps.\n\nReturn ONLY valid JSON: ' + jsonShape + '\n\nPapers:\n' + list;
+      try {
+        const rawText = await callChat(prompt, false, 'LITERATURE REVIEW');
+        const parsed = extractJSON(rawText);
+        if (parsed && Array.isArray(parsed.summaries)) {
+          setPapers((prev) => prev.map((p, i) => ({ ...p, summary: parsed.summaries[i] || (p.abstract || '').slice(0, 220) })));
+          setSynthesis(parsed.synthesis || '');
+          setFollowups(Array.isArray(parsed.followups) ? parsed.followups.slice(0, 3) : []);
+        } else {
+          setPapers((prev) => prev.map((p) => ({ ...p, summary: p.abstract ? p.abstract.slice(0, 240) + '...' : 'No abstract available.' })));
+          setSynthesis(rawText && rawText.length < 1400 ? rawText : '');
+        }
+      } catch {
+        setPapers((prev) => prev.map((p) => ({ ...p, summary: p.abstract ? p.abstract.slice(0, 240) + '...' : '' })));
+      }
+      patchLastDeepStep({ status: 'done', plain: true, label: 'Included ' + included.length + ' papers' });
+    } catch { /* ignore */ }
+    finally { setBusy(false); setPhase(''); setDeepActive(false); }
   }
 
   // Fetch the next batch of papers and append them (like Persona 1's "Load more").
@@ -2149,7 +2225,12 @@ export function LiteratureReviewView({ messages, onHome }: any) {
             <div>
               <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitStart(); } }} rows={4} autoFocus placeholder="e.g. Does intermittent fasting improve weight loss in adults?" className="w-full bg-transparent px-4 py-3 text-[15px] outline-none resize-none placeholder:text-muted-foreground" />
               <div className="flex items-center justify-between px-4 py-3 border-t border-border">
-                {sourceDropdown}
+                <div className="flex items-center gap-2">
+                  {sourceDropdown}
+                  <button onClick={() => setDeepMode(v => !v)} title="Deep research: plan many sub-topics, search each, follow citations, then synthesise" className={'flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-semibold transition-colors ' + (deepMode ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground hover:bg-muted')}>
+                    <Sparkles className="w-3.5 h-3.5" /> Deep{deepMode ? ' · on' : ''}
+                  </button>
+                </div>
                 <button onClick={submitStart} disabled={!input.trim()} className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40" title="Search"><ArrowRight className="w-4 h-4" /></button>
               </div>
             </div>
@@ -2452,6 +2533,28 @@ export function LiteratureReviewView({ messages, onHome }: any) {
               {searchTerms.map((t, i) => (
                 <div key={i} className="flex items-center gap-2 text-[12.5px] text-foreground/80 py-0.5"><Search className="w-3.5 h-3.5 text-muted-foreground" /> {t} <span className="text-muted-foreground text-[11px]">- {sourceLabel}</span></div>
               ))}
+            </div>
+          ) : null}
+          {deepSteps.length > 0 ? (
+            <div className="border border-border rounded-xl overflow-hidden">
+              <div className="px-4 py-2.5 bg-muted/40 border-b border-border flex items-center gap-2 text-[12px] font-bold text-muted-foreground"><Sparkles className="w-3.5 h-3.5 text-primary" /> Deep research {deepActive ? '· running…' : '· complete'}</div>
+              <div className="grid grid-cols-3 divide-x divide-border border-b border-border">
+                {[['Retrieved', deepStats.retrieved], ['Eligible', deepStats.eligible], ['Included', deepStats.included]].map(([lbl, val]) => (
+                  <div key={lbl as string} className="px-3 py-2 text-center">
+                    <div className="text-[15px] font-bold text-foreground">{(val as number) || (deepActive ? '…' : 0)}</div>
+                    <div className="text-[10.5px] text-muted-foreground uppercase tracking-wide">{lbl}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ maxHeight: 260, overflowY: 'auto' }} className="p-2 flex flex-col">
+                {deepSteps.map((st, i) => (
+                  <div key={i} className="flex items-center gap-2 px-2 py-1.5 text-[12.5px]">
+                    {st.status === 'searching' ? <Loader2 className="w-3.5 h-3.5 animate-spin text-primary shrink-0" /> : (st.plain ? <Check className="w-3.5 h-3.5 text-green-500 shrink-0" /> : <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />)}
+                    <span className="flex-1 truncate text-foreground/85">{st.label}</span>
+                    {typeof st.count === 'number' ? <span className="text-[11px] font-semibold text-muted-foreground shrink-0">{st.count}</span> : null}
+                  </div>
+                ))}
+              </div>
             </div>
           ) : null}
           {synthesis ? (
