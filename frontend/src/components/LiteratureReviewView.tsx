@@ -338,6 +338,18 @@ function broadenForCount(q: string): string {
   const top = Array.from(new Set(words)).sort((a, b) => b.length - a.length).slice(0, 2);
   return top.join(' ') || (q || '');
 }
+// Turn (Author, Year) mentions in the report into clickable chips linked to the matching paper.
+function linkifyReportCitations(md: string, papers: any[]): string {
+  if (!md || !papers || !papers.length) return md || '';
+  const idx = papers.map((p) => ({ p, sur: String(p.authorStr || '').replace(/\bet al\.?/i, '').split(/[ ,]/)[0].toLowerCase(), yr: String(p.year || '') }));
+  return md.replace(/\(([A-Z][A-Za-z’'\-]+(?:\s+(?:et al\.?|&|and)\s+[A-Za-z’'\-]+)?),?\s*(\d{4})[a-z]?\)/g, (m: string, name: string, yr: string) => {
+    const sur = String(name).replace(/\bet al\.?/i, '').split(/[ &]/)[0].toLowerCase();
+    const hit = idx.find((x) => x.sur === sur && x.yr === yr) || idx.find((x) => x.sur === sur);
+    const url = hit && (hit.p.url || (hit.p.doi ? 'https://doi.org/' + hit.p.doi : ''));
+    if (url) return '[(' + name + ', ' + yr + ')](' + url + ' "' + String(hit.p.title || '').replace(/"/g, '') + '")';
+    return m;
+  });
+}
 async function openAlexCount(q: string): Promise<number> {
   try {
     const r = await fetch('https://api.openalex.org/works?per-page=1&search=' + encodeURIComponent(broadenForCount(q)) + '&mailto=info@pinnovix.app');
@@ -845,6 +857,13 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   function loadAgentSession(key: string): any[] | null {
     try { const raw = localStorage.getItem('pinnovix_lit_agent_sessions'); const map = raw ? JSON.parse(raw) : {}; return map[key] || null; } catch { return null; }
   }
+  // Persist a full Find/Deep session so opening a past chat restores it (papers, report, deep output).
+  function saveFindSession(key: string, data: any) {
+    try { const raw = localStorage.getItem('pinnovix_lit_find_sessions'); const map = raw ? JSON.parse(raw) : {}; map[key] = data; const keys = Object.keys(map); if (keys.length > 25) delete map[keys[0]]; localStorage.setItem('pinnovix_lit_find_sessions', JSON.stringify(map)); } catch {}
+  }
+  function loadFindSession(key: string): any | null {
+    try { const raw = localStorage.getItem('pinnovix_lit_find_sessions'); const map = raw ? JSON.parse(raw) : {}; return map[key] || null; } catch { return null; }
+  }
   function pushRecent(q: string, type: string) {
     try {
       const raw = localStorage.getItem('pinnovix_lit_recents');
@@ -856,6 +875,12 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       setRecents(next);
     } catch {}
   }
+
+  // Auto-save the current Find/Deep session (keyed by question) once results have settled.
+  useEffect(() => {
+    if (!question || busy || deepActive || !papers.length) return;
+    saveFindSession(question, { question, papers, synthesis, gaps, columns, followups, searchTerms, deepSteps, deepStats, deepTables });
+  }, [papers, synthesis, gaps, deepTables, columns, followups, question, busy, deepActive]);
 
   function submitStart() {
     const q = input.trim();
@@ -895,7 +920,27 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       if (saved && saved.length) { setAgentChat(saved); agentSessionKeyRef.current = q; }
       else { setAgentChat([]); agentSessionKeyRef.current = q; setTimeout(() => agentSend(q), 60); }
     }
-    else { setMode('find'); runReview(q); }
+    else {
+      setMode('find');
+      const saved = loadFindSession(q);
+      if (saved && Array.isArray(saved.papers) && saved.papers.length) {
+        // Restore the full session (papers, report, and Deep output) — no re-run.
+        setQuestion(saved.question || q);
+        setPapers(saved.papers || []);
+        setSynthesis(saved.synthesis || '');
+        setGaps(saved.gaps || ''); setGapsBusy(false);
+        setColumns(saved.columns || []);
+        setFollowups(saved.followups || []);
+        setSearchTerms(saved.searchTerms && saved.searchTerms.length ? saved.searchTerms : [q]);
+        setDeepSteps(saved.deepSteps || []);
+        setDeepStepsExpanded(false);
+        setDeepStats(saved.deepStats || { retrieved: 0, eligible: 0, included: 0, searches: 0 });
+        setDeepTables(saved.deepTables || null);
+        setDeepActive(false); setBusy(false); setChatThread([]);
+      } else {
+        runReview(q);
+      }
+    }
   }
   function selectMode(id: string) {
     setModeMenu(false);
@@ -2663,7 +2708,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
           {synthesis ? (
             <div className="prose prose-sm dark:prose-invert max-w-none text-[14px] leading-relaxed [&_h2]:text-[15px] [&_h2]:font-bold [&_h2]:text-foreground [&_h2]:mt-4 [&_h2]:mb-1.5 [&_h2]:pb-1 [&_h2]:border-b [&_h2]:border-border [&_ul]:my-1.5 [&_li]:my-0.5">
               <div className="text-[12px] font-bold text-muted-foreground uppercase tracking-wide mb-1 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" /> {deepSteps.length > 0 ? 'Deep research report' : 'Synthesis'}</div>
-              <ReactMarkdown>{synthesis}</ReactMarkdown>
+              <ReactMarkdown components={{ a: (props: any) => <a {...props} target="_blank" rel="noreferrer" title={props.title} className="inline-block align-baseline text-[10.5px] font-bold uppercase tracking-wide bg-muted text-foreground/70 rounded px-1.5 py-0.5 mx-0.5 no-underline hover:bg-primary hover:text-primary-foreground transition-colors" /> }}>{deepSteps.length > 0 ? linkifyReportCitations(synthesis, papers) : synthesis}</ReactMarkdown>
             </div>
           ) : null}
           {deepTables && Array.isArray(deepTables.evidence) && deepTables.evidence.length ? (
@@ -2681,6 +2726,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                   </div>
                 );
               })}
+              <div className="px-4 py-2 text-[11px] text-muted-foreground border-t border-border">FIGURE · Key claims and evidence strength across included papers</div>
             </div>
           ) : null}
           {deepTables && deepTables.comparison && Array.isArray(deepTables.comparison.rows) && deepTables.comparison.rows.length ? (
@@ -2693,6 +2739,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                   <span className="text-muted-foreground">{r.b}</span>
                 </div>
               ))}
+              <div className="px-4 py-2 text-[11px] text-muted-foreground border-t border-border">FIGURE · Comparison across the main approaches</div>
             </div>
           ) : null}
           {deepTables && deepTables.gaps && Array.isArray(deepTables.gaps.rows) && deepTables.gaps.rows.length ? (
@@ -2715,8 +2762,24 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                   ))}
                 </div>
               </div>
+              <div className="px-4 py-2 text-[11px] text-muted-foreground border-t border-border">FIGURE · Research coverage gaps across topics (darker = more evidence)</div>
             </div>
           ) : null}
+          {deepSteps.length > 0 && papers.length > 0 ? (() => {
+            const auth: Record<string, number> = {}; const jour: Record<string, number> = {};
+            papers.forEach((p: any) => { const a = String(p.authorStr || '').replace(/\bet al\.?/i, '').split(',')[0].trim(); if (a && a.length > 1) auth[a] = (auth[a] || 0) + 1; const v = String(p.venue || '').trim(); if (v) jour[v] = (jour[v] || 0) + 1; });
+            const topA = Object.entries(auth).sort((a, b) => b[1] - a[1]).filter((x) => x[1] > 1).slice(0, 5);
+            const topJ = Object.entries(jour).sort((a, b) => b[1] - a[1]).slice(0, 5);
+            if (!topA.length && !topJ.length) return null;
+            return (
+              <div className="border border-border rounded-xl overflow-hidden">
+                <div className="px-4 py-2.5 bg-muted/40 border-b border-border text-[12px] font-bold text-muted-foreground">Top Contributors</div>
+                {topA.length ? (<div className="px-4 py-2.5 border-b border-border"><div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wide mb-1.5">Authors</div>{topA.map(([name, c]) => (<div key={name} className="flex items-center justify-between py-1 text-[12.5px]"><span className="text-foreground truncate">{name}</span><span className="text-[11px] font-semibold text-muted-foreground bg-muted rounded px-2 py-0.5 shrink-0">{c} papers</span></div>))}</div>) : null}
+                {topJ.length ? (<div className="px-4 py-2.5"><div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wide mb-1.5">Journals</div>{topJ.map(([name, c]) => (<div key={name} className="flex items-center justify-between py-1 text-[12.5px]"><span className="text-foreground italic truncate">{name}</span><span className="text-[11px] font-semibold text-muted-foreground bg-muted rounded px-2 py-0.5 shrink-0">{c}</span></div>))}</div>) : null}
+                <div className="px-4 py-2 text-[11px] text-muted-foreground border-t border-border">FIGURE · Authors and journals appearing most in the included papers</div>
+              </div>
+            );
+          })() : null}
           {papers.length > 0 ? (
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[12.5px] border border-border rounded-lg px-3 py-1.5 flex items-center gap-1.5"><BookOpen className="w-3.5 h-3.5" /> {papers.length} cited sources</span>
