@@ -640,6 +640,92 @@ function refToRis(sources: any[]): string {
   }).join('\n');
 }
 
+// ---- Rich renderer: markdown + GFM-style tables + code pills + Mermaid diagrams (no extra deps) ----
+let _mermaidReady: Promise<any> | null = null;
+function loadMermaidLib(): Promise<any> {
+  if (typeof window === 'undefined') return Promise.reject(new Error('no window'));
+  if ((window as any).mermaid) return Promise.resolve((window as any).mermaid);
+  if (_mermaidReady) return _mermaidReady;
+  _mermaidReady = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js';
+    s.onload = () => { try { (window as any).mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose', fontFamily: 'inherit' }); } catch {} resolve((window as any).mermaid); };
+    s.onerror = () => reject(new Error('mermaid load failed'));
+    document.head.appendChild(s);
+  });
+  return _mermaidReady;
+}
+function MermaidDiagram({ code }: { code: string }) {
+  const [svg, setSvg] = useState('');
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let alive = true; setSvg(''); setFailed(false);
+    loadMermaidLib().then(async (mm: any) => {
+      try { const out = await mm.render('mmd' + Math.random().toString(36).slice(2, 9), (code || '').trim()); if (alive) setSvg(typeof out === 'string' ? out : (out && out.svg) || ''); }
+      catch { if (alive) setFailed(true); }
+    }).catch(() => { if (alive) setFailed(true); });
+    return () => { alive = false; };
+  }, [code]);
+  if (failed) return <pre className="text-[11px] text-muted-foreground bg-muted/40 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap">{code}</pre>;
+  if (!svg) return <div className="text-[12px] text-muted-foreground p-3 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Rendering diagram…</div>;
+  return <div className="border border-border rounded-xl bg-card p-3 overflow-x-auto flex justify-center [&_svg]:max-w-full [&_svg]:h-auto" dangerouslySetInnerHTML={{ __html: svg }} />;
+}
+function _esc(s: string): string { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function _inlineFmt(s: string): string {
+  let h = _esc(s);
+  h = h.replace(/`([^`]+)`/g, '<code class="text-[10.5px] font-bold uppercase tracking-wide bg-muted text-foreground/70 rounded px-1.5 py-0.5 whitespace-nowrap">$1</code>');
+  h = h.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer" class="text-primary no-underline hover:underline">$1</a>');
+  h = h.replace(/\*\*([^*]+)\*\*/g, '<strong class="text-foreground font-bold">$1</strong>');
+  return h;
+}
+function RichTable({ header, rows }: { header: string[]; rows: string[][] }) {
+  return (
+    <div className="border border-border rounded-xl overflow-x-auto not-prose my-2">
+      <table className="w-full text-[12.5px] border-collapse">
+        <thead><tr className="bg-muted/40">{header.map((h, i) => <th key={i} className="text-left font-bold text-muted-foreground uppercase tracking-wide text-[11px] px-3 py-2 border-b border-border" dangerouslySetInnerHTML={{ __html: _inlineFmt(h) }} />)}</tr></thead>
+        <tbody>{rows.map((r, ri) => <tr key={ri} className="border-b border-border last:border-0 align-top">{header.map((_h, ci) => <td key={ci} className="px-3 py-2 text-foreground/90 leading-snug" dangerouslySetInnerHTML={{ __html: _inlineFmt(r[ci] || '') }} />)}</tr>)}</tbody>
+      </table>
+    </div>
+  );
+}
+function RichReport({ md }: { md: string }) {
+  const lines = String(md || '').split('\n');
+  const blocks: any[] = [];
+  let buf: string[] = [];
+  const flush = () => { if (buf.join('').trim()) blocks.push({ t: 'md', c: buf.join('\n') }); buf = []; };
+  const parseRow = (l: string) => { let s = l.trim(); if (s.startsWith('|')) s = s.slice(1); if (s.endsWith('|')) s = s.slice(0, -1); return s.split('|').map((x) => x.trim()); };
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const fence = line.match(/^\s*```\s*(\w+)?/);
+    if (fence && /mermaid/i.test(fence[1] || '')) {
+      flush(); i++; const code: string[] = [];
+      while (i < lines.length && !/^\s*```/.test(lines[i])) { code.push(lines[i]); i++; }
+      blocks.push({ t: 'mermaid', c: code.join('\n') });
+      continue;
+    }
+    if (line.includes('|') && i + 1 < lines.length && /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(lines[i + 1])) {
+      flush();
+      const header = parseRow(line);
+      i += 2; const rows: string[][] = [];
+      while (i < lines.length && lines[i].includes('|') && lines[i].trim()) { rows.push(parseRow(lines[i])); i++; }
+      i--;
+      blocks.push({ t: 'table', header, rows });
+      continue;
+    }
+    buf.push(line);
+  }
+  flush();
+  return (
+    <>
+      {blocks.map((b, bi) => b.t === 'mermaid'
+        ? <MermaidDiagram key={bi} code={b.c} />
+        : b.t === 'table'
+          ? <RichTable key={bi} header={b.header} rows={b.rows} />
+          : <ReactMarkdown key={bi} components={{ a: (props: any) => <a {...props} target="_blank" rel="noreferrer" className="text-primary no-underline hover:underline" />, code: (props: any) => <code className="text-[10.5px] font-bold uppercase tracking-wide bg-muted text-foreground/70 rounded px-1.5 py-0.5">{props.children}</code> }}>{b.c}</ReactMarkdown>)}
+    </>
+  );
+}
+
 export function LiteratureReviewView({ messages, onHome }: any) {
   const [question, setQuestion] = useState('');
   const [papers, setPapers] = useState([] as any[]);
@@ -1295,17 +1381,17 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       // 6a) Full report as PLAIN Markdown (renders reliably)
       const reportPrompt = 'You are a deep-research literature analyst (like Consensus Deep). Research question: "' + q + '".\n\n'
         + 'A deep search screened ' + fmtCount(retrievedTotal) + ' records across ' + nSearches + ' searches plus a citation-graph expansion, filtered to ' + uniq.length + ' eligible papers, and included the top ' + included.length + '.\n\n'
-        + 'Write a comprehensive, publication-grade report. Output ONLY GitHub-flavored Markdown (NO JSON, NO code fences, NO markdown tables — use bold labels and bullet lists instead). Ground every claim in the papers below with inline (Author, Year) citations.\n\n'
-        + 'START with a 2-3 sentence TL;DR that directly answers the question (bold key terms), then a line "**Verdict:** <Yes/Mixed/Uncertain> — <one clause>". Then these exact "## " sections:\n'
-        + '## Introduction\n(2-3 sentences framing the question and the central debate)\n'
-        + '## Methods\n(2-3 sentences describing the deep multi-query search: ' + fmtCount(retrievedTotal) + ' records screened across ' + nSearches + ' searches + a citation-graph expansion, ' + uniq.length + ' eligible after deduplication, top ' + included.length + ' included; note the evidence groups covered)\n'
-        + '## Key Findings\n(5-7 sentences synthesising what the literature shows)\n'
-        + '## Themes\n(3-5 bullets grouping the papers into themes)\n'
-        + '## Head-to-head comparison\n(3-5 bullets: "**Dimension** — finding (Author, Year)")\n'
-        + '## Key Papers\n(5-6 bullets: "**Title** (Author, Year) — one-line contribution")\n'
-        + '## Evidence strength\n(4-5 bullets: "**Claim** — *Strength: Strong/Moderate/Weak* — reasoning (Author, Year)")\n'
-        + '## Research Gaps\n(3-4 bullets: what remains unresolved or under-studied)\n'
-        + '## Open Research Questions\n(3 bullets: "**Question?** — why it matters")\n'
+        + 'Write a comprehensive, publication-grade report in GitHub-flavored Markdown. You MUST use Markdown tables, inline `code` badges, and a Mermaid diagram (they render). Ground claims in the papers with inline (Author, Year) citations.\n\n'
+        + 'Use EXACTLY this structure:\n\n'
+        + '> **Summary:** a 2-3 sentence blockbox takeaway that directly answers the question (bold key terms), ending with an approximate consensus like "~70% of the evidence supports X".\n\n'
+        + '**Verdict:** <Yes / Mixed / Uncertain> — <one clause>.\n\n'
+        + '## Introduction\n(2-3 sentences framing the question and the central debate, with citations)\n\n'
+        + '## Methods\n(2-3 sentences: ' + fmtCount(retrievedTotal) + ' records screened across ' + nSearches + ' searches + a citation-graph expansion, ' + uniq.length + ' eligible after dedup, top ' + included.length + ' included)\n\n'
+        + '## Key Findings\n(5-7 sentences synthesising the evidence, with citations)\n\n'
+        + '## Top Contributors\nA Markdown table with columns: | Type | Name | Related Papers | . Group rows by Authors (3-4) then Journals (2-3). Put related papers as inline code badges like `[SURNAME 2024]` separated by spaces.\n\n'
+        + '## Research Landscape\nA Mermaid flowchart in a ```mermaid code block (use `graph TD` or `graph LR`) mapping the key themes and how they connect (6-9 nodes). Keep node labels short; no parentheses inside node text.\n\n'
+        + '## Findings Matrix\nA Markdown table with columns: | Paper & Year | Key Findings | Citations | Methodology | for the 6-8 most important papers.\n\n'
+        + '## Research Gaps\n(3-4 bullets: what remains unresolved or under-studied)\n\n'
         + '## Conclusion\n(2-3 sentences)\n\nPapers:\n' + list;
       try {
         let reportText = await callChat(reportPrompt, false, 'LITERATURE REVIEW');
@@ -2733,7 +2819,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
           {synthesis ? (
             <div className="prose prose-sm dark:prose-invert max-w-none text-[14px] leading-relaxed [&_h2]:text-[15px] [&_h2]:font-bold [&_h2]:text-foreground [&_h2]:mt-4 [&_h2]:mb-1.5 [&_h2]:pb-1 [&_h2]:border-b [&_h2]:border-border [&_ul]:my-1.5 [&_li]:my-0.5">
               <div className="text-[12px] font-bold text-muted-foreground uppercase tracking-wide mb-1 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" /> {deepSteps.length > 0 ? 'Deep research report' : 'Synthesis'}</div>
-              <ReactMarkdown components={{ a: (props: any) => <a {...props} target="_blank" rel="noreferrer" title={props.title} className="inline-block align-baseline text-[10.5px] font-bold uppercase tracking-wide bg-muted text-foreground/70 rounded px-1.5 py-0.5 mx-0.5 no-underline hover:bg-primary hover:text-primary-foreground transition-colors" /> }}>{deepSteps.length > 0 ? linkifyReportCitations(synthesis, papers) : synthesis}</ReactMarkdown>
+              <RichReport md={deepSteps.length > 0 ? linkifyReportCitations(synthesis, papers) : synthesis} />
             </div>
           ) : null}
           {deepTables && Array.isArray(deepTables.evidence) && deepTables.evidence.length ? (
@@ -2790,21 +2876,6 @@ export function LiteratureReviewView({ messages, onHome }: any) {
               <div className="px-4 py-2 text-[11px] text-muted-foreground border-t border-border">FIGURE · Research coverage gaps across topics (darker = more evidence)</div>
             </div>
           ) : null}
-          {deepSteps.length > 0 && papers.length > 0 ? (() => {
-            const auth: Record<string, number> = {}; const jour: Record<string, number> = {};
-            papers.forEach((p: any) => { const a = String(p.authorStr || '').replace(/\bet al\.?/i, '').split(',')[0].trim(); if (a && a.length > 1) auth[a] = (auth[a] || 0) + 1; const v = String(p.venue || '').trim(); if (v) jour[v] = (jour[v] || 0) + 1; });
-            const topA = Object.entries(auth).sort((a, b) => b[1] - a[1]).filter((x) => x[1] > 1).slice(0, 5);
-            const topJ = Object.entries(jour).sort((a, b) => b[1] - a[1]).slice(0, 5);
-            if (!topA.length && !topJ.length) return null;
-            return (
-              <div className="border border-border rounded-xl overflow-hidden">
-                <div className="px-4 py-2.5 bg-muted/40 border-b border-border text-[12px] font-bold text-muted-foreground">Top Contributors</div>
-                {topA.length ? (<div className="px-4 py-2.5 border-b border-border"><div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wide mb-1.5">Authors</div>{topA.map(([name, c]) => (<div key={name} className="flex items-center justify-between py-1 text-[12.5px]"><span className="text-foreground truncate">{name}</span><span className="text-[11px] font-semibold text-muted-foreground bg-muted rounded px-2 py-0.5 shrink-0">{c} papers</span></div>))}</div>) : null}
-                {topJ.length ? (<div className="px-4 py-2.5"><div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wide mb-1.5">Journals</div>{topJ.map(([name, c]) => (<div key={name} className="flex items-center justify-between py-1 text-[12.5px]"><span className="text-foreground italic truncate">{name}</span><span className="text-[11px] font-semibold text-muted-foreground bg-muted rounded px-2 py-0.5 shrink-0">{c}</span></div>))}</div>) : null}
-                <div className="px-4 py-2 text-[11px] text-muted-foreground border-t border-border">FIGURE · Authors and journals appearing most in the included papers</div>
-              </div>
-            );
-          })() : null}
           {papers.length > 0 ? (
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[12.5px] border border-border rounded-lg px-3 py-1.5 flex items-center gap-1.5"><BookOpen className="w-3.5 h-3.5" /> {papers.length} cited sources</span>
