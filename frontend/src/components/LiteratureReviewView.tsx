@@ -316,6 +316,13 @@ async function searchDOAJ(q: string, n: number): Promise<any[]> {
     }).filter((p: any) => p.title);
   } catch { return []; }
 }
+async function searchClinicalTrials(q: string, n: number): Promise<any[]> {
+  try {
+    const url = 'https://clinicaltrials.gov/api/v2/studies?query.term=' + encodeURIComponent(q) + '&pageSize=' + Math.min(n, 50) + '&format=json';
+    const r = await fetch(url); const j = await r.json();
+    return ((j && j.studies) || []).map(mkTrial).filter((x: any) => x.title).map((p: any, i: number) => ({ ...p, idx: i, rel: 100000 - i }));
+  } catch { return []; }
+}
 
 function fmtCount(n: number): string {
   if (!n) return '0';
@@ -385,6 +392,7 @@ async function searchPapers(q: string, source: string, n: number): Promise<any[]
   else if (source === 'crossref') results = await searchCrossref(cq, n + 6);
   else if (source === 'pubmed') results = await searchPubMed(cq, n + 6);
   else if (source === 'doaj') results = await searchDOAJ(cq, n + 6);
+  else if (source === 'clinicaltrials') { return (await searchClinicalTrials(cq, n)).slice(0, n); }
   else results = await searchOpenAlex(cq, n + 8);
   // Fallback: if the chosen source returned nothing, broaden across several sources.
   if (!results.length && source !== 'all') {
@@ -1727,6 +1735,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     { id: 'doaj', label: 'DOAJ (open access)' },
     { id: 'arxiv', label: 'arXiv' },
     { id: 'crossref', label: 'Crossref' },
+    { id: 'clinicaltrials', label: 'ClinicalTrials.gov' },
   ];
   const sourceLabel = (SOURCES.find((x) => x.id === paperSource) || SOURCES[0]).label;
   const sourceDropdown = (
@@ -2622,6 +2631,27 @@ export function LiteratureReviewView({ messages, onHome }: any) {
               </div>
             </div>
           ) : null}
+          {deepSteps.length > 0 && papers.length > 0 ? (() => {
+            const buckets: Record<number, number> = {};
+            papers.forEach((p: any) => { const y = parseInt(p.year, 10); if (y > 1990 && y < 2100) buckets[y] = (buckets[y] || 0) + 1; });
+            const yrs = Object.keys(buckets).map(Number).sort((a, b) => a - b);
+            if (yrs.length < 2) return null;
+            const maxC = Math.max(...yrs.map((y) => buckets[y]), 1);
+            return (
+              <div className="border border-border rounded-xl overflow-hidden">
+                <div className="px-4 py-2.5 bg-muted/40 border-b border-border text-[12px] font-bold text-muted-foreground">Publication timeline</div>
+                <div className="p-4 flex items-end gap-1.5" style={{ height: 120 }}>
+                  {yrs.map((y) => (
+                    <div key={y} className="flex-1 flex flex-col items-center justify-end gap-1 min-w-0" title={y + ': ' + buckets[y] + ' paper' + (buckets[y] > 1 ? 's' : '')}>
+                      <span className="text-[9px] text-muted-foreground">{buckets[y]}</span>
+                      <div className="w-full rounded-t bg-primary/70" style={{ height: Math.max(Math.round((buckets[y] / maxC) * 78), 4) }} />
+                      <span className="text-[8.5px] text-muted-foreground">{String(y).slice(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })() : null}
           {synthesis ? (
             <div className="prose prose-sm dark:prose-invert max-w-none text-[14px] leading-relaxed [&_h2]:text-[15px] [&_h2]:font-bold [&_h2]:text-foreground [&_h2]:mt-4 [&_h2]:mb-1.5 [&_h2]:pb-1 [&_h2]:border-b [&_h2]:border-border [&_ul]:my-1.5 [&_li]:my-0.5">
               <div className="text-[12px] font-bold text-muted-foreground uppercase tracking-wide mb-1 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" /> {deepSteps.length > 0 ? 'Deep research report' : 'Synthesis'}</div>
@@ -2838,12 +2868,12 @@ export function LiteratureReviewView({ messages, onHome }: any) {
               {!busy ? <p className="text-[12px] text-muted-foreground mt-1">Ask a research question to build your review table.</p> : null}
             </div>
           ) : (
-            <table className="w-full border-collapse text-[13px]">
+            <table className="w-full table-fixed border-collapse text-[13px]">
               <thead className="sticky top-0 bg-card z-10">
                 <tr className="border-b border-border text-left text-muted-foreground">
-                  <th className="p-3 w-8"><input type="checkbox" checked={rows.length > 0 && rows.every((p) => selRows[p.id])} onChange={(e) => { const v = e.target.checked; setSelRows(() => { const o: any = {}; if (v) rows.forEach((p) => { o[p.id] = true; }); return o; }); }} /></th>
-                  <th className="p-3 font-semibold w-[40%]">Source ({rows.length})</th>
-                  <th className="p-3 font-semibold w-[38%]">Summary</th>
+                  <th className="pl-3 pr-1 py-3 w-8"><input type="checkbox" checked={rows.length > 0 && rows.every((p) => selRows[p.id])} onChange={(e) => { const v = e.target.checked; setSelRows(() => { const o: any = {}; if (v) rows.forEach((p) => { o[p.id] = true; }); return o; }); }} /></th>
+                  <th className="pl-1 pr-3 py-3 font-semibold w-[48%]">Source ({rows.length})</th>
+                  <th className="p-3 font-semibold w-[46%]">Summary</th>
                   {columns.map((c) => (
                     <th key={c.id} className="p-3 font-semibold min-w-[160px]">
                       <div className="flex items-center gap-1 justify-between"><span className="truncate">{c.name}</span><button onClick={() => removeColumn(c.id)} className="text-muted-foreground hover:text-red-400 shrink-0"><X className="w-3.5 h-3.5" /></button></div>
@@ -2854,8 +2884,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
               <tbody>
                 {rows.map((p) => (
                   <tr key={p.id} className="border-b border-border align-top hover:bg-muted/30">
-                    <td className="p-3"><input type="checkbox" checked={!!selRows[p.id]} onChange={() => setSelRows((prev: any) => ({ ...prev, [p.id]: !prev[p.id] }))} /></td>
-                    <td className="p-3">
+                    <td className="pl-3 pr-1 py-3 align-top"><input type="checkbox" checked={!!selRows[p.id]} onChange={() => setSelRows((prev: any) => ({ ...prev, [p.id]: !prev[p.id] }))} /></td>
+                    <td className="pl-1 pr-3 py-3">
                       <div className="font-semibold text-foreground leading-snug mb-1">{p.title}</div>
                       <div className="text-[12px] text-muted-foreground">{p.authorStr}</div>
                       <div className="text-[12px] text-muted-foreground mt-0.5">{[p.venue, p.year, p.cited + ' citations'].filter(Boolean).join(' - ')}</div>

@@ -689,7 +689,22 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
     } catch { return []; }
   };
 
-  // Query CrossRef + OpenAlex + Europe PMC together; pick the best year/author/topic match
+  // ClinicalTrials.gov candidates (registered studies) for citation matching.
+  const clinicalTrialsCands = async (q: string) => {
+    try {
+      const r = await fetch('https://clinicaltrials.gov/api/v2/studies?query.term=' + encodeURIComponent(q) + '&pageSize=5&format=json');
+      const j = await r.json();
+      return ((j && j.studies) || []).map((s: any) => {
+        const p = s.protocolSection || {}; const idm = p.identificationModule || {}; const sm = p.statusModule || {};
+        const sponsor = (p.sponsorCollaboratorsModule && p.sponsorCollaboratorsModule.leadSponsor && p.sponsorCollaboratorsModule.leadSponsor.name) || '';
+        const nct = idm.nctId || '';
+        const ym = String((sm.startDateStruct && sm.startDateStruct.date) || '').match(/\d{4}/);
+        return normCand({ doi: '', title: idm.briefTitle || idm.officialTitle || '', authorsList: sponsor ? [{ given: '', family: sponsor }] : [], year: ym ? ym[0] : '', container: 'ClinicalTrials.gov', citedBy: null, abstract: (p.descriptionModule && p.descriptionModule.briefSummary) || '', url: nct ? 'https://clinicaltrials.gov/study/' + nct : '', type: 'clinical trial', isOA: true, source: 'ClinicalTrials.gov' });
+      }).filter((x: any) => x.title);
+    } catch { return []; }
+  };
+
+  // Query CrossRef + OpenAlex + Europe PMC + ClinicalTrials together; pick the best match
   const multiSourceLookup = async (segment: string, context?: string) => {
     const { author, surname, year } = parseCitationSegment(segment);
     const ctx = (context || '').replace(/\([^()]*\)/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 280);
@@ -704,6 +719,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
       openalexCands(q, year),
       europepmcCands(q),
       semanticScholarCands(q, year),
+      clinicalTrialsCands(q),
     ]);
     let cands: any[] = [];
     settled.forEach(r => { if (r.status === 'fulfilled') cands = cands.concat(r.value); });
@@ -3588,6 +3604,20 @@ Text to review: "${editor?.getText() || documentContent}"`, {
     ));
   };
 
+  // Turn the user's topic into a polished, professional academic title via AI.
+  const generateProTitle = async (topic: string) => {
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/chat`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: 'Rewrite this topic as ONE polished, professional academic paper title in title case (specific and formal, max 16 words, no subtitle unless natural, no quotes, no trailing period):\n\n' + topic, agent_type: 'review', use_rag: false, persona: 'DOCUMENT ANALYST' }),
+      });
+      const reader = res.body?.getReader(); const dec = new TextDecoder();
+      let buffer = '', out = '';
+      while (reader) { const { value, done } = await reader.read(); if (done) break; buffer += dec.decode(value, { stream: true }); const lines = buffer.split('\n'); buffer = lines.pop() || ''; for (const line of lines) { if (line.startsWith('data: ')) { const d = line.slice(6); if (d === '[DONE]') continue; try { const j = JSON.parse(d); if (j.type === 'token') out += j.content; } catch {} } } }
+      let t = (out || '').trim().replace(/^["'#*\s]+/, '').replace(/["'.\s]+$/, '').split('\n')[0].trim();
+      if (t && t.length > 3) setChatHistory(prev => prev.map(c => c.id === activeChatId ? { ...c, title: t.slice(0, 200) } : c));
+    } catch { /* keep fallback title */ }
+  };
   const onStartWriting = () => {
     setIsEditing(true);
 
@@ -3604,6 +3634,8 @@ Text to review: "${editor?.getText() || documentContent}"`, {
       auto = auto.charAt(0).toUpperCase() + auto.slice(1);
       auto = auto.slice(0, 250) || 'Untitled';
       setChatHistory(prev => prev.map(c => (c.id === activeChatId ? { ...c, title: auto } : c)));
+      // Upgrade the placeholder to an AI-generated professional title.
+      generateProTitle(promptInput.trim());
     }
 
     // Paragraph-by-paragraph mode: build the heading skeleton, then fill sections in place.
