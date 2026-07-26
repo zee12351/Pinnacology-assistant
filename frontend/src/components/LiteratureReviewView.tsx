@@ -615,6 +615,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [deepMode, setDeepMode] = useState(false);
   const [deepActive, setDeepActive] = useState(false);
   const [deepSteps, setDeepSteps] = useState<any[]>([]);
+  const [deepStepsExpanded, setDeepStepsExpanded] = useState(false);
   const [deepStats, setDeepStats] = useState({ retrieved: 0, eligible: 0, included: 0 });
   const [searchTerms, setSearchTerms] = useState([] as string[]);
   const [columns, setColumns] = useState([] as any[]);
@@ -847,7 +848,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   }
   function resetSearch() {
     setQuestion(''); setPapers([]); setSynthesis(''); setGaps(''); setColumns([]); setSearchTerms([]); setInput(''); setFollowups([]); setChatThread([]); setChatInput(''); lastQRef.current = '';
-    setDeepActive(false); setDeepSteps([]); setDeepStats({ retrieved: 0, eligible: 0, included: 0 });
+    setDeepActive(false); setDeepSteps([]); setDeepStepsExpanded(false); setDeepStats({ retrieved: 0, eligible: 0, included: 0 });
     setChatStarted(false); setPaperChat([]); setChatSources([]); setSrcSel({});
     setReport(null); setReportInput(''); setDetailsOpen(false); setReportChat([]);
     setSysStep(0); setSysQ(''); setSysPapers([]); setSysCols([]);
@@ -1155,7 +1156,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setBusy(true); setPhase('Running deep research…');
     setPapers([]); setSynthesis(''); setGaps(''); setGapsBusy(false); setColumns([]); setFollowups([]); setChatThread([]);
     setSearchTerms([q]);
-    setDeepActive(true); setDeepSteps([]); setDeepStats({ retrieved: 0, eligible: 0, included: 0 });
+    setDeepActive(true); setDeepSteps([]); setDeepStepsExpanded(false); setDeepStats({ retrieved: 0, eligible: 0, included: 0 });
     let pool: any[] = [];
     let retrievedTotal = 0;
     try {
@@ -1206,7 +1207,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       const jsonShape = '{"summaries": ["one 1-2 sentence answer per paper in order, specific to the question"], "report": "a full multi-section Markdown report", "followups": ["2-3 short next-step suggestions"]}';
       const prompt = 'You are a deep-research literature analyst (like Consensus Deep). Research question: "' + q + '".\n\n'
         + 'A deep search retrieved ' + fmtCount(retrievedTotal) + ' candidate records across ' + nSearches + ' searches plus a citation-graph expansion, screened to ' + uniq.length + ' eligible papers, and included the top ' + included.length + '.\n\n'
-        + 'Write a comprehensive report in Markdown using these exact "## " sections, grounded in the papers with inline (Author, Year) citations:\n'
+        + 'Write a comprehensive report in Markdown. START with a 2-3 sentence TL;DR summary paragraph that directly answers the question (bold the key terms with **), BEFORE any heading. Then use these exact "## " sections, grounded in the papers with inline (Author, Year) citations:\n'
         + '## Introduction\n(2-3 sentences framing the question and why it matters)\n'
         + '## Search Strategy\n(1-2 sentences: describe the multi-query strategy and that ' + fmtCount(retrievedTotal) + ' records were screened to ' + included.length + ' included papers)\n'
         + '## Key Findings\n(4-6 sentences synthesising what the literature shows, with citations)\n'
@@ -2577,13 +2578,16 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                 ))}
               </div>
               <div style={{ maxHeight: 260, overflowY: 'auto' }} className="p-2 flex flex-col">
-                {deepSteps.map((st, i) => (
+                {(deepActive || deepStepsExpanded ? deepSteps : deepSteps.slice(0, 4)).map((st, i) => (
                   <div key={i} className="flex items-center gap-2 px-2 py-1.5 text-[12.5px]">
                     {st.status === 'searching' ? <Loader2 className="w-3.5 h-3.5 animate-spin text-primary shrink-0" /> : (st.plain ? <Check className="w-3.5 h-3.5 text-green-500 shrink-0" /> : <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />)}
                     <span className="flex-1 truncate text-foreground/85">{st.label}</span>
                     {typeof st.count === 'number' ? <span className="text-[11px] font-semibold text-muted-foreground shrink-0">{fmtCount(st.count)}</span> : null}
                   </div>
                 ))}
+                {!deepActive && deepSteps.length > 4 ? (
+                  <button onClick={() => setDeepStepsExpanded(v => !v)} className="text-left px-2 py-1.5 text-[12px] font-semibold text-primary hover:underline">{deepStepsExpanded ? 'Show less' : '+' + (deepSteps.length - 4) + ' more steps'}</button>
+                ) : null}
               </div>
             </div>
           ) : null}
