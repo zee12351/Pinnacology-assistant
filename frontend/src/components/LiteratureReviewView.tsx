@@ -1201,38 +1201,44 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       setDeepStats((s) => ({ ...s, included: included.length }));
       addDeepStep({ label: 'Synthesising ' + included.length + ' papers…', status: 'searching', plain: true });
       setPapers(included);
-      // 5) Summarise each paper + generate a full multi-section deep-research report
-      const list = included.map((p: any, i: number) => '[' + i + '] ' + p.title + ' (' + (p.authorStr || 'Unknown') + ', ' + (p.year || 'n.d.') + '; cited ' + (p.cited || 0) + '). ABSTRACT: ' + (p.abstract || 'No abstract').slice(0, 600)).join('\n\n');
+      // 6) Generate the report + per-paper answers in TWO separate calls (never one giant
+      //    JSON — that was too large to parse and dumped raw text). Report = plain Markdown.
+      const list = included.map((p: any, i: number) => '[' + i + '] ' + p.title + ' (' + (p.authorStr || 'Unknown') + ', ' + (p.year || 'n.d.') + '; cited ' + (p.cited || 0) + '). ABSTRACT: ' + (p.abstract || 'No abstract').slice(0, 500)).join('\n\n');
       const nSearches = subs.length + 1;
-      const jsonShape = '{"summaries": ["one 1-2 sentence answer per paper in order, specific to the question"], "report": "a full multi-section Markdown report", "followups": ["2-3 short next-step suggestions"]}';
-      const prompt = 'You are a deep-research literature analyst (like Consensus Deep). Research question: "' + q + '".\n\n'
-        + 'A deep search retrieved ' + fmtCount(retrievedTotal) + ' candidate records across ' + nSearches + ' searches plus a citation-graph expansion, screened to ' + uniq.length + ' eligible papers, and included the top ' + included.length + '.\n\n'
-        + 'Write a comprehensive, publication-grade report in Markdown. Do NOT use markdown tables (use bold labels + bullet lists instead). START with a 2-3 sentence TL;DR that directly answers the question (bold key terms with **), then a line "**Verdict:** <Yes/Mixed/Uncertain> — <one clause>", BEFORE any heading. Then use these exact "## " sections, grounded in the papers with inline (Author, Year) citations:\n'
+      // 6a) Full report as PLAIN Markdown (renders reliably)
+      const reportPrompt = 'You are a deep-research literature analyst (like Consensus Deep). Research question: "' + q + '".\n\n'
+        + 'A deep search screened ' + fmtCount(retrievedTotal) + ' records across ' + nSearches + ' searches plus a citation-graph expansion, filtered to ' + uniq.length + ' eligible papers, and included the top ' + included.length + '.\n\n'
+        + 'Write a comprehensive, publication-grade report. Output ONLY GitHub-flavored Markdown (NO JSON, NO code fences, NO markdown tables — use bold labels and bullet lists instead). Ground every claim in the papers below with inline (Author, Year) citations.\n\n'
+        + 'START with a 2-3 sentence TL;DR that directly answers the question (bold key terms), then a line "**Verdict:** <Yes/Mixed/Uncertain> — <one clause>". Then these exact "## " sections:\n'
         + '## Introduction\n(2-3 sentences framing the question and the central debate)\n'
-        + '## Methods\n(2-3 sentences: this deep search screened ' + fmtCount(retrievedTotal) + ' records across ' + nSearches + ' searches plus a citation-graph expansion, filtered to ' + uniq.length + ' eligible papers after deduplication, and included the top ' + included.length + '; note the evidence groups covered)\n'
-        + '## Key Findings\n(5-7 sentences synthesising what the literature shows, with citations)\n'
-        + '## Themes\n(3-5 bullets grouping the papers into themes, each citing papers)\n'
-        + '## Head-to-head comparison\n(3-5 bullets comparing the main approaches/interventions/protocols, each: "**Dimension** — finding (Author, Year)")\n'
+        + '## Methods\n(2-3 sentences describing the deep multi-query search: ' + fmtCount(retrievedTotal) + ' records screened across ' + nSearches + ' searches + a citation-graph expansion, ' + uniq.length + ' eligible after deduplication, top ' + included.length + ' included; note the evidence groups covered)\n'
+        + '## Key Findings\n(5-7 sentences synthesising what the literature shows)\n'
+        + '## Themes\n(3-5 bullets grouping the papers into themes)\n'
+        + '## Head-to-head comparison\n(3-5 bullets: "**Dimension** — finding (Author, Year)")\n'
         + '## Key Papers\n(5-6 bullets: "**Title** (Author, Year) — one-line contribution")\n'
         + '## Evidence strength\n(4-5 bullets: "**Claim** — *Strength: Strong/Moderate/Weak* — reasoning (Author, Year)")\n'
-        + '## Research Gaps\n(3-4 bullets: what remains unresolved, contested, or under-studied)\n'
+        + '## Research Gaps\n(3-4 bullets: what remains unresolved or under-studied)\n'
         + '## Open Research Questions\n(3 bullets: "**Question?** — why it matters")\n'
-        + '## Conclusion\n(2-3 sentences: the bottom line and where the field is heading)\n\n'
-        + 'Also give a 1-2 sentence answer per paper (in order) for the "summaries" array. Be specific; cite as (Author, Year). Return ONLY valid JSON: ' + jsonShape + '\n\nPapers:\n' + list;
+        + '## Conclusion\n(2-3 sentences)\n\nPapers:\n' + list;
       try {
-        const rawText = await callChat(prompt, false, 'LITERATURE REVIEW');
-        const parsed = extractJSON(rawText);
-        if (parsed && Array.isArray(parsed.summaries)) {
-          setPapers((prev) => prev.map((p, i) => ({ ...p, summary: parsed.summaries[i] || (p.abstract || '').slice(0, 220) })));
-          setSynthesis(parsed.report || parsed.synthesis || '');
-          setFollowups(Array.isArray(parsed.followups) ? parsed.followups.slice(0, 3) : []);
-        } else {
-          setPapers((prev) => prev.map((p) => ({ ...p, summary: p.abstract ? p.abstract.slice(0, 240) + '...' : 'No abstract available.' })));
-          setSynthesis(rawText || '');
-        }
-      } catch {
-        setPapers((prev) => prev.map((p) => ({ ...p, summary: p.abstract ? p.abstract.slice(0, 240) + '...' : '' })));
-      }
+        let reportText = await callChat(reportPrompt, false, 'LITERATURE REVIEW');
+        reportText = (reportText || '').replace(/^```(?:markdown)?\s*/i, '').replace(/```\s*$/i, '').trim();
+        setSynthesis(reportText);
+      } catch { setSynthesis(''); }
+      // 6b) Per-paper answers as a small JSON array (reliable)
+      try {
+        const sumPrompt = 'For EACH of the following ' + included.length + ' papers, write a 1-2 sentence answer to the question "' + q + '", specific to that paper with numbers if present. Return ONLY a JSON array of exactly ' + included.length + ' strings in the SAME order.\n\nPapers:\n' + list;
+        const sumRaw = await callChat(sumPrompt, false, 'LITERATURE REVIEW');
+        const arr = extractJSON(sumRaw);
+        if (Array.isArray(arr) && arr.length) setPapers((prev) => prev.map((p, i) => ({ ...p, summary: (typeof arr[i] === 'string' ? arr[i] : '') || (p.abstract || '').slice(0, 220) })));
+        else setPapers((prev) => prev.map((p) => ({ ...p, summary: p.abstract ? p.abstract.slice(0, 240) + '...' : 'No abstract available.' })));
+      } catch { setPapers((prev) => prev.map((p) => ({ ...p, summary: p.abstract ? p.abstract.slice(0, 240) + '...' : '' }))); }
+      // 6c) Follow-ups
+      try {
+        const fuRaw = await callChat('Suggest 3 short next-step research questions to fill gaps around "' + q + '". Return ONLY a JSON array of 3 short strings.', false, 'LITERATURE REVIEW');
+        const fu = extractJSON(fuRaw);
+        if (Array.isArray(fu)) setFollowups(fu.filter((x: any) => typeof x === 'string').slice(0, 3));
+      } catch {}
       patchLastDeepStep({ status: 'done', plain: true, label: 'Included ' + included.length + ' papers' });
     } catch { /* ignore */ }
     finally { setBusy(false); setPhase(''); setDeepActive(false); }
