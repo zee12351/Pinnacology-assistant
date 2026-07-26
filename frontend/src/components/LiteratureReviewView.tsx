@@ -616,7 +616,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [deepActive, setDeepActive] = useState(false);
   const [deepSteps, setDeepSteps] = useState<any[]>([]);
   const [deepStepsExpanded, setDeepStepsExpanded] = useState(false);
-  const [deepStats, setDeepStats] = useState({ retrieved: 0, eligible: 0, included: 0 });
+  const [deepStats, setDeepStats] = useState({ retrieved: 0, eligible: 0, included: 0, searches: 0 });
+  const [deepTables, setDeepTables] = useState<any>(null);
   const [searchTerms, setSearchTerms] = useState([] as string[]);
   const [columns, setColumns] = useState([] as any[]);
   const [filter, setFilter] = useState('');
@@ -848,7 +849,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   }
   function resetSearch() {
     setQuestion(''); setPapers([]); setSynthesis(''); setGaps(''); setColumns([]); setSearchTerms([]); setInput(''); setFollowups([]); setChatThread([]); setChatInput(''); lastQRef.current = '';
-    setDeepActive(false); setDeepSteps([]); setDeepStepsExpanded(false); setDeepStats({ retrieved: 0, eligible: 0, included: 0 });
+    setDeepActive(false); setDeepSteps([]); setDeepStepsExpanded(false); setDeepStats({ retrieved: 0, eligible: 0, included: 0, searches: 0 }); setDeepTables(null);
     setChatStarted(false); setPaperChat([]); setChatSources([]); setSrcSel({});
     setReport(null); setReportInput(''); setDetailsOpen(false); setReportChat([]);
     setSysStep(0); setSysQ(''); setSysPapers([]); setSysCols([]);
@@ -1156,7 +1157,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setBusy(true); setPhase('Running deep research…');
     setPapers([]); setSynthesis(''); setGaps(''); setGapsBusy(false); setColumns([]); setFollowups([]); setChatThread([]);
     setSearchTerms([q]);
-    setDeepActive(true); setDeepSteps([]); setDeepStepsExpanded(false); setDeepStats({ retrieved: 0, eligible: 0, included: 0 });
+    setDeepActive(true); setDeepSteps([]); setDeepStepsExpanded(false); setDeepStats({ retrieved: 0, eligible: 0, included: 0, searches: 0 }); setDeepTables(null);
     let pool: any[] = [];
     let retrievedTotal = 0;
     try {
@@ -1198,7 +1199,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       setDeepStats((s) => ({ ...s, eligible: uniq.length }));
       uniq.sort((a, b) => (b.cited || 0) - (a.cited || 0));
       const included = uniq.slice(0, 50).map((p: any, i: number) => ({ ...p, idx: i, rel: 100000 - i }));
-      setDeepStats((s) => ({ ...s, included: included.length }));
+      setDeepStats((s) => ({ ...s, included: included.length, searches: subs.length + 1 }));
       addDeepStep({ label: 'Synthesising ' + included.length + ' papers…', status: 'searching', plain: true });
       setPapers(included);
       // 6) Generate the report + per-paper answers in TWO separate calls (never one giant
@@ -1238,6 +1239,12 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         const fuRaw = await callChat('Suggest 3 short next-step research questions to fill gaps around "' + q + '". Return ONLY a JSON array of 3 short strings.', false, 'LITERATURE REVIEW');
         const fu = extractJSON(fuRaw);
         if (Array.isArray(fu)) setFollowups(fu.filter((x: any) => typeof x === 'string').slice(0, 3));
+      } catch {}
+      // 6d) Structured visual tables (comparison, evidence strength, coverage-gap matrix)
+      try {
+        const tRaw = await callChat('Based ONLY on these papers about "' + q + '", return ONLY JSON (concise cell text, 4-5 rows each) with this exact shape: {"comparison":{"headerA":"<short label>","headerB":"<short label>","rows":[{"dimension":"...","a":"...","b":"..."}]},"evidence":[{"claim":"...","strength":"Strong","reasoning":"..."}],"gaps":{"columns":["<short>","<short>","<short>"],"rows":[{"topic":"...","values":[3,6,2]}]}}. strength must be exactly one of Strong, Moderate, Weak. values are small integers.\n\nPapers:\n' + list, false, 'LITERATURE REVIEW');
+        const t = extractJSON(tRaw);
+        if (t && (t.comparison || Array.isArray(t.evidence) || t.gaps)) setDeepTables(t);
       } catch {}
       patchLastDeepStep({ status: 'done', plain: true, label: 'Included ' + included.length + ' papers' });
     } catch { /* ignore */ }
@@ -2578,13 +2585,28 @@ export function LiteratureReviewView({ messages, onHome }: any) {
           {deepSteps.length > 0 ? (
             <div className="border border-border rounded-xl overflow-hidden">
               <div className="px-4 py-2.5 bg-muted/40 border-b border-border flex items-center gap-2 text-[12px] font-bold text-muted-foreground"><Sparkles className="w-3.5 h-3.5 text-primary" /> Deep research {deepActive ? '· running…' : '· complete'}</div>
-              <div className="grid grid-cols-3 divide-x divide-border border-b border-border">
-                {[['Retrieved', deepStats.retrieved], ['Eligible', deepStats.eligible], ['Included', deepStats.included]].map(([lbl, val]) => (
-                  <div key={lbl as string} className="px-3 py-2 text-center">
-                    <div className="text-[15px] font-bold text-foreground">{(val as number) ? fmtCount(val as number) : (deepActive ? '…' : '0')}</div>
-                    <div className="text-[10.5px] text-muted-foreground uppercase tracking-wide">{lbl}</div>
+              <div className="p-3 border-b border-border">
+                <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-2">Search Strategy</div>
+                <div className="flex items-stretch gap-1.5">
+                  <div className="flex-1 bg-muted/50 rounded-lg px-3 py-2.5 min-w-0">
+                    <div className="text-[17px] font-bold text-foreground leading-none">{deepStats.retrieved ? fmtCount(deepStats.retrieved) : (deepActive ? '…' : '0')}</div>
+                    <div className="text-[10.5px] text-muted-foreground uppercase tracking-wide mt-1">Retrieved</div>
                   </div>
-                ))}
+                  <div className="flex items-center shrink-0"><ArrowRight className="w-4 h-4 text-muted-foreground" /></div>
+                  <div className="flex-1 bg-muted/50 rounded-lg px-3 py-2.5 min-w-0">
+                    <div className="text-[17px] font-bold text-foreground leading-none">{deepStats.eligible ? fmtCount(deepStats.eligible) : (deepActive ? '…' : '0')}</div>
+                    <div className="text-[10.5px] text-muted-foreground uppercase tracking-wide mt-1">Eligible</div>
+                  </div>
+                  <div className="flex items-center shrink-0"><ArrowRight className="w-4 h-4 text-muted-foreground" /></div>
+                  <div className="flex-1 bg-muted/50 rounded-lg px-3 py-2.5 min-w-0">
+                    <div className="text-[17px] font-bold text-foreground leading-none">{deepStats.included ? deepStats.included : (deepActive ? '…' : '0')}</div>
+                    <div className="text-[10.5px] text-muted-foreground uppercase tracking-wide mt-1">Included</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 mt-2 text-[11px] text-muted-foreground">
+                  <span className="flex items-center gap-1"><Search className="w-3 h-3" /> {deepStats.searches || (deepActive ? '…' : 0)} searches</span>
+                  <span className="flex items-center gap-1"><Sparkles className="w-3 h-3" /> 1 citation graph use</span>
+                </div>
               </div>
               <div style={{ maxHeight: 260, overflowY: 'auto' }} className="p-2 flex flex-col">
                 {(deepActive || deepStepsExpanded ? deepSteps : deepSteps.slice(0, 4)).map((st, i) => (
@@ -2601,9 +2623,60 @@ export function LiteratureReviewView({ messages, onHome }: any) {
             </div>
           ) : null}
           {synthesis ? (
-            <div className="prose prose-sm dark:prose-invert max-w-none text-[14px] leading-relaxed">
+            <div className="prose prose-sm dark:prose-invert max-w-none text-[14px] leading-relaxed [&_h2]:text-[15px] [&_h2]:font-bold [&_h2]:text-foreground [&_h2]:mt-4 [&_h2]:mb-1.5 [&_h2]:pb-1 [&_h2]:border-b [&_h2]:border-border [&_ul]:my-1.5 [&_li]:my-0.5">
               <div className="text-[12px] font-bold text-muted-foreground uppercase tracking-wide mb-1 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" /> {deepSteps.length > 0 ? 'Deep research report' : 'Synthesis'}</div>
               <ReactMarkdown>{synthesis}</ReactMarkdown>
+            </div>
+          ) : null}
+          {deepTables && Array.isArray(deepTables.evidence) && deepTables.evidence.length ? (
+            <div className="border border-border rounded-xl overflow-hidden">
+              <div className="px-4 py-2.5 bg-muted/40 border-b border-border text-[12px] font-bold text-muted-foreground">Evidence strength</div>
+              {deepTables.evidence.slice(0, 6).map((e: any, i: number) => {
+                const st = String(e.strength || '').toLowerCase();
+                const n = st.startsWith('strong') ? 8 : st.startsWith('mod') ? 5 : 3;
+                const col = st.startsWith('strong') ? 'bg-green-500' : st.startsWith('mod') ? 'bg-amber-400' : 'bg-muted-foreground/50';
+                return (
+                  <div key={i} className="px-4 py-3 border-b border-border last:border-0 grid grid-cols-[1.3fr_auto_1.4fr] gap-3 items-start">
+                    <div className="text-[12.5px] font-semibold text-foreground leading-snug">{e.claim}</div>
+                    <div className="flex flex-col gap-1"><div className="flex gap-0.5">{Array.from({ length: 9 }).map((_, k) => <span key={k} className={'w-2 h-3 rounded-sm ' + (k < n ? col : 'bg-muted')} />)}</div><span className="text-[10.5px] text-muted-foreground">{e.strength}</span></div>
+                    <div className="text-[11.5px] text-muted-foreground leading-snug">{e.reasoning}</div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+          {deepTables && deepTables.comparison && Array.isArray(deepTables.comparison.rows) && deepTables.comparison.rows.length ? (
+            <div className="border border-border rounded-xl overflow-hidden">
+              <div className="px-4 py-2.5 bg-muted/40 border-b border-border grid grid-cols-3 gap-2 text-[11px] font-bold text-muted-foreground uppercase tracking-wide"><span>Dimension</span><span>{deepTables.comparison.headerA || 'A'}</span><span>{deepTables.comparison.headerB || 'B'}</span></div>
+              {deepTables.comparison.rows.slice(0, 6).map((r: any, i: number) => (
+                <div key={i} className="px-4 py-2.5 border-b border-border last:border-0 grid grid-cols-3 gap-2 text-[12.5px]">
+                  <span className="font-semibold text-foreground">{r.dimension}</span>
+                  <span className="text-muted-foreground">{r.a}</span>
+                  <span className="text-muted-foreground">{r.b}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {deepTables && deepTables.gaps && Array.isArray(deepTables.gaps.rows) && deepTables.gaps.rows.length ? (
+            <div className="border border-border rounded-xl overflow-hidden">
+              <div className="px-4 py-2.5 bg-muted/40 border-b border-border text-[12px] font-bold text-muted-foreground">Research coverage gaps</div>
+              <div className="p-3 overflow-x-auto">
+                <div className="min-w-[320px]">
+                  <div className="grid gap-1 mb-1" style={{ gridTemplateColumns: '1.4fr repeat(' + (deepTables.gaps.columns || []).length + ', 1fr)' }}>
+                    <span className="text-[10.5px] font-bold text-muted-foreground uppercase">Topic</span>
+                    {(deepTables.gaps.columns || []).map((c: string, i: number) => <span key={i} className="text-[10.5px] font-bold text-muted-foreground text-center uppercase leading-tight">{c}</span>)}
+                  </div>
+                  {deepTables.gaps.rows.slice(0, 6).map((r: any, i: number) => (
+                    <div key={i} className="grid gap-1 mb-1 items-center" style={{ gridTemplateColumns: '1.4fr repeat(' + (r.values || []).length + ', 1fr)' }}>
+                      <span className="text-[12px] text-foreground leading-tight">{r.topic}</span>
+                      {(r.values || []).map((v: number, k: number) => {
+                        const alpha = Math.min(0.15 + (Number(v) || 0) / 12, 0.9);
+                        return <span key={k} className="text-[12px] font-bold text-white text-center rounded py-2" style={{ backgroundColor: 'rgba(37,99,235,' + alpha + ')' }}>{v}</span>;
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           ) : null}
           {papers.length > 0 ? (
