@@ -330,9 +330,17 @@ function fmtCount(n: number): string {
   if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
   return String(n);
 }
+const _COUNT_STOP = new Set(['the', 'and', 'for', 'with', 'from', 'into', 'their', 'that', 'this', 'are', 'was', 'were', 'of', 'in', 'on', 'to', 'a', 'an', 'how', 'does', 'do', 'what', 'which', 'across', 'over', 'using', 'via', 'between', 'within', 'toward', 'towards']);
+// Broaden a query to its 2 most informative keywords so the corpus match-count
+// reflects the whole research area (millions), like Consensus's per-search counts.
+function broadenForCount(q: string): string {
+  const words = String(q || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter((w) => w.length > 3 && !_COUNT_STOP.has(w));
+  const top = Array.from(new Set(words)).sort((a, b) => b.length - a.length).slice(0, 2);
+  return top.join(' ') || (q || '');
+}
 async function openAlexCount(q: string): Promise<number> {
   try {
-    const r = await fetch('https://api.openalex.org/works?per-page=1&search=' + encodeURIComponent(q) + '&mailto=info@pinnovix.app');
+    const r = await fetch('https://api.openalex.org/works?per-page=1&search=' + encodeURIComponent(broadenForCount(q)) + '&mailto=info@pinnovix.app');
     const j = await r.json();
     return (j && j.meta && j.meta.count) || 0;
   } catch { return 0; }
@@ -1171,7 +1179,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     try {
       // 1) Initial search (fetch papers + total corpus match count)
       addDeepStep({ label: q, status: 'searching' });
-      const [initial, initCount] = await Promise.all([searchPapers(q, paperSource, 30), openAlexCount(q)]);
+      const [initial, initCount] = await Promise.all([searchPapers(q, paperSource, 45), openAlexCount(q)]);
       pool = pool.concat(initial);
       retrievedTotal += initCount;
       patchLastDeepStep({ status: 'done', count: initCount });
@@ -1183,19 +1191,19 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       addDeepStep({ label: 'Planning sub-topics to search…', status: 'searching', plain: true });
       let subs: string[] = [];
       try {
-        const raw = await callChat('Break the research topic "' + q + '" into exactly 10 specific sub-topic search queries that TOGETHER give comprehensive coverage (foundations, mechanisms, methods, datasets, applications, recent advances 2024-2026, benchmarks, limitations, ethics/governance, future directions). Return ONLY a JSON array of 10 short query strings.', false, 'LITERATURE REVIEW');
+        const raw = await callChat('Break the research topic "' + q + '" into exactly 12 specific sub-topic search queries that TOGETHER give comprehensive coverage (foundations, mechanisms, methods, datasets, applications, recent advances 2024-2026, benchmarks, comparisons, populations, limitations, ethics/governance, future directions). Return ONLY a JSON array of 12 short query strings.', false, 'LITERATURE REVIEW');
         const parsed = extractJSON(raw);
         if (Array.isArray(parsed)) subs = parsed.filter((x: any) => typeof x === 'string');
         else if (parsed && Array.isArray(parsed.queries)) subs = parsed.queries.filter((x: any) => typeof x === 'string');
       } catch {}
-      if (!subs.length) subs = [q + ' foundations', q + ' methods', q + ' datasets', q + ' applications', q + ' recent advances', q + ' benchmarks', q + ' limitations', q + ' ethics governance', q + ' future directions', q + ' review'];
-      subs = subs.slice(0, 10);
+      if (!subs.length) subs = [q + ' foundations', q + ' mechanisms', q + ' methods', q + ' datasets', q + ' applications', q + ' recent advances', q + ' benchmarks', q + ' comparisons', q + ' populations', q + ' limitations', q + ' ethics governance', q + ' future directions'];
+      subs = subs.slice(0, 12);
       patchLastDeepStep({ status: 'done', plain: true, label: 'Planned ' + subs.length + ' sub-topics' });
       // 4) Search each sub-topic live (papers + corpus match count)
       for (const sub of subs) {
         addDeepStep({ label: sub, status: 'searching' });
         let r: any[] = []; let c = 0;
-        try { [r, c] = await Promise.all([searchPapers(sub, paperSource, 25), openAlexCount(sub)]); } catch {}
+        try { [r, c] = await Promise.all([searchPapers(sub, paperSource, 40), openAlexCount(sub)]); } catch {}
         pool = pool.concat(r);
         retrievedTotal += c;
         patchLastDeepStep({ status: 'done', count: c });
