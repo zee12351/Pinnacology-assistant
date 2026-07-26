@@ -1207,13 +1207,16 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       const jsonShape = '{"summaries": ["one 1-2 sentence answer per paper in order, specific to the question"], "report": "a full multi-section Markdown report", "followups": ["2-3 short next-step suggestions"]}';
       const prompt = 'You are a deep-research literature analyst (like Consensus Deep). Research question: "' + q + '".\n\n'
         + 'A deep search retrieved ' + fmtCount(retrievedTotal) + ' candidate records across ' + nSearches + ' searches plus a citation-graph expansion, screened to ' + uniq.length + ' eligible papers, and included the top ' + included.length + '.\n\n'
-        + 'Write a comprehensive report in Markdown. START with a 2-3 sentence TL;DR summary paragraph that directly answers the question (bold the key terms with **), BEFORE any heading. Then use these exact "## " sections, grounded in the papers with inline (Author, Year) citations:\n'
-        + '## Introduction\n(2-3 sentences framing the question and why it matters)\n'
-        + '## Search Strategy\n(1-2 sentences: describe the multi-query strategy and that ' + fmtCount(retrievedTotal) + ' records were screened to ' + included.length + ' included papers)\n'
-        + '## Key Findings\n(4-6 sentences synthesising what the literature shows, with citations)\n'
+        + 'Write a comprehensive, publication-grade report in Markdown. Do NOT use markdown tables (use bold labels + bullet lists instead). START with a 2-3 sentence TL;DR that directly answers the question (bold key terms with **), then a line "**Verdict:** <Yes/Mixed/Uncertain> — <one clause>", BEFORE any heading. Then use these exact "## " sections, grounded in the papers with inline (Author, Year) citations:\n'
+        + '## Introduction\n(2-3 sentences framing the question and the central debate)\n'
+        + '## Methods\n(2-3 sentences: this deep search screened ' + fmtCount(retrievedTotal) + ' records across ' + nSearches + ' searches plus a citation-graph expansion, filtered to ' + uniq.length + ' eligible papers after deduplication, and included the top ' + included.length + '; note the evidence groups covered)\n'
+        + '## Key Findings\n(5-7 sentences synthesising what the literature shows, with citations)\n'
         + '## Themes\n(3-5 bullets grouping the papers into themes, each citing papers)\n'
-        + '## Key Papers\n(list the 5-6 most important papers as bullets: "**Title** (Author, Year) — one-line contribution")\n'
-        + '## Research Gaps\n(3-4 bullets: what remains unresolved or contested)\n'
+        + '## Head-to-head comparison\n(3-5 bullets comparing the main approaches/interventions/protocols, each: "**Dimension** — finding (Author, Year)")\n'
+        + '## Key Papers\n(5-6 bullets: "**Title** (Author, Year) — one-line contribution")\n'
+        + '## Evidence strength\n(4-5 bullets: "**Claim** — *Strength: Strong/Moderate/Weak* — reasoning (Author, Year)")\n'
+        + '## Research Gaps\n(3-4 bullets: what remains unresolved, contested, or under-studied)\n'
+        + '## Open Research Questions\n(3 bullets: "**Question?** — why it matters")\n'
         + '## Conclusion\n(2-3 sentences: the bottom line and where the field is heading)\n\n'
         + 'Also give a 1-2 sentence answer per paper (in order) for the "summaries" array. Be specific; cite as (Author, Year). Return ONLY valid JSON: ' + jsonShape + '\n\nPapers:\n' + list;
       try {
@@ -2593,7 +2596,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
           ) : null}
           {synthesis ? (
             <div className="prose prose-sm dark:prose-invert max-w-none text-[14px] leading-relaxed">
-              <div className="text-[12px] font-bold text-muted-foreground uppercase tracking-wide mb-1 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" /> Synthesis</div>
+              <div className="text-[12px] font-bold text-muted-foreground uppercase tracking-wide mb-1 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" /> {deepSteps.length > 0 ? 'Deep research report' : 'Synthesis'}</div>
               <ReactMarkdown>{synthesis}</ReactMarkdown>
             </div>
           ) : null}
