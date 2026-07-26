@@ -1200,20 +1200,31 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       setDeepStats((s) => ({ ...s, included: included.length }));
       addDeepStep({ label: 'Synthesising ' + included.length + ' papers…', status: 'searching', plain: true });
       setPapers(included);
-      // 5) Summarise + synthesise
-      const list = included.map((p: any, i: number) => '[' + i + '] ' + p.title + '. ABSTRACT: ' + (p.abstract || 'No abstract').slice(0, 700)).join('\n\n');
-      const jsonShape = '{"summaries": ["one short summary per paper in order"], "synthesis": "4-6 sentence overall synthesis", "followups": ["2-3 short next-step suggestions"]}';
-      const prompt = 'You are a deep-research literature analyst. Research question: "' + q + '".\n\nBelow are ' + included.length + ' papers found via multi-query deep search. For EACH paper (in order) write a 1-2 sentence summary relevant to the question with specific numbers if present. Then write a 4-6 sentence synthesis across all papers. Finally propose 2-3 short next steps.\n\nReturn ONLY valid JSON: ' + jsonShape + '\n\nPapers:\n' + list;
+      // 5) Summarise each paper + generate a full multi-section deep-research report
+      const list = included.map((p: any, i: number) => '[' + i + '] ' + p.title + ' (' + (p.authorStr || 'Unknown') + ', ' + (p.year || 'n.d.') + '; cited ' + (p.cited || 0) + '). ABSTRACT: ' + (p.abstract || 'No abstract').slice(0, 600)).join('\n\n');
+      const nSearches = subs.length + 1;
+      const jsonShape = '{"summaries": ["one 1-2 sentence answer per paper in order, specific to the question"], "report": "a full multi-section Markdown report", "followups": ["2-3 short next-step suggestions"]}';
+      const prompt = 'You are a deep-research literature analyst (like Consensus Deep). Research question: "' + q + '".\n\n'
+        + 'A deep search retrieved ' + fmtCount(retrievedTotal) + ' candidate records across ' + nSearches + ' searches plus a citation-graph expansion, screened to ' + uniq.length + ' eligible papers, and included the top ' + included.length + '.\n\n'
+        + 'Write a comprehensive report in Markdown using these exact "## " sections, grounded in the papers with inline (Author, Year) citations:\n'
+        + '## Introduction\n(2-3 sentences framing the question and why it matters)\n'
+        + '## Search Strategy\n(1-2 sentences: describe the multi-query strategy and that ' + fmtCount(retrievedTotal) + ' records were screened to ' + included.length + ' included papers)\n'
+        + '## Key Findings\n(4-6 sentences synthesising what the literature shows, with citations)\n'
+        + '## Themes\n(3-5 bullets grouping the papers into themes, each citing papers)\n'
+        + '## Key Papers\n(list the 5-6 most important papers as bullets: "**Title** (Author, Year) — one-line contribution")\n'
+        + '## Research Gaps\n(3-4 bullets: what remains unresolved or contested)\n'
+        + '## Conclusion\n(2-3 sentences: the bottom line and where the field is heading)\n\n'
+        + 'Also give a 1-2 sentence answer per paper (in order) for the "summaries" array. Be specific; cite as (Author, Year). Return ONLY valid JSON: ' + jsonShape + '\n\nPapers:\n' + list;
       try {
         const rawText = await callChat(prompt, false, 'LITERATURE REVIEW');
         const parsed = extractJSON(rawText);
         if (parsed && Array.isArray(parsed.summaries)) {
           setPapers((prev) => prev.map((p, i) => ({ ...p, summary: parsed.summaries[i] || (p.abstract || '').slice(0, 220) })));
-          setSynthesis(parsed.synthesis || '');
+          setSynthesis(parsed.report || parsed.synthesis || '');
           setFollowups(Array.isArray(parsed.followups) ? parsed.followups.slice(0, 3) : []);
         } else {
           setPapers((prev) => prev.map((p) => ({ ...p, summary: p.abstract ? p.abstract.slice(0, 240) + '...' : 'No abstract available.' })));
-          setSynthesis(rawText && rawText.length < 1400 ? rawText : '');
+          setSynthesis(rawText || '');
         }
       } catch {
         setPapers((prev) => prev.map((p) => ({ ...p, summary: p.abstract ? p.abstract.slice(0, 240) + '...' : '' })));
