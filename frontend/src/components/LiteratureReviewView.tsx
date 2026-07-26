@@ -134,6 +134,7 @@ function mkPaper(w: any, i: number): any {
     url: w.doi || landing || w.id,
     oa: oa,
     fullText: pdf,
+    pdfUrl: (w.open_access && w.open_access.oa_url) || (w.primary_location && w.primary_location.pdf_url) || '',
     ftLabel: pdf ? 'Full text' : (oa ? 'PDF link available' : 'Abstract'),
     abstract: abstractFromIndex(w.abstract_inverted_index),
     summary: '',
@@ -354,7 +355,7 @@ async function openAlexCount(q: string, opts?: { broaden?: boolean; filter?: str
   const term = (opts && opts.broaden) ? broadenForCount(q) : String(q || '').trim();
   if (!term) return 0;
   const build = (t: string) => {
-    let u = 'https://api.openalex.org/works?per-page=1&search=' + encodeURIComponent(t) + '&mailto=support@pinnovix.app';
+    let u = 'https://api.openalex.org/works?per_page=1&search=' + encodeURIComponent(t) + '&mailto=support@pinnovix.app';
     if (opts && opts.filter) u += '&filter=' + opts.filter;
     return u;
   };
@@ -673,17 +674,17 @@ function MermaidDiagram({ code }: { code: string }) {
 function _esc(s: string): string { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function _inlineFmt(s: string): string {
   let h = _esc(s);
-  h = h.replace(/`([^`]+)`/g, '<code class="text-[10.5px] font-bold uppercase tracking-wide bg-muted text-foreground/70 rounded px-1.5 py-0.5 whitespace-nowrap">$1</code>');
+  h = h.replace(/`([^`]+)`/g, '<code class="text-[12px] font-bold uppercase tracking-wide bg-muted text-foreground/80 rounded px-1.5 py-0.5 whitespace-nowrap">$1</code>');
   h = h.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer" class="text-primary no-underline hover:underline">$1</a>');
   h = h.replace(/\*\*([^*]+)\*\*/g, '<strong class="text-foreground font-bold">$1</strong>');
   return h;
 }
 function RichTable({ header, rows }: { header: string[]; rows: string[][] }) {
   return (
-    <div className="border border-border rounded-xl overflow-x-auto not-prose my-2">
-      <table className="w-full text-[12.5px] border-collapse">
-        <thead><tr className="bg-muted/40">{header.map((h, i) => <th key={i} className="text-left font-bold text-muted-foreground uppercase tracking-wide text-[11px] px-3 py-2 border-b border-border" dangerouslySetInnerHTML={{ __html: _inlineFmt(h) }} />)}</tr></thead>
-        <tbody>{rows.map((r, ri) => <tr key={ri} className="border-b border-border last:border-0 align-top">{header.map((_h, ci) => <td key={ci} className="px-3 py-2 text-foreground/90 leading-snug" dangerouslySetInnerHTML={{ __html: _inlineFmt(r[ci] || '') }} />)}</tr>)}</tbody>
+    <div className="border border-border rounded-xl overflow-x-auto not-prose my-3">
+      <table className="w-full text-[13.5px] border-collapse">
+        <thead><tr className="bg-muted/40">{header.map((h, i) => <th key={i} className="text-left font-bold text-muted-foreground uppercase tracking-wide text-[12px] px-3.5 py-2.5 border-b border-border" dangerouslySetInnerHTML={{ __html: _inlineFmt(h) }} />)}</tr></thead>
+        <tbody>{rows.map((r, ri) => <tr key={ri} className="border-b border-border last:border-0 align-top">{header.map((_h, ci) => <td key={ci} className="px-3.5 py-2.5 text-foreground/90 leading-normal" dangerouslySetInnerHTML={{ __html: _inlineFmt(r[ci] || '') }} />)}</tr>)}</tbody>
       </table>
     </div>
   );
@@ -742,6 +743,43 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [deepStepsExpanded, setDeepStepsExpanded] = useState(false);
   const [deepStats, setDeepStats] = useState({ retrieved: 0, eligible: 0, included: 0, searches: 0 });
   const [deepTables, setDeepTables] = useState<any>(null);
+  // Citation hover popup card (like Persona 1) over Deep report citation chips.
+  const [citePop, setCitePop] = useState<{ paper: any; x: number; y: number } | null>(null);
+  const citeMapRef = useRef<Map<string, any>>(new Map());
+  const citeHideTimer = useRef<any>(null);
+  useEffect(() => {
+    const m = new Map<string, any>();
+    (papers || []).forEach((p: any) => {
+      const url = p.url || (p.doi ? 'https://doi.org/' + p.doi : '');
+      if (url) m.set(url, p);
+    });
+    citeMapRef.current = m;
+  }, [papers]);
+  const showCitePop = (a: HTMLAnchorElement) => {
+    const href = a.getAttribute('href') || '';
+    const p = citeMapRef.current.get(href);
+    if (!p) return;
+    if (citeHideTimer.current) { clearTimeout(citeHideTimer.current); citeHideTimer.current = null; }
+    const r = a.getBoundingClientRect();
+    const x = Math.min(Math.max(r.left, 12), (typeof window !== 'undefined' ? window.innerWidth : 1200) - 360);
+    setCitePop({ paper: p, x, y: r.bottom + 6 });
+  };
+  const scheduleHideCitePop = () => {
+    if (citeHideTimer.current) clearTimeout(citeHideTimer.current);
+    citeHideTimer.current = setTimeout(() => setCitePop(null), 220);
+  };
+  function addPaperToLibrary(p: any) {
+    if (!p) return;
+    const doc = { id: 'lib_' + Date.now(), name: p.title, kind: p.kind || 'paper', authorStr: p.authorStr, year: p.year, url: p.url, doi: p.doi, ts: Date.now(), collection: '', creationMethod: 'citation' };
+    setLibDocs((prev) => { const next = [doc, ...prev]; try { localStorage.setItem('pinnovix_library_docs', JSON.stringify(next)); } catch {} return next; });
+    setSaved(true); setTimeout(() => setSaved(false), 1500);
+  }
+  function chatAboutPaper(p: any) {
+    if (!p) return;
+    setChatSources((prev: any[]) => (prev.some((d) => (d.id || docName(d)) === (p.id || p.title)) ? prev : [...prev, p]));
+    setMode('chat');
+    setCitePop(null);
+  }
   // Resizable divider between the report (left) and references (right) panels.
   const [leftW, setLeftW] = useState(38);
   const resultsRef = useRef<HTMLDivElement>(null);
@@ -2759,31 +2797,31 @@ export function LiteratureReviewView({ messages, onHome }: any) {
             <div className="border border-border rounded-xl overflow-hidden">
               <div className="px-4 py-2.5 bg-muted/40 border-b border-border flex items-center gap-2 text-[12px] font-bold text-muted-foreground"><Sparkles className="w-3.5 h-3.5 text-primary" /> Deep research {deepActive ? '· running…' : '· complete'}</div>
               <div className="p-3 border-b border-border">
-                <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-2">Search Strategy</div>
-                <div className="flex items-stretch gap-1.5">
-                  <div className="flex-1 bg-muted/50 rounded-lg px-3 py-2.5 min-w-0">
-                    <div className="text-[17px] font-bold text-foreground leading-none">{deepStats.retrieved ? fmtCount(deepStats.retrieved) : (deepActive ? '…' : '0')}</div>
-                    <div className="text-[10.5px] text-muted-foreground uppercase tracking-wide mt-1">Retrieved</div>
+                <div className="text-[12.5px] font-bold text-muted-foreground uppercase tracking-wide mb-2.5">Search Strategy</div>
+                <div className="flex items-stretch gap-2">
+                  <div className="flex-1 bg-muted/50 rounded-lg px-3.5 py-3 min-w-0">
+                    <div className="text-[22px] font-bold text-foreground leading-none">{deepStats.retrieved ? fmtCount(deepStats.retrieved) : (deepActive ? '…' : '0')}</div>
+                    <div className="text-[12px] text-muted-foreground uppercase tracking-wide mt-1.5">Retrieved</div>
                   </div>
-                  <div className="flex items-center shrink-0"><ArrowRight className="w-4 h-4 text-muted-foreground" /></div>
-                  <div className="flex-1 bg-muted/50 rounded-lg px-3 py-2.5 min-w-0">
-                    <div className="text-[17px] font-bold text-foreground leading-none">{deepStats.eligible ? fmtCount(deepStats.eligible) : (deepActive ? '…' : '0')}</div>
-                    <div className="text-[10.5px] text-muted-foreground uppercase tracking-wide mt-1">Eligible</div>
+                  <div className="flex items-center shrink-0"><ArrowRight className="w-5 h-5 text-muted-foreground" /></div>
+                  <div className="flex-1 bg-muted/50 rounded-lg px-3.5 py-3 min-w-0">
+                    <div className="text-[22px] font-bold text-foreground leading-none">{deepStats.eligible ? fmtCount(deepStats.eligible) : (deepActive ? '…' : '0')}</div>
+                    <div className="text-[12px] text-muted-foreground uppercase tracking-wide mt-1.5">Eligible</div>
                   </div>
-                  <div className="flex items-center shrink-0"><ArrowRight className="w-4 h-4 text-muted-foreground" /></div>
-                  <div className="flex-1 bg-muted/50 rounded-lg px-3 py-2.5 min-w-0">
-                    <div className="text-[17px] font-bold text-foreground leading-none">{deepStats.included ? deepStats.included : (deepActive ? '…' : '0')}</div>
-                    <div className="text-[10.5px] text-muted-foreground uppercase tracking-wide mt-1">Included</div>
+                  <div className="flex items-center shrink-0"><ArrowRight className="w-5 h-5 text-muted-foreground" /></div>
+                  <div className="flex-1 bg-muted/50 rounded-lg px-3.5 py-3 min-w-0">
+                    <div className="text-[22px] font-bold text-foreground leading-none">{deepStats.included ? deepStats.included : (deepActive ? '…' : '0')}</div>
+                    <div className="text-[12px] text-muted-foreground uppercase tracking-wide mt-1.5">Included</div>
                   </div>
                 </div>
-                <div className="flex items-center gap-3 mt-2 text-[11px] text-muted-foreground">
-                  <span className="flex items-center gap-1"><Search className="w-3 h-3" /> {deepStats.searches || (deepActive ? '…' : 0)} searches</span>
-                  <span className="flex items-center gap-1"><Sparkles className="w-3 h-3" /> 1 citation graph use</span>
+                <div className="flex items-center gap-3.5 mt-2.5 text-[12.5px] text-muted-foreground">
+                  <span className="flex items-center gap-1.5"><Search className="w-3.5 h-3.5" /> {deepStats.searches || (deepActive ? '…' : 0)} searches</span>
+                  <span className="flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" /> 1 citation graph use</span>
                 </div>
               </div>
               <div style={{ maxHeight: 260, overflowY: 'auto' }} className="p-2 flex flex-col">
                 {(deepActive || deepStepsExpanded ? deepSteps : deepSteps.slice(0, 4)).map((st, i) => (
-                  <div key={i} className="flex items-center gap-2 px-2 py-1.5 text-[12.5px]">
+                  <div key={i} className="flex items-center gap-2 px-2 py-1.5 text-[13.5px]">
                     {st.status === 'searching' ? <Loader2 className="w-3.5 h-3.5 animate-spin text-primary shrink-0" /> : (st.plain ? <Check className="w-3.5 h-3.5 text-green-500 shrink-0" /> : <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />)}
                     <span className="flex-1 truncate text-foreground/85">{st.label}</span>
                     {typeof st.count === 'number' ? <span className="text-[11px] font-semibold text-muted-foreground shrink-0">{fmtCount(st.count)}</span> : null}
@@ -2817,9 +2855,36 @@ export function LiteratureReviewView({ messages, onHome }: any) {
             );
           })() : null}
           {synthesis ? (
-            <div className="prose prose-sm dark:prose-invert max-w-none text-[14px] leading-relaxed [&_h2]:text-[15px] [&_h2]:font-bold [&_h2]:text-foreground [&_h2]:mt-4 [&_h2]:mb-1.5 [&_h2]:pb-1 [&_h2]:border-b [&_h2]:border-border [&_ul]:my-1.5 [&_li]:my-0.5">
+            <div
+              className="prose prose-base dark:prose-invert max-w-none text-[15.5px] leading-relaxed [&_h2]:text-[19px] [&_h2]:font-bold [&_h2]:text-foreground [&_h2]:mt-5 [&_h2]:mb-2 [&_h2]:pb-1.5 [&_h2]:border-b [&_h2]:border-border [&_p]:my-2 [&_ul]:my-2 [&_li]:my-1 [&_blockquote]:text-[15px] [&_strong]:text-foreground"
+              onMouseOver={(e) => { const a = (e.target as HTMLElement).closest('a'); if (a) showCitePop(a as HTMLAnchorElement); }}
+              onMouseOut={(e) => { const a = (e.target as HTMLElement).closest('a'); if (a) scheduleHideCitePop(); }}
+            >
               <div className="text-[12px] font-bold text-muted-foreground uppercase tracking-wide mb-1 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" /> {deepSteps.length > 0 ? 'Deep research report' : 'Synthesis'}</div>
               <RichReport md={deepSteps.length > 0 ? linkifyReportCitations(synthesis, papers) : synthesis} />
+            </div>
+          ) : null}
+          {citePop ? (
+            <div
+              className="fixed z-[60] w-[340px] rounded-xl border border-border bg-popover shadow-2xl p-3.5 text-left"
+              style={{ left: citePop.x, top: citePop.y }}
+              onMouseEnter={() => { if (citeHideTimer.current) { clearTimeout(citeHideTimer.current); citeHideTimer.current = null; } }}
+              onMouseLeave={scheduleHideCitePop}
+            >
+              <div className="flex items-start gap-2 mb-1.5">
+                <div className="flex-1 text-[13.5px] font-semibold text-foreground leading-snug line-clamp-3">{citePop.paper.title}</div>
+                {citePop.paper.cited ? <span className="shrink-0 text-[10.5px] font-bold text-primary bg-primary/10 rounded-full px-2 py-0.5">{citePop.paper.cited} cites</span> : null}
+              </div>
+              <div className="text-[12px] text-muted-foreground mb-2.5 leading-snug">
+                {citePop.paper.authorStr}{citePop.paper.year ? ' · ' + citePop.paper.year : ''}{citePop.paper.venue ? ' · ' + citePop.paper.venue : ''}
+              </div>
+              {citePop.paper.abstract ? <div className="text-[12px] text-foreground/70 leading-snug mb-2.5 line-clamp-4">{cleanText(citePop.paper.abstract)}</div> : null}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {citePop.paper.url ? <a href={citePop.paper.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11.5px] font-medium rounded-lg border border-border px-2.5 py-1.5 hover:bg-muted no-underline text-foreground"><ExternalLink className="w-3.5 h-3.5" /> Open</a> : null}
+                {citePop.paper.pdfUrl || /\.pdf/i.test(String(citePop.paper.url || '')) ? <a href={citePop.paper.pdfUrl || citePop.paper.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11.5px] font-medium rounded-lg border border-border px-2.5 py-1.5 hover:bg-muted no-underline text-foreground"><FileText className="w-3.5 h-3.5" /> PDF</a> : null}
+                <button onClick={() => { addPaperToLibrary(citePop.paper); }} className="inline-flex items-center gap-1 text-[11.5px] font-medium rounded-lg border border-border px-2.5 py-1.5 hover:bg-muted text-foreground"><Bookmark className="w-3.5 h-3.5" /> Library</button>
+                <button onClick={() => chatAboutPaper(citePop.paper)} className="inline-flex items-center gap-1 text-[11.5px] font-medium rounded-lg border border-border px-2.5 py-1.5 hover:bg-muted text-foreground"><MessageSquare className="w-3.5 h-3.5" /> Chat</button>
+              </div>
             </div>
           ) : null}
           {deepTables && Array.isArray(deepTables.evidence) && deepTables.evidence.length ? (
