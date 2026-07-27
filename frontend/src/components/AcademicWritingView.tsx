@@ -4767,7 +4767,6 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                   <button onClick={() => setChatPdfOpen(true)} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors">Ask your library</button>
                   <button onClick={resolveAllCitations} disabled={autoCiting} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100 disabled:opacity-50 transition-colors" title="Find every citation and link it to the real paper (fills in the hover cards + References)">{autoCiting ? 'Linking…' : 'Detect citations'}</button>
                   <button onClick={handleSuggestCitations} disabled={suggestLoading} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50 transition-colors" title="AI finds claims that need a citation and suggests real papers">{suggestLoading ? 'Finding…' : '✨ Suggest citations'}</button>
-                  <button onClick={runSourceQuality} disabled={sqRunning || !citations.length} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:opacity-50 transition-colors flex items-center gap-1.5" title="Check your citations for retractions, preprints and other quality issues"><AlertTriangle className="w-3.5 h-3.5" /> {sqRunning ? 'Checking…' : 'Source Quality'}</button>
                   {autoCiting ? <span className="text-[12px] text-indigo-500 font-semibold flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Finding &amp; inserting real citations…</span> : <span className="text-[11px] text-gray-400">Select text, then pick an action</span>}
                 </div>
                 <EditorContent editor={editor} />
@@ -5202,6 +5201,24 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                        )}
                      </div>
                    ) : null}
+                 </div>
+
+                 {/* Card: Source Quality */}
+                 <div className="bg-[#0f1d3d] border border-[#1b2c4e] rounded-xl p-4 flex flex-col gap-2">
+                   <div className="w-8 h-8 rounded-full bg-[#1b1c3a] flex items-center justify-center mb-1">
+                     <AlertTriangle className="w-4 h-4 text-[#7d84ff]" />
+                   </div>
+                   <h3 className="text-[15px] font-bold text-white">Source Quality</h3>
+                   <p className="text-[13px] text-gray-400 leading-relaxed">
+                     Check your citations for retractions, preprints, rarely-cited and unverified-journal sources, then remove or replace them.
+                   </p>
+                   <div className="flex items-center gap-3 mt-2">
+                     <button onClick={runSourceQuality} disabled={sqRunning || !citations.length} className="flex items-center gap-2 border border-[#333] rounded-lg px-3 py-1.5 hover:bg-[#1b2c4e] transition-colors disabled:opacity-50">
+                        {sqRunning ? <Loader2 className="w-3.5 h-3.5 text-gray-300 animate-spin" /> : <Play className="w-3.5 h-3.5 text-gray-300" />}
+                        <span className="text-[13px] font-bold text-white">{sqRunning ? 'Checking…' : 'Run review'}</span>
+                     </button>
+                     {!citations.length ? <span className="text-[11.5px] text-gray-500">Add citations first</span> : null}
+                   </div>
                  </div>
 
                  {/* Card: Expert Review */}
