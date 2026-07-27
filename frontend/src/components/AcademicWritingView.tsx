@@ -3945,22 +3945,33 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
             </button>
 
             {/* New Chat Button */}
-            <button 
+            <button
               onClick={() => {
                 const newId = chatHistory.length > 0 ? Math.max(...chatHistory.map((c: any) => c.id)) + 1 : 1;
                 const newChat = { id: newId, title: '', date: 'Today', content: '', isEditing: false };
-                setChatHistory([newChat, ...chatHistory]);
+                // Prepend the new (empty) chat and switch to it.
+                setChatHistory(prev => [newChat, ...prev]);
                 setActiveChatId(newId);
+                // Full reset so no leftover document / sections / flags bleed in from the previous chat.
                 setIsEditing(false);
                 setDocumentContent('');
                 setPromptInput('');
                 setPromptExpanded(true);
                 setCitationExpanded(false);
                 setHeadingsExpanded(false);
+                setDocSections([]); docSectionsRef.current = [];
+                setExpandedSecIdx(0);
+                setPaperComplete(false);
+                setPending(null);
+                setPendingSec(null);
+                setBarPos(null);
+                setImportedFileName('');
+                setVerifyResult(null);
+                setSqOpen(false); setSqData(null); sqClearHighlights();
+                try { localStorage.removeItem('pinnovix_aw_sections'); localStorage.removeItem('pinnovix_aw_autosave'); } catch {}
                 if (editor) {
                   editor.commands.setContent('<p class="text-gray-400">Start writing or type / for commands</p>', { emitUpdate: false });
                 }
-                setPromptInput('');
               }}
               className="flex items-center gap-2 w-full bg-[#1b2c4e] hover:bg-[#4d4d4d] text-gray-200 px-4 py-3 rounded-lg text-[14px] font-semibold transition-colors border border-[#444] hover:border-[#555]"
             >
