@@ -277,6 +277,46 @@ const AiAutocomplete = Extension.create({
   },
 });
 
+// Source-Quality highlight: underlines citation marks flagged by the Source Quality scan.
+// The flag map (keyed by "doi:<doi>" or "ti:<intext label>") is pushed in via setMeta.
+const sqFlagKey = new PluginKey('sqFlags');
+const normDoiKey = (d: string) => (d || '').toString().toLowerCase().replace(/^https?:\/\/(dx\.)?doi\.org\//, '').trim();
+const SourceQualityHighlight = Extension.create({
+  name: 'sqFlags',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: sqFlagKey,
+        state: {
+          init: () => ({ map: {} }),
+          apply: (tr, value) => { const m = tr.getMeta(sqFlagKey); return m !== undefined ? { map: m } : value; },
+        },
+        props: {
+          decorations: (state) => {
+            const st = sqFlagKey.getState(state);
+            const map = st && st.map;
+            if (!map || !Object.keys(map).length) return DecorationSet.empty;
+            const decos: any[] = [];
+            state.doc.descendants((node: any, pos: number) => {
+              if (node.isText && node.marks) {
+                const cm = node.marks.find((mk: any) => mk.type.name === 'citation');
+                if (cm) {
+                  const doi = normDoiKey(cm.attrs.doi || '');
+                  const label = (node.text || '').trim();
+                  const sev = (doi && map['doi:' + doi]) || map['ti:' + label];
+                  if (sev) decos.push(Decoration.inline(pos, pos + node.nodeSize, { class: sev === 'retracted' ? 'sq-flag sq-flag-red' : 'sq-flag sq-flag-amber' }));
+                }
+              }
+              return true;
+            });
+            return decos.length ? DecorationSet.create(state.doc, decos) : DecorationSet.empty;
+          },
+        },
+      }),
+    ];
+  },
+});
+
 // Heuristic prompt-strength meter (instant, no API): Weak / Medium / Strong
 function scorePrompt(text: string) {
   const t = (text || '').trim();
@@ -393,6 +433,14 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const [citations, setCitations] = useState<any[]>([]);
   const [verifying, setVerifying] = useState(false);
   const [verifyResult, setVerifyResult] = useState<any>(null);
+  // Source Quality feature (retractions / preprints / rarely-cited / unverified journal / non-research)
+  const [sqOpen, setSqOpen] = useState(false);
+  const [sqRunning, setSqRunning] = useState(false);
+  const [sqData, setSqData] = useState<any>(null);
+  const [sqFilter, setSqFilter] = useState('all');
+  const [sqHover, setSqHover] = useState<any>(null);
+  const [sqReplace, setSqReplace] = useState<any>(null);
+  const sqHideTimer = useRef<any>(null);
   const [docVersions, setDocVersions] = useState<any[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [lastSaved, setLastSaved] = useState<number | null>(null);
@@ -828,6 +876,8 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const handleCitationHover = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
     if (!target || !target.getAttribute) return;
+    // If Source Quality is active and this citation is flagged, show the SQ issue popup instead.
+    if (sqData && sqData.entries && target.closest && target.closest('.sq-flag')) { handleSqCitationHover(e); return; }
     const el = (target.getAttribute('data-citation') === 'true'
       ? target
       : target.closest('[data-citation="true"]')) as HTMLElement | null;
@@ -859,8 +909,9 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
 
   const handleCitationHoverOut = (e: React.MouseEvent) => {
     const related = e.relatedTarget as HTMLElement | null;
-    if (related && related.closest && (related.closest('[data-citation="true"]') || related.closest('[data-cite-popup="1"]'))) return;
+    if (related && related.closest && (related.closest('[data-citation="true"]') || related.closest('[data-cite-popup="1"]') || related.closest('.sq-flag'))) return;
     scheduleHideCitation();
+    if (sqHover) scheduleHideSqHover();
   };
 
   const handleInsertEquation = (inline = false) => {
@@ -2801,6 +2852,199 @@ Document: "${editor?.getText() || documentContent}"`, {
     setTimeout(() => editor && collectCitations(editor), 60);
   };
 
+  // ---------------- Source Quality ----------------
+  // Preprint servers & non-research venue hints used to classify a source.
+  const SQ_PREPRINT = /arxiv|biorxiv|medrxiv|chemrxiv|ssrn|research\s*square|preprints?\.org|osf|psyarxiv|techrxiv|authorea|zenodo/i;
+  const SQ_NONRESEARCH_TYPES = new Set(['dataset', 'report', 'other', 'peer-review', 'editorial', 'letter', 'erratum', 'grant', 'reference-entry', 'standard', 'component', 'dissertation', 'book-part', 'posted-content']);
+  // Fetch OpenAlex metadata for one citation (by DOI, else by title).
+  async function sqFetchOA(c: any): Promise<any> {
+    const doi = normDoiKey(c.doi || '');
+    try {
+      if (doi) {
+        const r = await fetch('https://api.openalex.org/works/https://doi.org/' + doi + '?mailto=support@pinnovix.app');
+        if (r.ok) return await r.json();
+      }
+      if (c.title) {
+        const r = await fetch('https://api.openalex.org/works?per_page=1&filter=title.search:' + encodeURIComponent(String(c.title).slice(0, 120)) + '&mailto=support@pinnovix.app');
+        if (r.ok) { const j = await r.json(); return j && j.results && j.results[0]; }
+      }
+    } catch { /* ignore */ }
+    return null;
+  }
+  // Classify a citation into quality flags from its OpenAlex record.
+  function sqClassify(oa: any): { flags: string[]; oa: any; retracted: boolean } {
+    const flags: string[] = [];
+    const nowY = new Date().getFullYear();
+    if (!oa) return { flags: ['unverified'], oa: null, retracted: false };
+    const retracted = !!oa.is_retracted;
+    if (retracted) flags.push('retracted');
+    const type = String(oa.type || '').toLowerCase();
+    const src = oa.primary_location && oa.primary_location.source;
+    const venue = (src && src.display_name) || '';
+    const isPreprint = type === 'preprint' || type === 'posted-content' || SQ_PREPRINT.test(venue) || (oa.primary_location && oa.primary_location.version === 'submittedVersion');
+    if (isPreprint) flags.push('preprint');
+    if (!isPreprint && SQ_NONRESEARCH_TYPES.has(type)) flags.push('nonresearch');
+    const cited = oa.cited_by_count || 0;
+    const age = nowY - (oa.publication_year || nowY);
+    if (cited < 5 && age >= 3) flags.push('rarelycited');
+    const hasIssn = !!(src && (src.issn_l || (src.issn && src.issn.length)));
+    const inDoaj = !!(src && src.is_in_doaj);
+    if (!src || (!hasIssn && !inDoaj)) flags.push('unverified');
+    return { flags, oa, retracted };
+  }
+  function sqSeverity(flags: string[]): string { return flags.includes('retracted') ? 'retracted' : (flags.length ? 'warn' : ''); }
+  // Push the flag map into the editor so flagged citations get underlined.
+  function sqApplyHighlights(entries: any[]) {
+    if (!editor) return;
+    const map: any = {};
+    entries.forEach((e) => {
+      const sev = sqSeverity(e.flags);
+      if (!sev) return;
+      const doi = normDoiKey(e.doi || '');
+      if (doi) map['doi:' + doi] = sev;
+      if (e.intext) map['ti:' + String(e.intext).trim()] = sev;
+    });
+    try { editor.view.dispatch(editor.state.tr.setMeta(sqFlagKey, map)); } catch { /* ignore */ }
+  }
+  function sqClearHighlights() { if (editor) { try { editor.view.dispatch(editor.state.tr.setMeta(sqFlagKey, {})); } catch {} } }
+  async function runSourceQuality() {
+    setSqOpen(true);
+    const cites = citations || [];
+    if (!cites.length) { setSqData({ empty: true }); return; }
+    setSqRunning(true); setSqData(null); setSqFilter('all');
+    const entries: any[] = [];
+    for (const c of cites) {
+      const oa = await sqFetchOA(c);
+      const { flags } = sqClassify(oa);
+      const src = oa && oa.primary_location && oa.primary_location.source;
+      entries.push({
+        title: c.title || c.intext || 'Untitled',
+        intext: c.intext || '',
+        doi: c.doi || (oa && oa.doi) || '',
+        year: (oa && oa.publication_year) || c.year || '',
+        venue: (src && src.display_name) || c.container || '',
+        cited: (oa && oa.cited_by_count) || 0,
+        type: (oa && oa.type) || '',
+        oaId: (oa && oa.id) || '',
+        oaUrl: (oa && ((oa.open_access && oa.open_access.oa_url) || (oa.primary_location && oa.primary_location.landing_page_url))) || (c.doi ? 'https://doi.org/' + normDoiKey(c.doi) : ''),
+        impactFactor: (oa && oa.primary_location && oa.primary_location.source && oa.primary_location.source.summary_stats && oa.primary_location.source.summary_stats['2yr_mean_citedness']) || null,
+        openAccess: !!(oa && oa.open_access && oa.open_access.is_oa),
+        flags,
+        status: 'flagged',
+      });
+    }
+    // Bibliography notes: source ages + venue spread
+    const years = entries.map((e) => Number(e.year)).filter((y) => y > 1900).sort((a, b) => a - b);
+    const medianYear = years.length ? years[Math.floor(years.length / 2)] : null;
+    const nowY = new Date().getFullYear();
+    const oldCount = years.filter((y) => nowY - y > 10).length;
+    const venueCounts: Record<string, number> = {};
+    entries.forEach((e) => { const v = (e.venue || '').trim(); if (v) venueCounts[v] = (venueCounts[v] || 0) + 1; });
+    const venueList = Object.entries(venueCounts).sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count }));
+    const counts = {
+      total: entries.length,
+      retracted: entries.filter((e) => e.flags.includes('retracted')).length,
+      preprint: entries.filter((e) => e.flags.includes('preprint')).length,
+      nonresearch: entries.filter((e) => e.flags.includes('nonresearch')).length,
+      rarelycited: entries.filter((e) => e.flags.includes('rarelycited')).length,
+      unverified: entries.filter((e) => e.flags.includes('unverified')).length,
+      flagged: entries.filter((e) => e.flags.length).length,
+    };
+    const data = { entries, counts, notes: { medianYear, oldCount, dated: years.length, total: entries.length }, venues: { unique: venueList.length, top: venueList.slice(0, 3), list: venueList } };
+    setSqData(data);
+    setSqRunning(false);
+    sqApplyHighlights(entries);
+  }
+  // Remove a flagged citation from the document.
+  function sqRemoveCitation(entry: any) {
+    if (!editor || !entry) return;
+    const citationType = editor.schema?.marks?.citation;
+    if (!citationType) return;
+    let range: any = null;
+    const eDoi = normDoiKey(entry.doi || '');
+    editor.state.doc.descendants((node: any, pos: number) => {
+      if (range) return false;
+      if (node.isText && node.text && citationType.isInSet(node.marks)) {
+        const m = node.marks.find((mk: any) => mk.type.name === 'citation');
+        const sameLabel = entry.intext && node.text.trim() === String(entry.intext).trim();
+        const sameDoi = eDoi && m && normDoiKey(m.attrs.doi || '') === eDoi;
+        if (sameLabel || sameDoi) range = { from: pos, to: pos + node.nodeSize };
+      }
+      return true;
+    });
+    if (!range) { setSqHover(null); return; }
+    // Delete the citation text plus a preceding space if present.
+    let from = range.from; const before = editor.state.doc.textBetween(Math.max(0, from - 1), from);
+    if (before === ' ') from -= 1;
+    editor.chain().focus().deleteRange({ from, to: range.to }).run();
+    setSqData((prev: any) => prev ? { ...prev, entries: prev.entries.map((e: any) => e === entry ? { ...e, status: 'removed' } : e) } : prev);
+    setSqHover(null);
+    setTimeout(() => { if (editor) { collectCitations(editor); } }, 60);
+  }
+  // Look up replacement papers for a flagged citation (same topic, well-cited, not retracted).
+  async function sqFindReplacement(entry: any) {
+    setSqReplace({ entry, loading: true, options: [] });
+    const q = entry.title && entry.title !== 'Untitled' ? entry.title : String(entry.intext || '').replace(/[()]/g, '');
+    try {
+      const r = await fetch('https://api.openalex.org/works?per_page=8&filter=title.search:' + encodeURIComponent(String(q).slice(0, 120)) + ',is_retracted:false&sort=cited_by_count:desc&mailto=support@pinnovix.app');
+      const j = await r.json();
+      const opts = ((j && j.results) || []).map((w: any) => {
+        const src = w.primary_location && w.primary_location.source;
+        const authors = (w.authorships || []).map((a: any) => a.author && a.author.display_name).filter(Boolean);
+        return {
+          title: w.title || 'Untitled', year: w.publication_year || '', cited: w.cited_by_count || 0,
+          venue: (src && src.display_name) || '', doi: normDoiKey(w.doi || ''),
+          authors, openAccess: !!(w.open_access && w.open_access.is_oa),
+        };
+      }).filter((o: any) => o.doi && normDoiKey(entry.doi || '') !== o.doi).slice(0, 6);
+      setSqReplace({ entry, loading: false, options: opts });
+    } catch { setSqReplace({ entry, loading: false, options: [] }); }
+  }
+  // Replace the flagged citation's link + label with the chosen paper.
+  function sqReplaceCitation(entry: any, opt: any) {
+    if (!editor || !entry || !opt) return;
+    const citationType = editor.schema?.marks?.citation;
+    if (!citationType) { setSqReplace(null); return; }
+    let range: any = null; let attrs: any = null;
+    const eDoi = normDoiKey(entry.doi || '');
+    editor.state.doc.descendants((node: any, pos: number) => {
+      if (range) return false;
+      if (node.isText && node.text && citationType.isInSet(node.marks)) {
+        const m = node.marks.find((mk: any) => mk.type.name === 'citation');
+        const sameLabel = entry.intext && node.text.trim() === String(entry.intext).trim();
+        const sameDoi = eDoi && m && normDoiKey(m.attrs.doi || '') === eDoi;
+        if (sameLabel || sameDoi) { range = { from: pos, to: pos + node.nodeSize }; attrs = m ? m.attrs : {}; }
+      }
+      return true;
+    });
+    if (!range) { setSqReplace(null); return; }
+    const lastName = (opt.authors && opt.authors[0]) ? String(opt.authors[0]).split(/\s+/).pop() : 'Author';
+    const label = opt.authors && opt.authors.length > 1 ? `(${lastName} et al., ${opt.year || 'n.d.'})` : `(${lastName}, ${opt.year || 'n.d.'})`;
+    const newAttrs = { ...attrs, doi: opt.doi, title: opt.title, year: String(opt.year || ''), container: opt.venue || '', authors: JSON.stringify((opt.authors || []).map((a: any) => { const parts = String(a).split(/\s+/); return { family: parts.pop(), given: parts.join(' ') }; })), refs: '' };
+    editor.chain().focus().setTextSelection(range).command(({ tr }: any) => {
+      tr.replaceWith(range.from, range.to, editor.schema.text(label, [citationType.create(newAttrs)]));
+      return true;
+    }).run();
+    setSqData((prev: any) => prev ? { ...prev, entries: prev.entries.map((e: any) => e === entry ? { ...e, status: 'replaced', title: opt.title, doi: opt.doi, flags: [], intext: label } : e) } : prev);
+    setSqReplace(null); setSqHover(null);
+    setTimeout(() => { if (editor) collectCitations(editor); }, 60);
+  }
+  // Hover over a flagged (underlined) citation → show the issue popup.
+  const handleSqCitationHover = (e: React.MouseEvent) => {
+    if (!sqData || !sqData.entries) return;
+    const target = e.target as HTMLElement;
+    const el = (target && target.closest && target.closest('.sq-flag')) as HTMLElement | null;
+    if (!el) return;
+    const label = (el.innerText || '').trim();
+    const entry = sqData.entries.find((x: any) => x.status !== 'removed' && x.status !== 'replaced' && (String(x.intext || '').trim() === label));
+    if (!entry) return;
+    if (sqHideTimer.current) { clearTimeout(sqHideTimer.current); sqHideTimer.current = null; }
+    const r = el.getBoundingClientRect();
+    const x = Math.min(Math.max(r.left, 12), (typeof window !== 'undefined' ? window.innerWidth : 1200) - 400);
+    setSqHover({ entry, x, y: r.bottom + 6 });
+  };
+  const scheduleHideSqHover = () => { if (sqHideTimer.current) clearTimeout(sqHideTimer.current); sqHideTimer.current = setTimeout(() => setSqHover(null), 240); };
+
   const handleClaimConfidence = () => {
     setActiveReviewTab('claim');
     fetchReview(`Review the following text for claims. Return ONLY a valid JSON object. Do not use markdown formatting. Format must be exactly:
@@ -3000,6 +3244,7 @@ Text to review: "${editor?.getText() || documentContent}"`, {
       Link.configure({ openOnClick: false, HTMLAttributes: { class: 'text-blue-600 underline' } }),
       Image.configure({ inline: true, HTMLAttributes: { class: 'rounded-lg my-4 max-w-full shadow-md object-contain max-h-[400px] mx-auto' } }),
       AiAutocomplete,
+      SourceQualityHighlight,
     ],
     content: documentContent || '<h2 class="text-3xl font-bold mb-4">Quantum Computing with Artificial Intelligence</h2><p class="mb-4">The convergence of artificial intelligence and quantum computing represents a paradigm shift in computational science. Quantum machine learning algorithms can solve problems that lie beyond the reach of classical computers <span data-citation="true">(Pineda et al., 2025)</span>.</p>',
     onUpdate: ({ editor }) => {
@@ -4522,6 +4767,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                   <button onClick={() => setChatPdfOpen(true)} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors">Ask your library</button>
                   <button onClick={resolveAllCitations} disabled={autoCiting} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100 disabled:opacity-50 transition-colors" title="Find every citation and link it to the real paper (fills in the hover cards + References)">{autoCiting ? 'Linking…' : 'Detect citations'}</button>
                   <button onClick={handleSuggestCitations} disabled={suggestLoading} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50 transition-colors" title="AI finds claims that need a citation and suggests real papers">{suggestLoading ? 'Finding…' : '✨ Suggest citations'}</button>
+                  <button onClick={runSourceQuality} disabled={sqRunning || !citations.length} className="px-3 py-1.5 text-[12px] font-semibold rounded-full border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:opacity-50 transition-colors flex items-center gap-1.5" title="Check your citations for retractions, preprints and other quality issues"><AlertTriangle className="w-3.5 h-3.5" /> {sqRunning ? 'Checking…' : 'Source Quality'}</button>
                   {autoCiting ? <span className="text-[12px] text-indigo-500 font-semibold flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Finding &amp; inserting real citations…</span> : <span className="text-[11px] text-gray-400">Select text, then pick an action</span>}
                 </div>
                 <EditorContent editor={editor} />
@@ -4670,9 +4916,154 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                   </div>
                 </div>
               )}
+
+              {/* Source Quality: hover popup on a flagged citation */}
+              {sqHover && sqHover.entry && (() => {
+                const en = sqHover.entry; const isRet = en.flags.includes('retracted');
+                const primary = isRet ? { dot: 'bg-rose-500', label: 'Retracted', desc: 'This source has been retracted.' }
+                  : en.flags.includes('preprint') ? { dot: 'bg-amber-500', label: 'Preprint', desc: 'This source is a preprint and has not been peer-reviewed.' }
+                  : en.flags.includes('nonresearch') ? { dot: 'bg-amber-500', label: 'Non-research source', desc: 'This source is not a peer-reviewed research article.' }
+                  : en.flags.includes('rarelycited') ? { dot: 'bg-amber-500', label: 'Rarely cited', desc: 'This source has very few citations for its age.' }
+                  : { dot: 'bg-amber-500', label: 'Unverified journal', desc: 'This journal could not be verified (no ISSN / not indexed).' };
+                return (
+                  <div data-cite-popup="1" className="fixed z-[130] w-[420px] max-w-[calc(100vw-16px)] bg-[#1f1f22] border border-[#333] rounded-2xl shadow-2xl p-4"
+                    style={{ left: sqHover.x, top: Math.min(sqHover.y, (typeof window !== 'undefined' ? window.innerHeight : 800) - 340) }}
+                    onMouseEnter={() => { if (sqHideTimer.current) { clearTimeout(sqHideTimer.current); sqHideTimer.current = null; } }}
+                    onMouseLeave={scheduleHideSqHover}>
+                    <div className="flex items-center gap-2 mb-1"><span className={`w-2.5 h-2.5 rounded-full ${primary.dot}`} /><span className="text-[15px] font-bold text-white">{primary.label}</span></div>
+                    <p className="text-[13px] text-gray-300 mb-3">{primary.desc}</p>
+                    <div className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1.5">Currently citing</div>
+                    <div className="bg-[#2a2a2e] rounded-xl p-3 mb-3">
+                      <div className="flex items-center gap-2 text-[11px] text-gray-400 mb-1">
+                        <span className="uppercase tracking-wide">{en.type || 'Article'}</span>
+                        {en.impactFactor ? <span className="ml-auto">IF <b className="text-gray-200">{Number(en.impactFactor).toFixed(2)}</b></span> : null}
+                        {en.openAccess ? <span className="text-amber-400 font-semibold">OPEN ACCESS</span> : null}
+                      </div>
+                      <div className="text-[14px] font-semibold text-white leading-snug line-clamp-2">{en.title}</div>
+                      {en.venue ? <div className="text-[12.5px] text-emerald-400 mt-1">{en.venue}{en.year ? ' · ' + en.year : ''}</div> : (en.year ? <div className="text-[12.5px] text-gray-400 mt-1">{en.year}</div> : null)}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => sqRemoveCitation(en)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-bold text-gray-200 hover:bg-[#2f2f36] transition-colors"><X className="w-4 h-4" /> Remove</button>
+                      <button onClick={() => setSqHover(null)} className="ml-auto px-4 py-2 rounded-lg text-[13px] font-bold border border-[#3a3a3a] text-gray-200 hover:bg-[#2f2f36] transition-colors">Keep</button>
+                      <button onClick={() => sqFindReplacement(en)} className="px-4 py-2 rounded-lg text-[13px] font-bold bg-[#5b6bff] text-white hover:bg-[#6d7bff] transition-colors flex items-center gap-1.5"><Search className="w-4 h-4" /> Find replacement</button>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
         </div>
+
+        {/* Source Quality: slide-over results panel */}
+        {sqOpen && (
+          <div className="fixed inset-y-0 right-0 z-[115] w-[380px] max-w-[92vw] bg-[#161618] border-l border-[#2a2a2a] shadow-2xl flex flex-col">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-[#2a2a2a]">
+              <button onClick={() => { setSqOpen(false); }} className="p-1 rounded-lg hover:bg-[#2a2a2a] text-gray-300"><ChevronLeft className="w-5 h-5" /></button>
+              <h2 className="text-[16px] font-bold text-white flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-rose-400" /> Source Quality</h2>
+              <button onClick={() => { sqClearHighlights(); setSqOpen(false); setSqData(null); }} className="ml-auto p-1 rounded-lg hover:bg-[#2a2a2a] text-gray-400"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-4">
+              {sqRunning ? (
+                <div className="flex items-center gap-2 text-gray-400 text-[13.5px] py-6"><Loader2 className="w-4 h-4 animate-spin" /> Checking {citations.length} citations for retractions, preprints and quality issues…</div>
+              ) : sqData && sqData.empty ? (
+                <p className="text-[13.5px] text-gray-400 py-6">No citations found in the document yet. Add in-text citations (or run “Detect citations”), then check Source Quality.</p>
+              ) : sqData ? (
+                <>
+                  <div className="text-[12px] font-bold uppercase tracking-wide text-gray-500 mb-1">Results</div>
+                  <p className="text-[14px] text-gray-200 leading-relaxed mb-3">
+                    {sqData.counts.flagged === 0 ? <>All {sqData.counts.total} sources look clean — no retractions, preprints or quality flags.</> : <>Found {[sqData.counts.retracted ? sqData.counts.retracted + ' retracted' : '', sqData.counts.rarelycited ? sqData.counts.rarelycited + ' rarely-cited' : '', sqData.counts.unverified ? sqData.counts.unverified + ' unverified journal' : '', sqData.counts.preprint ? sqData.counts.preprint + ' preprint' : '', sqData.counts.nonresearch ? sqData.counts.nonresearch + ' non-research' : ''].filter(Boolean).join(', ')} source{sqData.counts.flagged === 1 ? '' : 's'} in your citations.</>}
+                  </p>
+                  {sqData.notes && sqData.notes.dated ? (
+                    <div className="mb-4">
+                      <div className="text-[12px] font-bold uppercase tracking-wide text-gray-500 mb-2">Bibliography notes</div>
+                      <div className="bg-[#1f1f22] rounded-xl p-3 mb-2">
+                        <div className="text-[13px] font-semibold text-gray-200">Mixed source ages.</div>
+                        <div className="text-[12.5px] text-gray-400 mt-0.5">Median year {sqData.notes.medianYear || '—'}; {sqData.notes.oldCount} of {sqData.notes.dated} dated works over a decade old.</div>
+                      </div>
+                      {sqData.venues && sqData.venues.top.length ? (
+                        <div className="bg-[#1f1f22] rounded-xl p-3">
+                          <div className="flex flex-wrap gap-2 mb-1.5">
+                            {sqData.venues.top.map((v: any, i: number) => (
+                              <span key={i} className="text-[11.5px] text-gray-300 flex items-center gap-1"><span className={`w-2 h-2 rounded-full ${['bg-blue-400', 'bg-violet-400', 'bg-emerald-400'][i] || 'bg-gray-400'}`} /> {v.name.length > 22 ? v.name.slice(0, 22) + '…' : v.name} {v.count}</span>
+                            ))}
+                          </div>
+                          <div className="text-[12.5px] text-gray-400"><b className="text-gray-200">Wide venue spread.</b> {sqData.venues.unique} unique venues across {sqData.notes.total} works — top venue contributes {sqData.venues.top[0].count}.</div>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  <div className="text-[12px] font-bold uppercase tracking-wide text-gray-500 mb-2">Detailed breakdown</div>
+                  <div className="flex flex-col gap-2">
+                    {[
+                      { id: 'all', label: 'All sources', count: sqData.counts.total, bad: false },
+                      { id: 'retracted', label: 'Retracted', count: sqData.counts.retracted, bad: true },
+                      { id: 'preprint', label: 'Preprint', count: sqData.counts.preprint, bad: sqData.counts.preprint > 0 },
+                      { id: 'nonresearch', label: 'Non-research source', count: sqData.counts.nonresearch, bad: sqData.counts.nonresearch > 0 },
+                      { id: 'rarelycited', label: 'Rarely cited', count: sqData.counts.rarelycited, bad: sqData.counts.rarelycited > 0 },
+                      { id: 'unverified', label: 'Unverified journal', count: sqData.counts.unverified, bad: sqData.counts.unverified > 0 },
+                    ].map((row) => (
+                      <button key={row.id} onClick={() => setSqFilter(row.id)} className={`flex items-center gap-2 px-3.5 py-3 rounded-xl border text-left transition-colors ${sqFilter === row.id ? 'border-[#5b6bff] bg-[#5b6bff]/10' : 'border-[#2a2a2a] bg-[#1f1f22] hover:bg-[#26262a]'}`}>
+                        <span className={`text-[14px] font-semibold ${row.id === 'all' ? 'text-[#8b96ff]' : 'text-gray-200'}`}>{row.label}</span>
+                        {row.id !== 'all' && <Info className="w-3.5 h-3.5 text-gray-500" />}
+                        <span className="ml-auto text-[14px] font-bold">{row.count > 0 ? <span className={row.bad ? 'text-rose-300' : 'text-gray-200'}>{row.count}</span> : <CheckCircle2 className="w-4 h-4 text-emerald-500" />}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {/* Filtered citation list */}
+                  <div className="mt-4 flex flex-col gap-2">
+                    {sqData.entries.filter((e: any) => e.status !== 'removed' && (sqFilter === 'all' ? true : e.flags.includes(sqFilter))).map((e: any, i: number) => (
+                      <div key={i} className="bg-[#1f1f22] border border-[#2a2a2a] rounded-xl p-3">
+                        <div className="flex items-start gap-2">
+                          <span className={`mt-1 w-2 h-2 rounded-full shrink-0 ${e.flags.includes('retracted') ? 'bg-rose-500' : e.flags.length ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                          <div className="min-w-0">
+                            <div className="text-[13px] font-semibold text-gray-100 leading-snug line-clamp-2">{e.title}</div>
+                            <div className="text-[11.5px] text-gray-500 mt-0.5">{e.intext} {e.venue ? '· ' + e.venue : ''}</div>
+                            {e.status === 'replaced' ? <div className="text-[11px] text-emerald-400 mt-1 font-semibold">Replaced ✓</div> : e.flags.length ? (
+                              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                {e.flags.map((f: string) => <span key={f} className={`text-[10.5px] font-bold uppercase tracking-wide rounded px-1.5 py-0.5 ${f === 'retracted' ? 'bg-rose-500/15 text-rose-300' : 'bg-amber-500/15 text-amber-300'}`}>{f === 'nonresearch' ? 'non-research' : f === 'rarelycited' ? 'rarely cited' : f === 'unverified' ? 'unverified journal' : f}</span>)}
+                                <button onClick={() => sqFindReplacement(e)} className="text-[10.5px] font-bold text-[#8b96ff] hover:underline">Fix</button>
+                              </div>
+                            ) : <div className="text-[11px] text-emerald-400 mt-1">No issues</div>}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+            </div>
+          </div>
+        )}
+
+        {/* Source Quality: Find replacement modal */}
+        {sqReplace && (
+          <div className="fixed inset-0 z-[135] bg-black/50 flex items-center justify-center p-4" onClick={() => setSqReplace(null)}>
+            <div className="bg-[#1b1b1e] border border-[#333] rounded-2xl shadow-2xl w-[560px] max-w-[calc(100vw-24px)] max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-2 px-4 py-3 border-b border-[#2a2a2a]">
+                <Search className="w-4 h-4 text-[#8b96ff]" />
+                <h3 className="text-[15px] font-bold text-white">Find a replacement</h3>
+                <button onClick={() => setSqReplace(null)} className="ml-auto p-1 rounded-lg hover:bg-[#2a2a2a] text-gray-400"><X className="w-4 h-4" /></button>
+              </div>
+              <div className="px-4 py-2 text-[12.5px] text-gray-400 border-b border-[#2a2a2a]">Replacing: <span className="text-gray-200 font-medium">{sqReplace.entry.title}</span></div>
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-3 flex flex-col gap-2">
+                {sqReplace.loading ? (
+                  <div className="flex items-center gap-2 text-gray-400 text-[13px] py-6"><Loader2 className="w-4 h-4 animate-spin" /> Searching for well-cited, non-retracted alternatives…</div>
+                ) : sqReplace.options.length === 0 ? (
+                  <p className="text-[13px] text-gray-400 py-6 text-center">No suitable replacements found. Try “Remove” or refine the citation manually.</p>
+                ) : sqReplace.options.map((o: any, i: number) => (
+                  <div key={i} className="bg-[#232326] border border-[#2f2f33] rounded-xl p-3 flex items-start gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13.5px] font-semibold text-white leading-snug line-clamp-2">{o.title}</div>
+                      <div className="text-[12px] text-gray-400 mt-0.5">{(o.authors || []).slice(0, 3).join(', ')}{o.authors && o.authors.length > 3 ? ' et al.' : ''}{o.year ? ' · ' + o.year : ''}</div>
+                      <div className="text-[12px] text-gray-500 mt-0.5 flex items-center gap-2">{o.venue ? <span className="text-emerald-400">{o.venue}</span> : null}<span>{o.cited} citations</span>{o.openAccess ? <span className="text-amber-400 font-semibold">OA</span> : null}</div>
+                    </div>
+                    <button onClick={() => sqReplaceCitation(sqReplace.entry, o)} className="shrink-0 px-3.5 py-2 rounded-lg text-[12.5px] font-bold bg-[#5b6bff] text-white hover:bg-[#6d7bff] transition-colors flex items-center gap-1.5"><CheckCheck className="w-4 h-4" /> Replace</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Floating Edit Bar */}
         {isEditing && (

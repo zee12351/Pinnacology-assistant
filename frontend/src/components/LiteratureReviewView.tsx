@@ -339,17 +339,47 @@ function broadenForCount(q: string): string {
   const top = Array.from(new Set(words)).sort((a, b) => b.length - a.length).slice(0, 2);
   return top.join(' ') || (q || '');
 }
-// Turn (Author, Year) mentions in the report into clickable chips linked to the matching paper.
+// Turn citation mentions in the report into clickable chips linked to the matching paper.
+// Handles (Author, Year), narrative "Author et al. (Year)", and `[SURNAME YEAR]` code badges,
+// so every citation in the middle report is clickable and gets a hover popup.
 function linkifyReportCitations(md: string, papers: any[]): string {
   if (!md || !papers || !papers.length) return md || '';
   const idx = papers.map((p) => ({ p, sur: String(p.authorStr || '').replace(/\bet al\.?/i, '').split(/[ ,]/)[0].toLowerCase(), yr: String(p.year || '') }));
-  return md.replace(/\(([A-Z][A-Za-z’'\-]+(?:\s+(?:et al\.?|&|and)\s+[A-Za-z’'\-]+)?),?\s*(\d{4})[a-z]?\)/g, (m: string, name: string, yr: string) => {
+  const urlOf = (hit: any) => hit && (hit.p.url || (hit.p.doi ? 'https://doi.org/' + hit.p.doi : ''));
+  const findBy = (name: string, yr: string) => {
     const sur = String(name).replace(/\bet al\.?/i, '').split(/[ &]/)[0].toLowerCase();
-    const hit = idx.find((x) => x.sur === sur && x.yr === yr) || idx.find((x) => x.sur === sur);
-    const url = hit && (hit.p.url || (hit.p.doi ? 'https://doi.org/' + hit.p.doi : ''));
-    if (url) return '[(' + name + ', ' + yr + ')](' + url + ' "' + String(hit.p.title || '').replace(/"/g, '') + '")';
+    return idx.find((x) => x.sur === sur && x.yr === yr) || (yr ? idx.find((x) => x.sur === sur) : idx.find((x) => x.sur === sur));
+  };
+  let out = md;
+  // Between passes we "stash" already-inserted markdown links so a later pass can never
+  // rewrite a citation-like substring that lives inside a link's title (which would emit
+  // nested/broken markdown). Links are swapped for a placeholder, then restored.
+  const stash: string[] = [];
+  const LINK_RE = /\[[^\]]*\]\((?:[^()\s]|\([^)]*\))*(?:\s+"[^"]*")?\)/g;
+  const runPass = (re: RegExp, fn: (...a: any[]) => string) => {
+    out = out.replace(LINK_RE, (m) => { const i = stash.length; stash.push(m); return '' + i + ''; });
+    out = out.replace(re, fn as any);
+    out = out.replace(/(\d+)/g, (_m, i) => stash[+i]);
+  };
+  // 1) Narrative "Author et al. (Year)" / "Author & Author (Year)" / "Author (Year)"
+  runPass(/(?<![\]\("\[])([A-Z][A-Za-z’'\-]+(?:\s+(?:et al\.?|&|and)\s+[A-Z][A-Za-z’'\-]+)?)\s+\((\d{4})[a-z]?\)/g, (m: string, name: string, yr: string) => {
+    const hit = findBy(name, yr); const url = urlOf(hit);
+    if (url) return '[' + name + ' (' + yr + ')](' + url + ' "' + String(hit!.p.title || '').replace(/"/g, '') + '")';
     return m;
   });
+  // 2) (Author, Year) parenthetical (needs a comma inside the parens, so it won't touch "(2018)")
+  runPass(/\(([A-Z][A-Za-z’'\-]+(?:\s+(?:et al\.?|&|and)\s+[A-Za-z’'\-]+)?),\s*(\d{4})[a-z]?\)/g, (m: string, name: string, yr: string) => {
+    const hit = findBy(name, yr); const url = urlOf(hit);
+    if (url) return '[(' + name + ', ' + yr + ')](' + url + ' "' + String(hit!.p.title || '').replace(/"/g, '') + '")';
+    return m;
+  });
+  // 3) `[SURNAME 2024]` code badges → clickable code-pill link
+  runPass(/`\[([A-Za-z’'\-]+)\s+(\d{4})[a-z]?\]`/g, (m: string, name: string, yr: string) => {
+    const hit = findBy(name, yr); const url = urlOf(hit);
+    if (url) return '[`[' + name + ' ' + yr + ']`](' + url + ' "' + String(hit!.p.title || '').replace(/"/g, '') + '")';
+    return m;
+  });
+  return out;
 }
 async function openAlexCount(q: string, opts?: { broaden?: boolean; filter?: string }): Promise<number> {
   const term = (opts && opts.broaden) ? broadenForCount(q) : String(q || '').trim();
@@ -674,8 +704,15 @@ function MermaidDiagram({ code }: { code: string }) {
 function _esc(s: string): string { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function _inlineFmt(s: string): string {
   let h = _esc(s);
+  // Code-badge link: [`TEXT`](url "title") -> clickable code pill (citation badge).
+  // URL group allows balanced parens so legacy DOIs like 10.1002/(SICI)... aren't truncated.
+  h = h.replace(/\[`([^`]+)`\]\(((?:[^\s()]|\([^\s()]*\))+)(?:\s+&quot;[^&]*&quot;|\s+"[^"]*")?\)/g,
+    '<a href="$2" target="_blank" rel="noreferrer" class="no-underline"><code class="text-[12px] font-bold uppercase tracking-wide bg-primary/10 text-primary rounded px-1.5 py-0.5 whitespace-nowrap cursor-pointer hover:bg-primary/20">$1</code></a>');
+  // Standalone code pill
   h = h.replace(/`([^`]+)`/g, '<code class="text-[12px] font-bold uppercase tracking-wide bg-muted text-foreground/80 rounded px-1.5 py-0.5 whitespace-nowrap">$1</code>');
-  h = h.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer" class="text-primary no-underline hover:underline">$1</a>');
+  // Link with optional markdown title: [text](url "title") -> href strips the title
+  h = h.replace(/\[([^\]]+)\]\(((?:[^\s()]|\([^\s()]*\))+)(?:\s+&quot;[^&]*&quot;|\s+"[^"]*")?\)/g,
+    '<a href="$2" target="_blank" rel="noreferrer" class="text-primary no-underline hover:underline font-medium">$1</a>');
   h = h.replace(/\*\*([^*]+)\*\*/g, '<strong class="text-foreground font-bold">$1</strong>');
   return h;
 }
@@ -742,6 +779,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [deepSteps, setDeepSteps] = useState<any[]>([]);
   const [deepStepsExpanded, setDeepStepsExpanded] = useState(false);
   const [deepStats, setDeepStats] = useState({ retrieved: 0, eligible: 0, included: 0, searches: 0 });
+  const [deepFetched, setDeepFetched] = useState(0);
   const [deepTables, setDeepTables] = useState<any>(null);
   // Citation hover popup card (like Persona 1) over Deep report citation chips.
   const [citePop, setCitePop] = useState<{ paper: any; x: number; y: number } | null>(null);
@@ -1362,7 +1400,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setBusy(true); setPhase('Running deep research…');
     setPapers([]); setSynthesis(''); setGaps(''); setGapsBusy(false); setColumns([]); setFollowups([]); setChatThread([]);
     setSearchTerms([q]);
-    setDeepActive(true); setDeepSteps([]); setDeepStepsExpanded(false); setDeepStats({ retrieved: 0, eligible: 0, included: 0, searches: 0 }); setDeepTables(null);
+    setDeepActive(true); setDeepSteps([]); setDeepStepsExpanded(false); setDeepStats({ retrieved: 0, eligible: 0, included: 0, searches: 0 }); setDeepTables(null); setDeepFetched(0);
     let pool: any[] = [];
     let retrievedTotal = 0;
     try {
@@ -1370,9 +1408,10 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       addDeepStep({ label: q, status: 'searching' });
       const [initial, initCount] = await Promise.all([searchPapers(q, paperSource, 45), openAlexCount(q, { broaden: true })]);
       pool = pool.concat(initial);
-      retrievedTotal += initCount;
-      patchLastDeepStep({ status: 'done', count: initCount });
+      retrievedTotal += (initCount || initial.length);
+      patchLastDeepStep({ status: 'done', count: (initCount || initial.length) });
       setDeepStats((s) => ({ ...s, retrieved: retrievedTotal }));
+      setDeepFetched(pool.length);
       // 2) Citation-graph expansion (follow citations between initial results)
       addDeepStep({ label: 'Citation graph · following citations between initial results', status: 'searching', plain: true });
       patchLastDeepStep({ status: 'done', plain: true, label: 'Citation graph · ' + Math.min(pool.length, 50) + ' seeds' });
@@ -1394,9 +1433,10 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         let r: any[] = []; let c = 0;
         try { [r, c] = await Promise.all([searchPapers(sub, paperSource, 40), openAlexCount(sub, { broaden: true })]); } catch {}
         pool = pool.concat(r);
-        retrievedTotal += c;
-        patchLastDeepStep({ status: 'done', count: c });
+        retrievedTotal += (c || r.length);
+        patchLastDeepStep({ status: 'done', count: (c || r.length) });
         setDeepStats((s) => ({ ...s, retrieved: retrievedTotal }));
+        setDeepFetched(pool.length);
       }
       // Guarantee Retrieved is never 0: fall back to the real fetched pool size.
       if (!retrievedTotal) { retrievedTotal = pool.length; setDeepStats((s) => ({ ...s, retrieved: retrievedTotal })); }
@@ -1834,10 +1874,43 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     }));
   }
 
+  // Rows to export: the checkbox selection if any, otherwise the whole current view.
+  function dlRows() { const chosen = view().filter((p) => selRows[p.id]); return chosen.length ? chosen : view(); }
+  const selCount = () => Object.values(selRows).filter(Boolean).length;
+  // Download the actual PDF/paper for each selected row (not just a citation list).
+  // Tries a direct PDF download; falls back to opening the paper's page in a new tab.
+  async function downloadSelectedPdfs() {
+    const picks = dlRows();
+    if (!picks.length) return;
+    setDlMenu(false);
+    for (const p of picks) {
+      const pdf = p.pdfUrl || (/\.pdf($|\?)/i.test(String(p.url || '')) ? p.url : '') || '';
+      const link = pdf || p.url || (p.doi ? 'https://doi.org/' + p.doi : '');
+      if (!link) continue;
+      let done = false;
+      if (pdf) {
+        try {
+          const r = await fetch(pdf);
+          const ct = (r.headers.get('content-type') || '').toLowerCase();
+          if (r.ok && (ct.includes('pdf') || ct.includes('octet-stream'))) {
+            const b = await r.blob();
+            const u = URL.createObjectURL(b);
+            const a = document.createElement('a');
+            a.href = u; a.download = (p.title || 'paper').slice(0, 60).replace(/[^\w\- ]/g, '').trim() + '.pdf';
+            document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u);
+            done = true;
+          }
+        } catch { /* CORS / network — fall back to opening the page */ }
+      }
+      if (!done) window.open(link, '_blank', 'noopener');
+      await new Promise((res) => setTimeout(res, 250)); // stagger so the browser allows multiple
+    }
+  }
+
   function downloadCSV() {
     const esc = (v: any) => '"' + String(v === undefined || v === null ? '' : v).split('"').join('""') + '"';
     const head = ['Title', 'Authors', 'Year', 'Journal', 'Cited by', 'DOI', 'Summary'].concat(columns.map((c) => c.name));
-    const body = view().map((p) => [p.title, p.authors.join('; '), p.year, p.venue, p.cited, p.doi, p.summary].concat(columns.map((c) => p.cols[c.id] || '')));
+    const body = dlRows().map((p) => [p.title, p.authors.join('; '), p.year, p.venue, p.cited, p.doi, p.summary].concat(columns.map((c) => p.cols[c.id] || '')));
     const csv = [head].concat(body).map((row) => row.map(esc).join(',')).join('\n');
     doDownload(csv, (question || 'literature-review').slice(0, 40) + '.csv', 'text/csv');
   }
@@ -1845,7 +1918,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   function downloadExcel() {
     const esc = (v: any) => String(v === undefined || v === null ? '' : v).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');
     const head = ['Title', 'Authors', 'Year', 'Journal', 'Cited by', 'DOI', 'Summary'].concat(columns.map((c) => c.name));
-    const bodyRows = view().map((p) => {
+    const bodyRows = dlRows().map((p) => {
       const cells = [p.title, p.authors.join('; '), p.year, p.venue, p.cited, p.doi, p.summary].concat(columns.map((c) => p.cols[c.id] || ''));
       return '<tr>' + cells.map((c) => '<td>' + esc(c) + '</td>').join('') + '</tr>';
     }).join('');
@@ -1855,7 +1928,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
 
   function downloadBib() {
     const clean = (v: any) => String(v === undefined || v === null ? '' : v).split('{').join('').split('}').join('');
-    const txt = view().map((p, i) => {
+    const txt = dlRows().map((p, i) => {
       const last = (p.authors[0] || 'ref').split(' ').filter(Boolean).pop() || 'ref';
       const key = clean(last).replace(/[^A-Za-z]/g, '') + (p.year || '') + (i + 1);
       const auth = (p.authors && p.authors.length ? p.authors : ['Unknown']).map(clean).join(' and ');
@@ -1872,7 +1945,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   }
 
   function downloadRis() {
-    const txt = view().map((p) => {
+    const txt = dlRows().map((p) => {
       const L = [p.kind === 'trial' ? 'TY  - DATA' : 'TY  - JOUR', 'TI  - ' + p.title];
       (p.authors && p.authors.length ? p.authors : ['Unknown']).forEach((a: any) => L.push('AU  - ' + a));
       if (p.venue) L.push('JO  - ' + p.venue);
@@ -2787,7 +2860,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
           ) : null}
           {searchTerms.length > 0 ? (
             <div className="bg-muted/40 border border-border rounded-xl p-3">
-              <div className="text-[12px] font-bold text-muted-foreground mb-1.5 flex items-center gap-1.5"><FlaskConical className="w-3.5 h-3.5" /> Ran analysis - {papers.length} papers</div>
+              <div className="text-[12px] font-bold text-muted-foreground mb-1.5 flex items-center gap-1.5"><FlaskConical className="w-3.5 h-3.5" /> {deepActive ? 'Running analysis - ' + (deepFetched || '…') + ' papers' : 'Ran analysis - ' + (papers.length || deepFetched) + ' papers'}</div>
               {searchTerms.map((t, i) => (
                 <div key={i} className="flex items-center gap-2 text-[12.5px] text-foreground/80 py-0.5"><Search className="w-3.5 h-3.5 text-muted-foreground" /> {t} <span className="text-muted-foreground text-[11px]">- {sourceLabel}</span></div>
               ))}
@@ -3029,11 +3102,18 @@ export function LiteratureReviewView({ messages, onHome }: any) {
           <button onClick={() => setFiltOpen((v) => !v)} disabled={!papers.length} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40"><SlidersHorizontal className="w-3.5 h-3.5" /> Filters</button>
           <button onClick={() => setAddingCol(true)} disabled={!papers.length} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40"><Plus className="w-3.5 h-3.5" /> Add column</button>
           <div className="relative inline-block">
-            <button ref={dlBtnRef} onClick={toggleDlMenu} disabled={!papers.length} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40"><Download className="w-3.5 h-3.5" /> Download <ChevronDown className="w-3 h-3" /></button>
+            <button ref={dlBtnRef} onClick={toggleDlMenu} disabled={!papers.length} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40"><Download className="w-3.5 h-3.5" /> Download{selCount() ? ' (' + selCount() + ')' : ''} <ChevronDown className="w-3 h-3" /></button>
             {dlMenu ? (
               <>
                 <div className="fixed inset-0 z-[80]" onClick={() => setDlMenu(false)} />
-                <div className="fixed z-[81] w-[240px] bg-card border border-border rounded-xl shadow-2xl p-1.5" style={{ top: dlPos.top, left: dlPos.left }}>
+                <div className="fixed z-[81] w-[268px] bg-card border border-border rounded-xl shadow-2xl p-1.5" style={{ top: dlPos.top, left: dlPos.left }}>
+                  <button onClick={() => { downloadSelectedPdfs(); }} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-muted text-left">
+                    <Download className="w-4 h-4 text-primary shrink-0" />
+                    <span className="text-[13.5px] font-semibold">{selCount() ? selCount() + ' selected paper' + (selCount() > 1 ? 's' : '') : 'Papers'}</span>
+                    <span className="text-[12px] text-muted-foreground ml-auto">PDF / open</span>
+                  </button>
+                  <div className="my-1 border-t border-border" />
+                  <div className="px-3 pt-1 pb-0.5 text-[10.5px] font-bold uppercase tracking-wide text-muted-foreground">{selCount() ? 'Citation list (selected)' : 'Citation list (all)'}</div>
                   {[
                     { id: 'csv', label: 'CSV', sub: 'Comma-separated', fn: downloadCSV },
                     { id: 'xls', label: 'Excel', sub: 'XLSX format', fn: downloadExcel },

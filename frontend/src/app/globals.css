@@ -242,6 +242,13 @@ html.light body { background-color: #eef1f5; }
 .csl-bib .csl-entry { padding-left: 1.5em; text-indent: -1.5em; }
 .csl-bib .csl-entry i { font-style: italic; }
 
+/* Source Quality: flagged citation underlines */
+.sq-flag { cursor: pointer; border-radius: 2px; padding-bottom: 1px; transition: background-color .12s ease; }
+.sq-flag-red { text-decoration: underline wavy #f43f5e; text-underline-offset: 3px; background: rgba(244,63,94,0.12); }
+.sq-flag-red:hover { background: rgba(244,63,94,0.22); }
+.sq-flag-amber { text-decoration: underline wavy #f59e0b; text-underline-offset: 3px; background: rgba(245,158,11,0.12); }
+.sq-flag-amber:hover { background: rgba(245,158,11,0.22); }
+
 /* Editor look matches jenni: dark canvas, Inter sans, light text. */
 .print-area .ProseMirror, .print-area > textarea {
   font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
