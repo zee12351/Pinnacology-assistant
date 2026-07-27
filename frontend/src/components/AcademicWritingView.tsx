@@ -792,31 +792,43 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
         if (!e.issn && c.issn) e.issn = c.issn;
       }
     }
+    // Topical overlap is measured across title + abstract + journal, against the claim's key words.
+    const overlapOf = (c: any) => {
+      const hay = ((c.title || '') + ' ' + (c.abstract || '') + ' ' + (c.container || '')).toLowerCase().split(/[^a-z]+/);
+      const s = new Set(hay.filter((w: string) => w.length > 4));
+      let n = 0; ctxWords.forEach((w: string) => { if (s.has(w)) n++; });
+      return n;
+    };
     const score = (c: any) => {
       let sc = 0;
+      const overlap = overlapOf(c);
+      // Topical relevance DOMINATES — it must, or an author-name/year coincidence on an
+      // unrelated paper (the "Kellen 2002 HTML paper" bug) can win. Author/year only nudge.
+      sc += Math.min(overlap * 6, 42);
       const fams = (c.authorsList || []).map((a: any) => (a.family || '').toLowerCase());
-      if (surname && !isAcronym && fams.some((f: string) => f && (f.includes(surname.toLowerCase()) || surname.toLowerCase().includes(f)))) sc += 5;
-      if (year && c.year === year) sc += 6;
-      else if (year && Math.abs(parseInt(c.year || '0', 10) - parseInt(year, 10)) <= 1) sc += 1;
-      const tw = (c.title || '').toLowerCase().split(/[^a-z]+/);
-      const overlap = tw.filter((w: string) => w.length > 4 && ctxWords.has(w)).length;
-      // Topical relevance dominates; citations only nudge among relevant papers.
-      sc += Math.min(overlap * 3, 15);
+      if (surname && !isAcronym && fams.some((f: string) => f && (f.includes(surname.toLowerCase()) || surname.toLowerCase().includes(f)))) sc += 2;
+      if (year && c.year === year) sc += 2;
+      else if (year && Math.abs(parseInt(c.year || '0', 10) - parseInt(year, 10)) <= 1) sc += 0.5;
       sc += Math.min((c.citedBy || 0) / 2000, 1);
       if (c.doi) sc += 0.5;
       return sc;
     };
-    const overlapOf = (c: any) => { const tw = (c.title || '').toLowerCase().split(/[^a-z]+/); return tw.filter((w: string) => w.length > 4 && ctxWords.has(w)).length; };
     const best = uniq.slice().sort((a, b) => score(b) - score(a))[0];
     const bestOverlap = overlapOf(best);
-    const bestSurnameMatch = !!(surname && !isAcronym && (best.authorsList || []).some((a: any) => { const f = (a.family || '').toLowerCase(); return f && (f.includes(surname.toLowerCase()) || surname.toLowerCase().includes(f)); }));
-    // Confidence gate: a wrong citation is worse than none. If the best candidate
-    // shares no key terms with the claim and the author doesn't match, cite nothing.
-    if (bestOverlap === 0 && !bestSurnameMatch) return { none: true, raw: segment };
+    const haveContext = ctxWords.size >= 2;
+    // Confidence gate: require REAL topical relevance. A same-surname paper on a different
+    // topic must be rejected — a wrong citation is far worse than none. When we actually have
+    // claim context to compare against, demand at least one shared key term.
+    if (haveContext && bestOverlap === 0) return { none: true, raw: segment };
+    if (!haveContext && bestOverlap === 0) {
+      // No usable context and no topical signal → don't guess.
+      const bestSurnameMatch = !!(surname && !isAcronym && (best.authorsList || []).some((a: any) => { const f = (a.family || '').toLowerCase(); return f && (f.includes(surname.toLowerCase()) || surname.toLowerCase().includes(f)); }));
+      if (!bestSurnameMatch) return { none: true, raw: segment };
+    }
     const meta: any = { ...best };
     meta.authors = (best.authorsList || []).map((a: any) => [a.given, a.family].filter(Boolean).join(' ')).filter(Boolean).slice(0, 8).join(', ');
     if (best.abstract && best.abstract.length > 320) { meta.abstract = best.abstract.slice(0, 320).trim(); meta.truncated = true; } else { meta.truncated = false; }
-    meta.weak = (bestOverlap < 2 && !bestSurnameMatch) || !!(year && best.year && best.year !== year) || score(best) < 4;
+    meta.weak = (bestOverlap < 2) || score(best) < 8;
     if (meta.isOA === null && meta.doi) meta.isOA = await fetchOA(meta.doi);
     meta.impactFactor = await fetchImpactFactor(best.sourceId, best.issn, best.container);
     return meta;
@@ -1338,9 +1350,14 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
           try {
             const q = unique[i].text.replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim().slice(0, 180);
             if (q.length > 8) {
-              const cr = await fetch(`https://api.crossref.org/works?rows=1&select=title,author,published,container-title,DOI&query.bibliographic=${encodeURIComponent(q)}&mailto=support@pinnovix.app`);
+              const cr = await fetch(`https://api.crossref.org/works?rows=5&select=title,author,published,container-title,DOI&query.bibliographic=${encodeURIComponent(q)}&mailto=support@pinnovix.app`);
               const cj = await cr.json();
-              const it = cj && cj.message && cj.message.items && cj.message.items[0];
+              const items = (cj && cj.message && cj.message.items) || [];
+              // Topical-relevance gate: only accept a fallback paper that shares real key terms
+              // with the claim. Prevents author/title coincidences on off-topic papers.
+              const claimKw = new Set(q.toLowerCase().split(/[^a-z]+/).filter((w: string) => w.length > 4));
+              const relOf = (it: any) => { const t = (Array.isArray(it.title) ? it.title[0] : it.title) || ''; const tw = new Set(t.toLowerCase().split(/[^a-z]+/).filter((w: string) => w.length > 4)); let n = 0; claimKw.forEach((w: string) => { if (tw.has(w)) n++; }); return n; };
+              const it = items.map((x: any) => ({ x, rel: relOf(x) })).filter((o: any) => o.x.DOI && o.rel >= 2).sort((a: any, b: any) => b.rel - a.rel)[0]?.x;
               if (it) {
                 const fam = (it.author || []).map((a: any) => a.family).filter(Boolean);
                 paper = {
@@ -1732,9 +1749,13 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
           try {
             const q = (t.context || t.text).replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim().slice(0, 160);
             if (q.length > 8) {
-              const r = await fetch(`https://api.crossref.org/works?rows=1&select=title,author,published,container-title,DOI&query.bibliographic=${encodeURIComponent(q)}&mailto=support@pinnovix.app`);
+              const r = await fetch(`https://api.crossref.org/works?rows=5&select=title,author,published,container-title,DOI&query.bibliographic=${encodeURIComponent(q)}&mailto=support@pinnovix.app`);
               const j = await r.json();
-              const it2 = j && j.message && j.message.items && j.message.items[0];
+              const items2 = (j && j.message && j.message.items) || [];
+              // Only suggest a paper that is topically relevant to the claim (>= 2 shared key terms).
+              const claimKw2 = new Set(q.toLowerCase().split(/[^a-z]+/).filter((w: string) => w.length > 4));
+              const rel2 = (it: any) => { const tt = (Array.isArray(it.title) ? it.title[0] : it.title) || ''; const tw = new Set(tt.toLowerCase().split(/[^a-z]+/).filter((w: string) => w.length > 4)); let n = 0; claimKw2.forEach((w: string) => { if (tw.has(w)) n++; }); return n; };
+              const it2 = items2.map((x: any) => ({ x, rel: rel2(x) })).filter((o: any) => o.x.DOI && o.rel >= 2).sort((a: any, b: any) => b.rel - a.rel)[0]?.x;
               if (it2) {
                 const fam = (it2.author || []).map((a: any) => a.family).filter(Boolean);
                 suggestion = {

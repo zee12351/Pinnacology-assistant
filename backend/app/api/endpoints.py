@@ -658,6 +658,16 @@ between among through over under about after before during each per via not no y
 one two three data analysis system systems application applications field fields area areas because since although though even""".split())
 
 
+_EXPERT_PREAMBLE = (
+    "You are a distinguished professor and prolific peer-reviewer writing for a top-tier journal in the paper's field. "
+    "Your prose is precise, formal, and information-dense: every sentence advances a specific, defensible point using "
+    "correct domain terminology. You favour concrete mechanisms, named methods, and real quantitative relationships over "
+    "vague generalities and filler. You never fabricate statistics, study names, or results, and you hedge claims exactly "
+    "as the evidence warrants (e.g. 'suggests', 'is associated with'). Maintain an objective, scholarly register — no hype, "
+    "no first person, no rhetorical questions.\n\n"
+)
+
+
 def _cite_keyterms(text: str):
     import re as _re
     words = _re.findall(r"[a-zA-Z][a-zA-Z\-]{2,}", (text or "").lower())
@@ -783,11 +793,14 @@ async def continue_paper(request: ContinuePaperRequest):
                     yield f"data: {json.dumps({'error': 'GEMINI_API_KEY not set'})}\n\n"
                     return
                 instruction = (
-                    f"You are writing a research paper on: \"{topic}\".\n"
+                    _EXPERT_PREAMBLE
+                    + f"You are writing a peer-review-quality research paper on: \"{topic}\".\n"
                     + (f"=== PAPER SO FAR ===\n{existing[-2500:]}\n=== END ===\n\n" if existing else "")
                     + f"Write the body content for the section titled \"{section}\". "
                     "Write just 1 sentence (2 at the very most), about 20-40 words total, specific to this section, "
-                    "making ONE clear factual claim a published paper would support. Be concise - do not exceed two sentences. "
+                    "making ONE precise, verifiable factual claim that the peer-reviewed literature actually supports "
+                    "(name a concrete mechanism, finding, method, or quantitative relationship where appropriate). "
+                    "Do NOT fabricate statistics or study details. Be concise - do not exceed two sentences. "
                     "Do NOT output any heading or the section title. Do NOT include any in-text citations, bracketed "
                     "numbers, or a References section (they are added separately). Output only the paragraph text."
                 )
@@ -850,16 +863,23 @@ async def continue_paper(request: ContinuePaperRequest):
                 return
             if not existing:
                 instruction = (
-                    f"Begin a research paper on: \"{topic}\".\n"
+                    _EXPERT_PREAMBLE
+                    + f"Begin a peer-review-quality research paper on: \"{topic}\".\n"
                     + first_struct + " Always finish the sentence; never stop mid-sentence.\n"
+                    "The opening claim must be precise and substantive (state the real significance / gap), not a vague generality. "
                     "Do NOT include any in-text citations, bracketed numbers, or a References section - "
                     "citations are added separately. Output only the content, no commentary."
                 )
             else:
                 instruction = (
-                    f"You are continuing a research paper on: \"{topic}\".\n\n"
+                    _EXPERT_PREAMBLE
+                    + f"You are continuing a peer-review-quality research paper on: \"{topic}\".\n\n"
                     f"=== PAPER SO FAR ===\n{existing[-3500:]}\n=== END ===\n\n"
-                    "Write ONLY ONE complete claim - one or two full sentences (about 35-60 words) that make a single point which ONE citation would support. Always finish the sentence; never stop mid-sentence.\n"
+                    "Write ONLY ONE complete claim - one or two full sentences (about 35-60 words) that make a single, "
+                    "precise, evidence-grade point which ONE real citation would support (concrete mechanism, method, "
+                    "finding, or quantitative relationship where appropriate; never fabricate specific statistics). "
+                    "Ensure it flows logically from the preceding text and does not repeat earlier claims. "
+                    "Always finish the sentence; never stop mid-sentence.\n"
                     + next_struct + "\n"
                     "Do NOT add a References section and do NOT include any in-text citations or bracketed "
                     "numbers (they are added automatically)."

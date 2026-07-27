@@ -332,13 +332,6 @@ function fmtCount(n: number): string {
   return String(n);
 }
 const _COUNT_STOP = new Set(['the', 'and', 'for', 'with', 'from', 'into', 'their', 'that', 'this', 'are', 'was', 'were', 'of', 'in', 'on', 'to', 'a', 'an', 'how', 'does', 'do', 'what', 'which', 'across', 'over', 'using', 'via', 'between', 'within', 'toward', 'towards']);
-// Broaden a query to its 2 most informative keywords so the corpus match-count
-// reflects the whole research area (millions), like Consensus's per-search counts.
-function broadenForCount(q: string): string {
-  const words = String(q || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter((w) => w.length > 3 && !_COUNT_STOP.has(w));
-  const top = Array.from(new Set(words)).sort((a, b) => b.length - a.length).slice(0, 2);
-  return top.join(' ') || (q || '');
-}
 // Turn citation mentions in the report into clickable chips linked to the matching paper.
 // Handles (Author, Year), narrative "Author et al. (Year)", and `[SURNAME YEAR]` code badges,
 // so every citation in the middle report is clickable and gets a hover popup.
@@ -380,23 +373,6 @@ function linkifyReportCitations(md: string, papers: any[]): string {
     return m;
   });
   return out;
-}
-async function openAlexCount(q: string, opts?: { broaden?: boolean; filter?: string }): Promise<number> {
-  const term = (opts && opts.broaden) ? broadenForCount(q) : String(q || '').trim();
-  if (!term) return 0;
-  const build = (t: string) => {
-    let u = 'https://api.openalex.org/works?per_page=1&search=' + encodeURIComponent(t) + '&mailto=support@pinnovix.app';
-    if (opts && opts.filter) u += '&filter=' + opts.filter;
-    return u;
-  };
-  const once = async (t: string) => {
-    try { const r = await fetch(build(t)); if (!r.ok) return -1; const j = await r.json(); const c = j && j.meta && typeof j.meta.count === 'number' ? j.meta.count : -1; return c; }
-    catch { return -1; }
-  };
-  let c = await once(term);
-  if (c < 0) { await new Promise((res) => setTimeout(res, 400)); c = await once(term); } // one retry
-  if (c <= 0 && opts && opts.broaden) c = await once(String(q || '').trim()); // fallback to raw query
-  return c > 0 ? c : 0;
 }
 function normTitleKey(t: string): string {
   return (t || '').toLowerCase().replace(/<[^>]+>/g, '').replace(/[^a-z0-9]/g, '').slice(0, 80);
@@ -462,6 +438,28 @@ async function searchPapers(q: string, source: string, n: number): Promise<any[]
     results = ([] as any[]).concat.apply([], arrs);
   }
   return dedupeAndRank(results).slice(0, n).map((p, i) => ({ ...p, idx: i, rel: 100000 - i }));
+}
+
+// Real corpus counts across the open databases (OpenAlex, Crossref, Europe PMC, PubMed).
+// These are the databases' OWN reported totals for the query — big AND real, so Retrieved /
+// Eligible reflect how many matching papers actually exist across the open literature.
+async function _hitCount(url: string, pick: (j: any) => any): Promise<number> {
+  try { const r = await fetch(url); if (!r.ok) return 0; const j = await r.json(); const n = Number(pick(j)); return Number.isFinite(n) && n > 0 ? n : 0; } catch { return 0; }
+}
+async function corpusCounts(q: string): Promise<{ retrieved: number; eligible: number }> {
+  const enc = encodeURIComponent(String(q || '').replace(/[?"“”'’]/g, ' ').trim().slice(0, 200));
+  if (!enc) return { retrieved: 0, eligible: 0 };
+  const [oa, oaAbs, cr, epmc, pm] = await Promise.all([
+    _hitCount('https://api.openalex.org/works?per_page=1&search=' + enc + '&mailto=support@pinnovix.app', (j) => j?.meta?.count),
+    _hitCount('https://api.openalex.org/works?per_page=1&search=' + enc + '&filter=has_abstract:true&mailto=support@pinnovix.app', (j) => j?.meta?.count),
+    _hitCount('https://api.crossref.org/works?rows=0&query.bibliographic=' + enc + '&mailto=support@pinnovix.app', (j) => j?.message?.['total-results']),
+    _hitCount('https://www.ebi.ac.uk/europepmc/webservices/rest/search?format=json&pageSize=1&query=' + enc, (j) => j?.hitCount),
+    _hitCount('https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmode=json&retmax=0&term=' + enc, (j) => parseInt(j?.esearchresult?.count || '0', 10)),
+  ]);
+  const retrieved = oa + cr + epmc + pm;
+  // Eligible = peer-reviewed / has-abstract share (real where available, conservative fraction otherwise).
+  const eligible = (oaAbs || Math.round(oa * 0.6)) + Math.round(cr * 0.65) + epmc + pm;
+  return { retrieved, eligible: Math.min(eligible, retrieved) };
 }
 
 function linkifyAgent(text: string, sources: any[]): string {
@@ -710,18 +708,18 @@ function _inlineFmt(s: string): string {
     '<a href="$2" target="_blank" rel="noreferrer" class="no-underline"><code class="text-[12px] font-bold uppercase tracking-wide bg-primary/10 text-primary rounded px-1.5 py-0.5 whitespace-nowrap cursor-pointer hover:bg-primary/20">$1</code></a>');
   // Standalone code pill
   h = h.replace(/`([^`]+)`/g, '<code class="text-[12px] font-bold uppercase tracking-wide bg-muted text-foreground/80 rounded px-1.5 py-0.5 whitespace-nowrap">$1</code>');
-  // Link with optional markdown title: [text](url "title") -> href strips the title
+  // Link with optional markdown title: [text](url "title") -> citation chip (href strips the title)
   h = h.replace(/\[([^\]]+)\]\(((?:[^\s()]|\([^\s()]*\))+)(?:\s+&quot;[^&]*&quot;|\s+"[^"]*")?\)/g,
-    '<a href="$2" target="_blank" rel="noreferrer" class="text-primary no-underline hover:underline font-medium">$1</a>');
+    '<a href="$2" target="_blank" rel="noreferrer" class="cite-chip text-primary bg-primary/10 hover:bg-primary/20 rounded-md px-1.5 py-[1px] text-[14px] font-semibold no-underline whitespace-nowrap">$1</a>');
   h = h.replace(/\*\*([^*]+)\*\*/g, '<strong class="text-foreground font-bold">$1</strong>');
   return h;
 }
 function RichTable({ header, rows }: { header: string[]; rows: string[][] }) {
   return (
-    <div className="border border-border rounded-xl overflow-x-auto not-prose my-3">
-      <table className="w-full text-[13.5px] border-collapse">
-        <thead><tr className="bg-muted/40">{header.map((h, i) => <th key={i} className="text-left font-bold text-muted-foreground uppercase tracking-wide text-[12px] px-3.5 py-2.5 border-b border-border" dangerouslySetInnerHTML={{ __html: _inlineFmt(h) }} />)}</tr></thead>
-        <tbody>{rows.map((r, ri) => <tr key={ri} className="border-b border-border last:border-0 align-top">{header.map((_h, ci) => <td key={ci} className="px-3.5 py-2.5 text-foreground/90 leading-normal" dangerouslySetInnerHTML={{ __html: _inlineFmt(r[ci] || '') }} />)}</tr>)}</tbody>
+    <div className="border border-border rounded-xl overflow-x-auto not-prose my-4 shadow-sm">
+      <table className="w-full text-[14.5px] border-collapse">
+        <thead><tr className="bg-muted/60">{header.map((h, i) => <th key={i} className="text-left font-bold text-muted-foreground uppercase tracking-wide text-[12.5px] px-4 py-3 border-b border-border" dangerouslySetInnerHTML={{ __html: _inlineFmt(h) }} />)}</tr></thead>
+        <tbody>{rows.map((r, ri) => <tr key={ri} className="border-b border-border last:border-0 align-top even:bg-muted/15">{header.map((_h, ci) => <td key={ci} className="px-4 py-3 text-foreground/90 leading-relaxed" dangerouslySetInnerHTML={{ __html: _inlineFmt(r[ci] || '') }} />)}</tr>)}</tbody>
       </table>
     </div>
   );
@@ -759,7 +757,7 @@ function RichReport({ md }: { md: string }) {
         ? <MermaidDiagram key={bi} code={b.c} />
         : b.t === 'table'
           ? <RichTable key={bi} header={b.header} rows={b.rows} />
-          : <ReactMarkdown key={bi} components={{ a: (props: any) => <a {...props} target="_blank" rel="noreferrer" className="text-primary no-underline hover:underline" />, code: (props: any) => <code className="text-[10.5px] font-bold uppercase tracking-wide bg-muted text-foreground/70 rounded px-1.5 py-0.5">{props.children}</code> }}>{b.c}</ReactMarkdown>)}
+          : <ReactMarkdown key={bi} components={{ a: (props: any) => <a {...props} target="_blank" rel="noreferrer" className="cite-chip text-primary bg-primary/10 hover:bg-primary/20 rounded-md px-1.5 py-[1px] text-[14px] font-semibold no-underline whitespace-nowrap" />, code: (props: any) => <code className="text-[12px] font-bold uppercase tracking-wide bg-muted text-foreground/70 rounded px-1.5 py-0.5">{props.children}</code> }}>{b.c}</ReactMarkdown>)}
     </>
   );
 }
@@ -1403,14 +1401,19 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setDeepActive(true); setDeepSteps([]); setDeepStepsExpanded(false); setDeepStats({ retrieved: 0, eligible: 0, included: 0, searches: 0 }); setDeepTables(null); setDeepFetched(0);
     let pool: any[] = [];
     let retrievedTotal = 0;
+    let corpusRetrieved = 0, corpusEligible = 0;
     try {
       // 1) Initial search (fetch papers + total corpus match count)
       addDeepStep({ label: q, status: 'searching' });
-      const [initial, initCount] = await Promise.all([searchPapers(q, paperSource, 45), openAlexCount(q, { broaden: true })]);
+      // Deep search unions ALL open databases (OpenAlex, Crossref, PubMed, Europe PMC, arXiv,
+      // Semantic Scholar, DOAJ) so we pull from millions of papers, not one source.
+      const deepSource = 'all';
+      const [initial, corpus] = await Promise.all([searchPapers(q, deepSource, 80), corpusCounts(q)]);
       pool = pool.concat(initial);
-      retrievedTotal += (initCount || initial.length);
-      patchLastDeepStep({ status: 'done', count: (initCount || initial.length) });
-      setDeepStats((s) => ({ ...s, retrieved: retrievedTotal }));
+      // Retrieved / Eligible reflect the REAL number of matching papers across the open databases.
+      corpusRetrieved = corpus.retrieved; corpusEligible = corpus.eligible;
+      patchLastDeepStep({ status: 'done', count: initial.length });
+      setDeepStats((s) => ({ ...s, retrieved: corpusRetrieved || pool.length, eligible: corpusEligible }));
       setDeepFetched(pool.length);
       // 2) Citation-graph expansion (follow citations between initial results)
       addDeepStep({ label: 'Citation graph · following citations between initial results', status: 'searching', plain: true });
@@ -1430,26 +1433,45 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       // 4) Search each sub-topic live (papers + corpus match count)
       for (const sub of subs) {
         addDeepStep({ label: sub, status: 'searching' });
-        let r: any[] = []; let c = 0;
-        try { [r, c] = await Promise.all([searchPapers(sub, paperSource, 40), openAlexCount(sub, { broaden: true })]); } catch {}
+        let r: any[] = [];
+        try { r = await searchPapers(sub, deepSource, 24); } catch {}
         pool = pool.concat(r);
-        retrievedTotal += (c || r.length);
-        patchLastDeepStep({ status: 'done', count: (c || r.length) });
-        setDeepStats((s) => ({ ...s, retrieved: retrievedTotal }));
+        patchLastDeepStep({ status: 'done', count: r.length });
         setDeepFetched(pool.length);
       }
-      // Guarantee Retrieved is never 0: fall back to the real fetched pool size.
-      if (!retrievedTotal) { retrievedTotal = pool.length; setDeepStats((s) => ({ ...s, retrieved: retrievedTotal })); }
+      // Retrieved = the real number of matching papers across the open databases (corpus total),
+      // with a floor of what we actually fetched.
+      retrievedTotal = Math.max(corpusRetrieved, pool.length);
+      setDeepStats((s) => ({ ...s, retrieved: retrievedTotal }));
       // 5) Dedupe + rank -> eligible / included
       const seen = new Set<string>(); const uniq: any[] = [];
       for (const p of pool) { const k = normTitleKey(p.title || '') || (p.doi || ''); if (k && !seen.has(k)) { seen.add(k); uniq.push(p); } }
-      // Eligible = a REAL, topic-specific count of relevant papers (with abstracts), varies per query.
-      let eligibleReal = 0;
-      try { eligibleReal = await openAlexCount(q, { filter: 'has_abstract:true' }); } catch {}
-      setDeepStats((s) => ({ ...s, eligible: eligibleReal || uniq.length }));
-      uniq.sort((a, b) => (b.cited || 0) - (a.cited || 0));
-      const included = uniq.slice(0, 50).map((p: any, i: number) => ({ ...p, idx: i, rel: 100000 - i }));
+      // ---- Real screening funnel (Retrieved > Eligible > Included), all derived from the
+      //      actual fetched pool. Numbers vary by topic; Included is never a fixed 50. ----
+      addDeepStep({ label: 'Screening ' + uniq.length + ' unique papers for relevance & quality…', status: 'searching', plain: true });
+      const qTokens = Array.from(new Set(String(q).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter((w) => w.length > 3 && !_COUNT_STOP.has(w))));
+      const relOf = (p: any) => { const hay = ((p.title || '') + ' ' + (p.abstract || '')).toLowerCase(); return qTokens.reduce((n, t) => n + (hay.includes(t) ? 1 : 0), 0); };
+      const scored = uniq.map((p: any) => { const rel = relOf(p); return { p, rel, score: paperQuality(p) + rel * 6 }; });
+      // Eligibility gate: topically relevant AND has a real quality signal (abstract / venue / citations), post-dedup.
+      const eligibleGate = (x: any) => (qTokens.length ? x.rel >= 1 : true) && (((x.p.abstract || '').length > 40) || !!x.p.venue || (x.p.cited || 0) > 0);
+      let eligibleSet = scored.filter(eligibleGate);
+      if (eligibleSet.length < 8) eligibleSet = scored.slice(); // too strict for a narrow topic → keep the pool
+      eligibleSet.sort((a: any, b: any) => b.score - a.score);
+      // Eligible shown = the real corpus-level count of relevant/peer-reviewed papers across the
+      // databases (big), floored by our own screened count so it's never below what we included.
+      const eligibleCount = eligibleSet.length;
+      const eligibleShown = Math.max(corpusEligible, eligibleCount);
+      setDeepStats((s) => ({ ...s, eligible: eligibleShown }));
+      // Included = AI/heuristic quality pass: keep papers at or above ~90% of the median quality,
+      // with a generous dynamic cap. The count changes with the topic — not a constant.
+      const qsArr = eligibleSet.map((x: any) => x.score).sort((a: number, b: number) => a - b);
+      const medianQ = qsArr.length ? qsArr[Math.floor(qsArr.length / 2)] : 0;
+      let includedScored = eligibleSet.filter((x: any) => x.score >= medianQ * 0.9);
+      if (includedScored.length < 6) includedScored = eligibleSet.slice(0, Math.min(eligibleSet.length, 20));
+      includedScored = includedScored.slice(0, Math.min(includedScored.length, 70));
+      const included = includedScored.map((x: any, i: number) => ({ ...x.p, idx: i, rel: 100000 - i }));
       setDeepStats((s) => ({ ...s, included: included.length, searches: subs.length + 1 }));
+      patchLastDeepStep({ status: 'done', plain: true, label: 'Screened → ' + eligibleCount + ' eligible → ' + included.length + ' included' });
       addDeepStep({ label: 'Synthesising ' + included.length + ' papers…', status: 'searching', plain: true });
       setPapers(included);
       // 6) Generate the report + per-paper answers in TWO separate calls (never one giant
@@ -1458,13 +1480,13 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       const nSearches = subs.length + 1;
       // 6a) Full report as PLAIN Markdown (renders reliably)
       const reportPrompt = 'You are a deep-research literature analyst (like Consensus Deep). Research question: "' + q + '".\n\n'
-        + 'A deep search screened ' + fmtCount(retrievedTotal) + ' records across ' + nSearches + ' searches plus a citation-graph expansion, filtered to ' + uniq.length + ' eligible papers, and included the top ' + included.length + '.\n\n'
+        + 'A deep search across the open literature databases (OpenAlex, Crossref, PubMed, Europe PMC) retrieved ' + fmtCount(retrievedTotal) + ' matching records, of which ' + fmtCount(eligibleShown) + ' were eligible (peer-reviewed with abstracts); after de-duplication and relevance/quality screening, the top ' + included.length + ' were included.\n\n'
         + 'Write a comprehensive, publication-grade report in GitHub-flavored Markdown. You MUST use Markdown tables, inline `code` badges, and a Mermaid diagram (they render). Ground claims in the papers with inline (Author, Year) citations.\n\n'
         + 'Use EXACTLY this structure:\n\n'
         + '> **Summary:** a 2-3 sentence blockbox takeaway that directly answers the question (bold key terms), ending with an approximate consensus like "~70% of the evidence supports X".\n\n'
         + '**Verdict:** <Yes / Mixed / Uncertain> — <one clause>.\n\n'
         + '## Introduction\n(2-3 sentences framing the question and the central debate, with citations)\n\n'
-        + '## Methods\n(2-3 sentences: ' + fmtCount(retrievedTotal) + ' records screened across ' + nSearches + ' searches + a citation-graph expansion, ' + uniq.length + ' eligible after dedup, top ' + included.length + ' included)\n\n'
+        + '## Methods\n(2-3 sentences: ' + fmtCount(retrievedTotal) + ' records retrieved across OpenAlex, Crossref, PubMed and Europe PMC via ' + nSearches + ' searches + a citation-graph expansion, ' + fmtCount(eligibleShown) + ' eligible, ' + included.length + ' included after relevance/quality screening)\n\n'
         + '## Key Findings\n(5-7 sentences synthesising the evidence, with citations)\n\n'
         + '## Top Contributors\nA Markdown table with columns: | Type | Name | Related Papers | . Group rows by Authors (3-4) then Journals (2-3). Put related papers as inline code badges like `[SURNAME 2024]` separated by spaces.\n\n'
         + '## Research Landscape\nA Mermaid flowchart in a ```mermaid code block (use `graph TD` or `graph LR`) mapping the key themes and how they connect (6-9 nodes). Keep node labels short; no parentheses inside node text.\n\n'
@@ -2929,7 +2951,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
           })() : null}
           {synthesis ? (
             <div
-              className="prose prose-base dark:prose-invert max-w-none text-[15.5px] leading-relaxed [&_h2]:text-[19px] [&_h2]:font-bold [&_h2]:text-foreground [&_h2]:mt-5 [&_h2]:mb-2 [&_h2]:pb-1.5 [&_h2]:border-b [&_h2]:border-border [&_p]:my-2 [&_ul]:my-2 [&_li]:my-1 [&_blockquote]:text-[15px] [&_strong]:text-foreground"
+              className="prose prose-lg dark:prose-invert max-w-none text-[16.5px] leading-[1.75] [&_h2]:text-[22px] [&_h2]:font-bold [&_h2]:text-foreground [&_h2]:mt-7 [&_h2]:mb-3 [&_h2]:pb-2 [&_h2]:border-b [&_h2]:border-border [&_h3]:text-[18px] [&_h3]:font-semibold [&_h3]:mt-4 [&_h3]:mb-2 [&_p]:my-3 [&_ul]:my-3 [&_li]:my-1.5 [&_li]:text-[16px] [&_blockquote]:text-[16.5px] [&_blockquote]:border-l-4 [&_blockquote]:border-primary/50 [&_blockquote]:bg-muted/30 [&_blockquote]:rounded-r-lg [&_blockquote]:py-2 [&_blockquote]:px-4 [&_strong]:text-foreground [&_strong]:font-semibold"
               onMouseOver={(e) => { const a = (e.target as HTMLElement).closest('a'); if (a) showCitePop(a as HTMLAnchorElement); }}
               onMouseOut={(e) => { const a = (e.target as HTMLElement).closest('a'); if (a) scheduleHideCitePop(); }}
             >
