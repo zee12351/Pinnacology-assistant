@@ -333,15 +333,35 @@ function fmtCount(n: number): string {
 }
 const _COUNT_STOP = new Set(['the', 'and', 'for', 'with', 'from', 'into', 'their', 'that', 'this', 'are', 'was', 'were', 'of', 'in', 'on', 'to', 'a', 'an', 'how', 'does', 'do', 'what', 'which', 'across', 'over', 'using', 'via', 'between', 'within', 'toward', 'towards']);
 // Turn citation mentions in the report into clickable chips linked to the matching paper.
-// Handles (Author, Year), narrative "Author et al. (Year)", and `[SURNAME YEAR]` code badges,
-// so every citation in the middle report is clickable and gets a hover popup.
+// Handles single & GROUPED parentheticals "(A et al., 2018; B & C, 2020)", narrative
+// "Author et al. (Year)", accented/unicode surnames, and `[SURNAME YEAR]` code badges.
+function _foldName(s: string): string { return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); }
+function _surnameOf(authorStr: string): string {
+  // First author, last token — turns "F. Sánchez-Vega, Marco Mina et al." -> "sanchez-vega".
+  const first = String(authorStr || '').split(',')[0].replace(/\bet al\.?/ig, '').trim();
+  const toks = first.split(/\s+/).filter(Boolean);
+  return _foldName(toks[toks.length - 1] || '');
+}
+const _CIT_AUTHOR = "[A-Z\\u00C0-\\u024F][\\p{L}'’.\\-]+";
 function linkifyReportCitations(md: string, papers: any[]): string {
   if (!md || !papers || !papers.length) return md || '';
-  const idx = papers.map((p) => ({ p, sur: String(p.authorStr || '').replace(/\bet al\.?/i, '').split(/[ ,]/)[0].toLowerCase(), yr: String(p.year || '') }));
+  const idx = papers.map((p) => ({ p, sur: _surnameOf(p.authorStr), yr: String(p.year || '') }));
   const urlOf = (hit: any) => hit && (hit.p.url || (hit.p.doi ? 'https://doi.org/' + hit.p.doi : ''));
-  const findBy = (name: string, yr: string) => {
-    const sur = String(name).replace(/\bet al\.?/i, '').split(/[ &]/)[0].toLowerCase();
-    return idx.find((x) => x.sur === sur && x.yr === yr) || (yr ? idx.find((x) => x.sur === sur) : idx.find((x) => x.sur === sur));
+  const titleOf = (hit: any) => String((hit && hit.p.title) || '').replace(/"/g, '');
+  // Match by the lead author's surname (last token before "et al."/"&"/"and").
+  const findBy = (name: string) => {
+    const lead = String(name).replace(/\bet al\.?/ig, '').split(/\s+(?:&|and)\s+/)[0].trim();
+    const sur = _foldName(lead.split(/\s+/).filter(Boolean).pop() || '');
+    if (!sur || sur.length < 2) return undefined;
+    return idx.find((x) => x.sur === sur) || idx.find((x) => x.sur && (x.sur.includes(sur) || sur.includes(x.sur)));
+  };
+  const _fragRe = new RegExp('^\\s*(' + _CIT_AUTHOR + '(?:\\s+(?:et al\\.?|&|and)\\s+' + _CIT_AUTHOR + ')*(?:\\s+et al\\.?)?)[,\\s]+(\\d{4})[a-z]?\\s*$', 'u');
+  const linkFrag = (frag: string): string => {
+    const m = frag.match(_fragRe);
+    if (!m) return frag;
+    const hit = findBy(m[1]); const url = urlOf(hit);
+    if (!url) return frag;
+    return '[' + frag.trim() + '](' + url + ' "' + titleOf(hit) + '")';
   };
   let out = md;
   // Between passes we "stash" already-inserted markdown links so a later pass can never
@@ -354,22 +374,25 @@ function linkifyReportCitations(md: string, papers: any[]): string {
     out = out.replace(re, fn as any);
     out = out.replace(/(\d+)/g, (_m, i) => stash[+i]);
   };
-  // 1) Narrative "Author et al. (Year)" / "Author & Author (Year)" / "Author (Year)"
-  runPass(/(?<![\]\("\[])([A-Z][A-Za-z’'\-]+(?:\s+(?:et al\.?|&|and)\s+[A-Z][A-Za-z’'\-]+)?)\s+\((\d{4})[a-z]?\)/g, (m: string, name: string, yr: string) => {
-    const hit = findBy(name, yr); const url = urlOf(hit);
-    if (url) return '[' + name + ' (' + yr + ')](' + url + ' "' + String(hit!.p.title || '').replace(/"/g, '') + '")';
+  // 1) Narrative "Author et al. (Year)" (year in parens, name outside).
+  runPass(new RegExp('(?<![\\]\\("\\[\\u2019])(' + _CIT_AUTHOR + '(?:\\s+(?:et al\\.?|&|and)\\s+' + _CIT_AUTHOR + ')*(?:\\s+et al\\.?)?)\\s+\\((\\d{4})[a-z]?\\)', 'gu'), (m: string, name: string, yr: string) => {
+    const hit = findBy(name); const url = urlOf(hit);
+    if (url) return '[' + name + ' (' + yr + ')](' + url + ' "' + titleOf(hit) + '")';
     return m;
   });
-  // 2) (Author, Year) parenthetical (needs a comma inside the parens, so it won't touch "(2018)")
-  runPass(/\(([A-Z][A-Za-z’'\-]+(?:\s+(?:et al\.?|&|and)\s+[A-Za-z’'\-]+)?),\s*(\d{4})[a-z]?\)/g, (m: string, name: string, yr: string) => {
-    const hit = findBy(name, yr); const url = urlOf(hit);
-    if (url) return '[(' + name + ', ' + yr + ')](' + url + ' "' + String(hit!.p.title || '').replace(/"/g, '') + '")';
-    return m;
+  // 2) Parenthetical GROUP: any (...) containing a 4-digit year → split on ";" and link each
+  //    fragment. Handles "(A et al., 2018; B & C, 2020)" and single "(Author, Year)".
+  runPass(/\(([^)]*\b\d{4}[a-z]?\b[^)]*)\)/gu, (whole: string, inner: string) => {
+    if (!/[A-Za-zÀ-ɏ]/.test(inner)) return whole;
+    const parts = inner.split(/;\s*/);
+    let any = false;
+    const linked = parts.map((part) => { const l = linkFrag(part); if (l !== part) any = true; return l; });
+    return any ? '(' + linked.join('; ') + ')' : whole;
   });
   // 3) `[SURNAME 2024]` code badges → clickable code-pill link
-  runPass(/`\[([A-Za-z’'\-]+)\s+(\d{4})[a-z]?\]`/g, (m: string, name: string, yr: string) => {
-    const hit = findBy(name, yr); const url = urlOf(hit);
-    if (url) return '[`[' + name + ' ' + yr + ']`](' + url + ' "' + String(hit!.p.title || '').replace(/"/g, '') + '")';
+  runPass(/`\[([\p{L}'’.\-]+)\s+(\d{4})[a-z]?\]`/gu, (m: string, name: string, yr: string) => {
+    const hit = findBy(name); const url = urlOf(hit);
+    if (url) return '[`[' + name + ' ' + yr + ']`](' + url + ' "' + titleOf(hit) + '")';
     return m;
   });
   return out;
@@ -3224,7 +3247,12 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                   <tr key={p.id} className="border-b border-border align-top hover:bg-muted/30">
                     <td className="pl-3 pr-1 py-3 align-top"><input type="checkbox" checked={!!selRows[p.id]} onChange={() => setSelRows((prev: any) => ({ ...prev, [p.id]: !prev[p.id] }))} /></td>
                     <td className="pl-1 pr-3 py-3">
-                      <div className="font-semibold text-foreground leading-snug mb-1">{p.title}</div>
+                      {p.url || p.doi ? (
+                        <a href={p.url || ('https://doi.org/' + p.doi)} target="_blank" rel="noreferrer"
+                          onMouseEnter={(e) => { const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); if (citeHideTimer.current) { clearTimeout(citeHideTimer.current); citeHideTimer.current = null; } setCitePop({ paper: p, x: Math.min(Math.max(r.left, 12), (typeof window !== 'undefined' ? window.innerWidth : 1200) - 360), y: r.bottom + 6 }); }}
+                          onMouseLeave={scheduleHideCitePop}
+                          className="block font-semibold text-foreground leading-snug mb-1 hover:text-primary transition-colors no-underline">{p.title}</a>
+                      ) : <div className="font-semibold text-foreground leading-snug mb-1">{p.title}</div>}
                       <div className="text-[12px] text-muted-foreground">{p.authorStr}</div>
                       <div className="text-[12px] text-muted-foreground mt-0.5">{[p.venue, p.year, p.cited + ' citations'].filter(Boolean).join(' - ')}</div>
                       <div className="flex items-center gap-2 mt-1.5">

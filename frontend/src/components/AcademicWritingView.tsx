@@ -4659,7 +4659,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
               </div>
             </div>
           ) : (
-            <div ref={editorPageRef} className={`editor-dark w-full min-h-full p-10 ${docSections.length > 0 && genMode === 'paragraph' ? 'xl:pl-[300px]' : ''} bg-[#18181b] text-zinc-100 pb-32 relative print-area`} onClick={handleEditorClick} onMouseOver={handleCitationHover} onMouseOut={handleCitationHoverOut}>
+            <div ref={editorPageRef} className={`editor-dark w-full min-h-full p-4 sm:p-6 md:p-10 ${docSections.length > 0 && genMode === 'paragraph' ? 'xl:pl-[300px]' : ''} bg-[#18181b] text-zinc-100 pb-32 relative print-area`} onClick={handleEditorClick} onMouseOver={handleCitationHover} onMouseOut={handleCitationHoverOut}>
               {pendingSec && barPos && (
                 <div className="not-prose absolute z-20 flex items-center gap-2 flex-wrap rounded-xl border border-[#3f3f46] bg-[#232327] px-2 py-2 w-fit shadow-xl" style={{ top: barPos.top, left: barPos.left }}>
                   <button onClick={acceptSection} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#4f46e5] hover:bg-[#4338ca] text-white text-[13px] font-bold transition-colors">Accept <span aria-hidden>→</span></button>
