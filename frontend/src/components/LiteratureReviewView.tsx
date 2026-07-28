@@ -905,6 +905,36 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     } catch {}
     setQRefining(false);
   }
+  // Per-paper "Gap identification" column — AI names the key gap/limitation each paper leaves open.
+  const [paperGapBusy, setPaperGapBusy] = useState(false);
+  const gapColRef = useRef('');
+  async function generatePaperGaps() {
+    const missing = papers.map((p, i) => ({ p, i })).filter((x) => !x.p.gap && (x.p.summary || x.p.abstract));
+    if (!missing.length) return;
+    setPaperGapBusy(true);
+    try {
+      const list = missing.map((x, k) => '[' + k + '] ' + x.p.title + ' — ' + String(x.p.summary || x.p.abstract || '').slice(0, 280)).join('\n');
+      const raw = await callChat('For EACH paper below, identify in ONE short phrase (max ~14 words) the KEY research gap or limitation it leaves open — what is missing, unresolved, or under-studied — relative to the topic "' + (question || '') + '". Be specific (e.g. "No long-term follow-up beyond 12 months", "Small single-centre sample"). Return ONLY a JSON array of exactly ' + missing.length + ' short strings in the SAME order.\n\nPapers:\n' + list, false, 'LITERATURE REVIEW');
+      const arr = extractJSON(raw);
+      if (Array.isArray(arr)) {
+        const byId: Record<string, string> = {};
+        missing.forEach((x, k) => { if (typeof arr[k] === 'string' && arr[k].trim()) byId[x.p.id] = arr[k].trim(); });
+        setPapers((prev) => prev.map((p) => byId[p.id] ? { ...p, gap: byId[p.id] } : p));
+      }
+    } catch {}
+    setPaperGapBusy(false);
+  }
+  useEffect(() => {
+    if (paperGapBusy || !papers.length) return;
+    const missing = papers.filter((p) => !p.gap && (p.summary || p.abstract));
+    if (!missing.length) return;
+    const key = (question || '') + '|' + papers.length + '|' + papers.filter((p) => p.gap).length;
+    if (gapColRef.current === key) return;
+    gapColRef.current = key;
+    const t = setTimeout(() => { generatePaperGaps(); }, 700);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [papers, paperGapBusy, question]);
   const [followups, setFollowups] = useState([] as string[]);
   const [filtOpen, setFiltOpen] = useState(false);
   const [minYear, setMinYear] = useState('');
@@ -2000,17 +2030,17 @@ export function LiteratureReviewView({ messages, onHome }: any) {
 
   function downloadCSV() {
     const esc = (v: any) => '"' + String(v === undefined || v === null ? '' : v).split('"').join('""') + '"';
-    const head = ['Title', 'Authors', 'Year', 'Journal', 'Cited by', 'DOI', 'Summary'].concat(columns.map((c) => c.name));
-    const body = dlRows().map((p) => [p.title, p.authors.join('; '), p.year, p.venue, p.cited, p.doi, p.summary].concat(columns.map((c) => p.cols[c.id] || '')));
+    const head = ['Title', 'Authors', 'Year', 'Journal', 'Cited by', 'DOI', 'Summary', 'Gap identification'].concat(columns.map((c) => c.name));
+    const body = dlRows().map((p) => [p.title, p.authors.join('; '), p.year, p.venue, p.cited, p.doi, p.summary, p.gap || ''].concat(columns.map((c) => p.cols[c.id] || '')));
     const csv = [head].concat(body).map((row) => row.map(esc).join(',')).join('\n');
     doDownload(csv, (question || 'literature-review').slice(0, 40) + '.csv', 'text/csv');
   }
 
   function downloadExcel() {
     const esc = (v: any) => String(v === undefined || v === null ? '' : v).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');
-    const head = ['Title', 'Authors', 'Year', 'Journal', 'Cited by', 'DOI', 'Summary'].concat(columns.map((c) => c.name));
+    const head = ['Title', 'Authors', 'Year', 'Journal', 'Cited by', 'DOI', 'Summary', 'Gap identification'].concat(columns.map((c) => c.name));
     const bodyRows = dlRows().map((p) => {
-      const cells = [p.title, p.authors.join('; '), p.year, p.venue, p.cited, p.doi, p.summary].concat(columns.map((c) => p.cols[c.id] || ''));
+      const cells = [p.title, p.authors.join('; '), p.year, p.venue, p.cited, p.doi, p.summary, p.gap || ''].concat(columns.map((c) => p.cols[c.id] || ''));
       return '<tr>' + cells.map((c) => '<td>' + esc(c) + '</td>').join('') + '</tr>';
     }).join('');
     const html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head><body><table border="1"><tr>' + head.map((h) => '<th>' + esc(h) + '</th>').join('') + '</tr>' + bodyRows + '</table></body></html>';
@@ -3294,12 +3324,13 @@ export function LiteratureReviewView({ messages, onHome }: any) {
               {!busy ? <p className="text-[12px] text-muted-foreground mt-1">Ask a research question to build your review table.</p> : null}
             </div>
           ) : (
-            <table className="w-full table-fixed border-collapse text-[13px]">
+            <table className="min-w-[1080px] border-collapse text-[13px]">
               <thead className="sticky top-0 bg-card z-10">
                 <tr className="border-b border-border text-left text-muted-foreground">
                   <th className="pl-3 pr-1 py-3 w-8"><input type="checkbox" checked={rows.length > 0 && rows.every((p) => selRows[p.id])} onChange={(e) => { const v = e.target.checked; setSelRows(() => { const o: any = {}; if (v) rows.forEach((p) => { o[p.id] = true; }); return o; }); }} /></th>
-                  <th className="pl-1 pr-3 py-3 font-semibold w-[48%]">Source ({rows.length})</th>
-                  <th className="p-3 font-semibold w-[46%]">Summary</th>
+                  <th className="pl-1 pr-3 py-3 font-semibold w-[34%] min-w-[280px]">Source ({rows.length})</th>
+                  <th className="p-3 font-semibold w-[33%] min-w-[240px]">Summary</th>
+                  <th className="p-3 font-semibold w-[33%] min-w-[240px]"><span className="flex items-center gap-1.5">Gap identification {paperGapBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null}</span></th>
                   {columns.map((c) => (
                     <th key={c.id} className="p-3 font-semibold min-w-[160px]">
                       <div className="flex items-center gap-1 justify-between"><span className="truncate">{c.name}</span><button onClick={() => removeColumn(c.id)} className="text-muted-foreground hover:text-red-400 shrink-0"><X className="w-3.5 h-3.5" /></button></div>
@@ -3328,6 +3359,9 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                     </td>
                     <td className="p-3 text-foreground/90 leading-relaxed">
                       {p.summary ? p.summary : (busy ? <span className="text-muted-foreground flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> summarising...</span> : (p.abstract ? p.abstract.slice(0, 220) + '...' : 'No abstract.'))}
+                    </td>
+                    <td className="p-3 text-foreground/90 leading-relaxed align-top">
+                      {p.gap ? <span className="flex items-start gap-1.5"><AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" /> <span>{p.gap}</span></span> : (paperGapBusy ? <span className="text-muted-foreground flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> identifying gap…</span> : <span className="text-muted-foreground">—</span>)}
                     </td>
                     {columns.map((c) => (
                       <td key={c.id} className="p-3 text-foreground/90">
