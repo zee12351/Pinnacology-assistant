@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles, ArrowRight, ArrowUp, ArrowLeft, FileText, Table2, BookOpen, Copy, SlidersHorizontal, Bookmark, Clock, Library as LibraryIcon, Bell, Upload, FolderPlus, Trash2, PanelLeft, MessageSquare, ChevronDown, Check, ListChecks, Tag, Home, Share2, Settings, LogOut, ChevronsUpDown, FolderInput, Menu } from 'lucide-react';
+import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles, ArrowRight, ArrowUp, ArrowLeft, FileText, Table2, BookOpen, Copy, SlidersHorizontal, Bookmark, Clock, Library as LibraryIcon, Bell, Upload, FolderPlus, Trash2, PanelLeft, MessageSquare, ChevronDown, Check, ListChecks, Tag, Home, Share2, Settings, LogOut, ChevronsUpDown, FolderInput, Menu, AlertTriangle } from 'lucide-react';
 
 // Literature Review workspace (Elicit-style)
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
