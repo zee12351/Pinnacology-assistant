@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { Image as ImageIcon, FileText, Presentation, BarChart3, GitBranch, Network, Upload, Sparkles, Download, Copy, Loader2, ArrowRight, ArrowLeft, Home, Plus, Clock, ChevronLeft, ChevronRight, RefreshCw, PanelLeft, X, ChevronDown, Menu } from 'lucide-react';
+import { Image as ImageIcon, FileText, Presentation, BarChart3, GitBranch, Network, Upload, Sparkles, Download, Copy, Loader2, ArrowRight, ArrowLeft, Home, Plus, Clock, ChevronLeft, ChevronRight, RefreshCw, PanelLeft, X, ChevronDown, Menu, Shapes } from 'lucide-react';
+import { FigureBuilder } from './FigureBuilder';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -74,6 +75,7 @@ const VIZ = [
   { id: 'infographic', label: 'Infographic', Icon: BarChart3 },
   { id: 'mermaid', label: 'Flowchart', Icon: GitBranch },
   { id: 'mindmap', label: 'Mindmap', Icon: Network },
+  { id: 'canvas', label: 'Figure Builder', Icon: Shapes },
 ];
 
 const ACCENT_DEFAULT = '#2563eb';
@@ -110,6 +112,7 @@ export function SciVizView({ onHome }: any) {
   const [themeId, setThemeId] = useState('classic');
   const [brandLogo, setBrandLogo] = useState('');
   const [brandSaved, setBrandSaved] = useState(false);
+  const [builderOpen, setBuilderOpen] = useState(false); // standalone Figure Builder (blank canvas)
   const brandFileRef = useRef<HTMLInputElement>(null);
   const TH = THEMES.find((t) => t.id === themeId) || THEMES[0];
   // Load a saved brand kit (logo + palette + theme) once.
@@ -502,6 +505,7 @@ export function SciVizView({ onHome }: any) {
     if (vizType === 'slides') return slideCard;
     if (vizType === 'mermaid') return <div style={{ background: '#fff', borderRadius: 12, padding: 24, minWidth: 400 }} dangerouslySetInnerHTML={{ __html: mermaidSvg || '' }} />;
     if (vizType === 'mindmap') return <div style={{ background: '#fff', borderRadius: 12, padding: 24, minWidth: 400 }} dangerouslySetInnerHTML={{ __html: mindmapSvg || '' }} />;
+    if (vizType === 'canvas') return <div className="w-full"><FigureBuilder accent={accent} seedText={data ? ((data.title || '') + '. ' + (data.summary || (Array.isArray(data.points) ? data.points.join('. ') : ''))) : ''} /></div>;
     return null;
   };
 
@@ -570,7 +574,22 @@ export function SciVizView({ onHome }: any) {
             <button key={v.id} onClick={() => setVizType(v.id)} className={(vizType === v.id ? 'border-primary text-primary ' : 'border-border text-muted-foreground hover:border-primary ') + 'flex items-center gap-2 border rounded-xl px-3 py-2.5 text-[12.5px] transition-colors'}><v.Icon className="w-4 h-4 text-primary" /> {v.label}</button>
           ))}
         </div>
+        <div className="flex items-center gap-3 my-5"><div className="h-px flex-1 bg-border" /><span className="text-[11px] text-muted-foreground uppercase tracking-wide">or</span><div className="h-px flex-1 bg-border" /></div>
+        <button onClick={() => setBuilderOpen(true)} className="w-full border border-border hover:border-primary rounded-2xl bg-card p-4 flex items-center gap-3 transition-colors text-left">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center"><Shapes className="w-5 h-5" /></div>
+          <div><div className="font-semibold text-[14px]">Open Figure Builder</div><div className="text-[12.5px] text-muted-foreground">Build a custom figure from scratch — drag scientific icons, shapes, arrows &amp; text, or auto-generate from a description.</div></div>
+        </button>
       </div>
+    </div>
+  );
+
+  const builderStandalone = (
+    <div className="flex flex-col w-full h-full overflow-hidden">
+      <div className="flex items-center justify-between px-4 h-12 border-b border-border shrink-0">
+        <div className="flex items-center gap-2 font-semibold text-[14px]"><Shapes className="w-4 h-4 text-primary" /> Figure Builder</div>
+        <button onClick={() => setBuilderOpen(false)} className="text-[12.5px] text-muted-foreground hover:text-foreground flex items-center gap-1"><ArrowLeft className="w-3.5 h-3.5" /> Back</button>
+      </div>
+      <div className="flex-1 min-h-0 overflow-auto custom-scrollbar p-4"><FigureBuilder accent={accent} /></div>
     </div>
   );
 
@@ -700,7 +719,7 @@ export function SciVizView({ onHome }: any) {
           <span className="w-5 h-5 bg-contain bg-no-repeat bg-center shrink-0" style={{ backgroundImage: 'url(/logo.png)' }} />
           <span className="font-bold text-[13px]">SciViz</span>
         </div>
-        <div className="flex-1 min-h-0 overflow-hidden">{data ? workspace : startScreen}</div>
+        <div className="flex-1 min-h-0 overflow-hidden">{builderOpen ? builderStandalone : (data ? workspace : startScreen)}</div>
       </div>
       {dlMenuEl}
     </div>

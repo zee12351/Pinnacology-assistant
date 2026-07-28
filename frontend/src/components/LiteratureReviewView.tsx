@@ -859,6 +859,52 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const lastQRef = useRef('');
   const agentSessionKeyRef = useRef('');
   const [input, setInput] = useState('');
+  // Elicit-style question-strength coach (evaluates the typed query, suggests refinements).
+  const [qStrength, setQStrength] = useState<any>(null); // { status: 'evaluating'|'strong'|'weak', suggestions: string[] }
+  const [qRefining, setQRefining] = useState(false);
+  const qEvalRef = useRef<any>(null);
+  const [phIdx, setPhIdx] = useState(0);
+  const PH_EXAMPLES = [
+    'Compare quantum error correction codes for memory fault tolerance',
+    'What is the effect of metformin vs lifestyle change on HbA1c in adults with type 2 diabetes?',
+    'Does intermittent fasting improve weight loss in adults?',
+    'Effectiveness of CBT compared to medication for anxiety disorders',
+    'Impact of microplastics on marine biodiversity',
+  ];
+  // Rotate the placeholder example while the box is empty (like Elicit).
+  useEffect(() => {
+    if (input) return;
+    const t = setInterval(() => setPhIdx((i) => (i + 1) % PH_EXAMPLES.length), 4200);
+    return () => clearInterval(t);
+  }, [input]);
+  // Debounced AI evaluation of question strength as the user types.
+  useEffect(() => {
+    const q = input.trim();
+    if (qEvalRef.current) clearTimeout(qEvalRef.current);
+    if (q.length < 3) { setQStrength(null); return; }
+    qEvalRef.current = setTimeout(async () => {
+      setQStrength({ status: 'evaluating' });
+      try {
+        const raw = await callChat('You are a research-question quality checker (like Elicit\'s question strength). Assess this literature-search query: "' + q + '". A STRONG query is specific — it names a population/context, an intervention or variable, and an outcome or comparison. Return ONLY JSON: {"strong": true|false, "suggestions": ["3 short refinement action labels, each 3-6 words, tailored to THIS query, e.g. Specify intervention and outcome / Define population and setting / Add an outcome measure"]}. If already strong, return "suggestions": [].', false, 'LITERATURE REVIEW');
+        const j = extractJSON(raw);
+        if (j && typeof j.strong === 'boolean') setQStrength({ status: j.strong ? 'strong' : 'weak', suggestions: Array.isArray(j.suggestions) ? j.suggestions.filter((x: any) => typeof x === 'string').slice(0, 3) : [] });
+        else setQStrength(null);
+      } catch { setQStrength(null); }
+    }, 900);
+    return () => { if (qEvalRef.current) clearTimeout(qEvalRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [input]);
+  // Clicking a refinement chip rewrites the vague query into a precise research question.
+  async function refineQuestion(elementLabel: string) {
+    const q = input.trim(); if (!q || qRefining) return;
+    setQRefining(true);
+    try {
+      const raw = await callChat('Rewrite this vague research query into ONE precise, well-formed research question suitable for a literature search. Query: "' + q + '". Apply this refinement: "' + elementLabel + '". Make it specific (population, intervention/variable, comparison if relevant, and a measurable outcome). Return ONLY the rewritten question as plain text — no quotes, no preamble.', false, 'LITERATURE REVIEW');
+      const t = String(raw || '').trim().replace(/^["'\s]+|["'\s]+$/g, '').split('\n')[0];
+      if (t && t.length > 8) { setInput(t); setQStrength({ status: 'strong', suggestions: [] }); }
+    } catch {}
+    setQRefining(false);
+  }
   const [followups, setFollowups] = useState([] as string[]);
   const [filtOpen, setFiltOpen] = useState(false);
   const [minYear, setMinYear] = useState('');
@@ -2599,7 +2645,26 @@ export function LiteratureReviewView({ messages, onHome }: any) {
             </div>
           ) : (
             <div>
-              <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitStart(); } }} rows={4} autoFocus placeholder="e.g. Does intermittent fasting improve weight loss in adults?" className="w-full bg-transparent px-4 py-3 text-[15px] outline-none resize-none placeholder:text-muted-foreground" />
+              <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitStart(); } }} rows={4} autoFocus placeholder={PH_EXAMPLES[phIdx]} className="w-full bg-transparent px-4 py-3 text-[15px] outline-none resize-none placeholder:text-muted-foreground" />
+              {/* Elicit-style question-strength coach */}
+              {qStrength && input.trim().length >= 3 ? (
+                <div className="px-4 pb-2">
+                  {qStrength.status === 'evaluating' ? (
+                    <div className="flex items-center gap-2 text-[13px] text-muted-foreground"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Evaluating question strength…</div>
+                  ) : qStrength.status === 'strong' ? (
+                    <div className="flex items-center gap-2 text-[13px] text-muted-foreground"><span className="w-2 h-2 rounded-full bg-primary" /> Great question!</div>
+                  ) : (
+                    <div>
+                      <div className="flex items-center gap-2 text-[13px] text-muted-foreground mb-2"><span className="w-2 h-2 rounded-full bg-amber-500" /> More precise questions work better. Try adding elements like these:</div>
+                      <div className="flex flex-wrap gap-2">
+                        {(qStrength.suggestions || []).map((s: string, i: number) => (
+                          <button key={i} onClick={() => refineQuestion(s)} disabled={qRefining} className="text-[12.5px] font-medium rounded-lg border border-border bg-muted/50 hover:bg-muted hover:border-primary/50 px-3 py-1.5 transition-colors disabled:opacity-50 flex items-center gap-1.5">{qRefining ? <Loader2 className="w-3 h-3 animate-spin" /> : null}{s}</button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : null}
               <div className="flex items-center justify-between px-4 py-3 border-t border-border">
                 <div className="flex items-center gap-2">
                   {sourceDropdown}
