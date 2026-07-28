@@ -685,7 +685,7 @@ export function SciVizView({ onHome }: any) {
           ) : null}
           <button ref={dlBtnRef} onClick={toggleDlMenu} disabled={busy} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold bg-primary text-primary-foreground rounded-lg disabled:opacity-40"><Download className="w-3.5 h-3.5" /> Export <ChevronDown className="w-3 h-3" /></button>
         </div>
-        <div className="flex-1 overflow-auto custom-scrollbar p-4 md:p-8 flex items-start justify-start md:justify-center">
+        <div className="flex-1 min-w-0 overflow-auto custom-scrollbar p-4 md:p-8 flex items-start justify-start md:justify-center">
           {busy && (vizType === 'mermaid' || vizType === 'mindmap') && !(vizType === 'mermaid' ? mermaidSvg : mindmapSvg) ? (
             <div className="flex items-center gap-2 text-muted-foreground text-[13px] mt-10"><Loader2 className="w-4 h-4 animate-spin" /> {phase}</div>
           ) : (

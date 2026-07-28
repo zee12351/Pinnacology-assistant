@@ -3238,7 +3238,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         <div className="w-0.5 h-8 bg-muted-foreground/40 rounded" />
       </div>
 
-      <div className="flex-1 min-h-0 bg-card flex flex-col md:h-full overflow-hidden">
+      <div className="flex-1 min-w-0 min-h-0 bg-card flex flex-col md:h-full overflow-hidden">
         <div className="p-3 border-b border-border flex items-center gap-2 flex-wrap shrink-0">
           <div className="relative flex-1 min-w-[160px]">
             <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
