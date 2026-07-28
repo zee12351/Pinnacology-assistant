@@ -4250,13 +4250,13 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                 <SlidersHorizontal className="w-4 h-4" />
               </button>
               {!isRightPanelOpen && (
-                <div className="hidden lg:flex border-l border-[#333] pl-3 ml-1 items-center">
+                <div className="hidden xl:flex border-l border-[#333] pl-3 ml-1 items-center">
                   <button onClick={() => setIsRightPanelOpen(true)} className="flex items-center gap-1.5 text-white font-bold hover:text-gray-300 transition-colors text-[14px]">
                     <ChevronsLeft className="w-4 h-4" /> Review
                   </button>
                 </div>
               )}
-              <button onClick={() => setRightDrawerOpen(true)} className="lg:hidden text-gray-300 hover:text-white" title="Review panel">
+              <button onClick={() => setRightDrawerOpen(true)} className="xl:hidden text-gray-300 hover:text-white" title="Review panel">
                 <ChevronsLeft className="w-5 h-5" />
               </button>
             </div>
@@ -5124,9 +5124,9 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
 
 
       {/* 3. RIGHT SECTION: Review Panel */}
-      {rightDrawerOpen && <div className="lg:hidden fixed inset-0 bg-black/50 z-40" onClick={() => setRightDrawerOpen(false)} />}
+      {rightDrawerOpen && <div className="xl:hidden fixed inset-0 bg-black/50 z-40" onClick={() => setRightDrawerOpen(false)} />}
       {(isRightPanelOpen || rightDrawerOpen) && (
-        <div className={`${rightDrawerOpen ? 'flex' : 'hidden lg:flex'} fixed lg:static inset-y-0 right-0 z-50 w-[85vw] max-w-[360px] lg:w-[340px] bg-[#0c1830] border-l border-[#1b2c4e] flex-col shrink-0 h-full transition-transform duration-200`}>
+        <div className={`${rightDrawerOpen ? 'flex' : 'hidden xl:flex'} fixed xl:static inset-y-0 right-0 z-50 w-[85vw] max-w-[360px] xl:w-[320px] 2xl:w-[360px] bg-[#0c1830] border-l border-[#1b2c4e] flex-col shrink-0 h-full transition-transform duration-200`}>
         
         {/* Header */}
         <div className="px-5 py-5 flex items-center gap-3 border-b border-[#1b2c4e]">
