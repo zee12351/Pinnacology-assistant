@@ -827,6 +827,18 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     if (citeHideTimer.current) clearTimeout(citeHideTimer.current);
     citeHideTimer.current = setTimeout(() => setCitePop(null), 220);
   };
+  // Dismiss the citation popup when clicking anywhere outside it (like Persona 1).
+  useEffect(() => {
+    if (!citePop) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (t && t.closest && t.closest('[data-citepop="1"]')) return; // click inside the card
+      if (citeHideTimer.current) { clearTimeout(citeHideTimer.current); citeHideTimer.current = null; }
+      setCitePop(null);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [citePop]);
   function addPaperToLibrary(p: any) {
     if (!p) return;
     const doc = { id: 'lib_' + Date.now(), name: p.title, kind: p.kind || 'paper', authorStr: p.authorStr, year: p.year, url: p.url, doi: p.doi, ts: Date.now(), collection: '', creationMethod: 'citation' };
@@ -3079,6 +3091,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
           ) : null}
           {citePop ? (
             <div
+              data-citepop="1"
               className="fixed z-[60] w-[340px] rounded-xl border border-border bg-popover shadow-2xl p-3.5 text-left"
               style={{ left: citePop.x, top: citePop.y }}
               onMouseEnter={() => { if (citeHideTimer.current) { clearTimeout(citeHideTimer.current); citeHideTimer.current = null; } }}
