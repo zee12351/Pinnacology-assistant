@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles, ArrowRight, ArrowUp, ArrowLeft, FileText, Table2, BookOpen, Copy, SlidersHorizontal, Bookmark, Clock, Library as LibraryIcon, Bell, Upload, FolderPlus, Trash2, PanelLeft, MessageSquare, ChevronDown, Check, ListChecks, Tag, Home, Share2, Settings, LogOut, ChevronsUpDown, FolderInput, Menu, AlertTriangle } from 'lucide-react';
+import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles, ArrowRight, ArrowUp, ArrowLeft, FileText, Table2, BookOpen, Copy, SlidersHorizontal, Bookmark, Clock, Library as LibraryIcon, Bell, Upload, FolderPlus, Trash2, PanelLeft, MessageSquare, ChevronDown, Check, ListChecks, Tag, Home, Share2, Settings, LogOut, ChevronsUpDown, FolderInput, Menu, AlertTriangle, Star, MoreHorizontal } from 'lucide-react';
 
 import { authHeaders, supabase } from '@/lib/supabaseClient';
 // Literature Review workspace (Elicit-style)
@@ -1104,6 +1104,13 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [navOpen, setNavOpen] = useState(true);
   const [mobileNav, setMobileNav] = useState(false);
   const [recents, setRecents] = useState([] as any[]);
+  const [recentMenu, setRecentMenu] = useState<number | null>(null); // id of the recent whose ⋯ menu is open
+  const persistRecents = (next: any[]) => { setRecents(next); try { localStorage.setItem('pinnovix_lit_recents', JSON.stringify(next)); } catch {} };
+  const deleteRecent = (id: number) => { persistRecents(recents.filter((r) => r.id !== id)); setRecentMenu(null); };
+  const toggleStarRecent = (id: number) => { persistRecents(recents.map((r) => r.id === id ? { ...r, starred: !r.starred } : r)); };
+  const moveRecent = (id: number, col: string) => { persistRecents(recents.map((r) => r.id === id ? { ...r, collection: col } : r)); setRecentMenu(null); };
+  // Starred recents float to the top; then most-recent first.
+  const sortedRecents = () => [...recents].sort((a, b) => ((b.starred ? 1 : 0) - (a.starred ? 1 : 0)) || ((b.ts || 0) - (a.ts || 0)));
   const [collections, setCollections] = useState([] as any[]);
   const [libDocs, setLibDocs] = useState([] as any[]);
   const [activeCol, setActiveCol] = useState('all');
@@ -1534,6 +1541,9 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setSynthesis('');
     setGaps(''); setGapsBusy(false);
     setColumns([]);
+    // Clear any leftover Deep-research state so a previous Deep report doesn't stay
+    // mounted and break the results-table layout (the "suggested prompt cuts the table" bug).
+    setDeepActive(false); setDeepSteps([]); setDeepStepsExpanded(false); setDeepStats({ retrieved: 0, eligible: 0, included: 0, searches: 0 }); setDeepTables(null); setDeepFetched(0);
     setSearchTerms([]);
     setFollowups([]);
     setChatThread([]);
@@ -2265,11 +2275,31 @@ export function LiteratureReviewView({ messages, onHome }: any) {
           <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wide px-2 mb-1">Recents</div>
           {recents.length === 0 ? (
             <div className="px-2 text-[12px] text-muted-foreground italic">No recent searches.</div>
-          ) : recents.slice(0, 20).map((r) => (
-            <button key={r.id} onClick={() => { setMobileNav(false); openRecent(r); }} className="w-full text-left flex items-center gap-2 rounded-lg px-2 py-1.5 text-[12.5px] text-foreground/80 hover:bg-muted/60 hover:text-foreground truncate">
-              {r.type === 'Research report' ? <FileText className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> : r.type === 'Chat' ? <MessageSquare className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> : <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
-              <span className="truncate">{r.question}</span>
-            </button>
+          ) : sortedRecents().slice(0, 30).map((r) => (
+            <div key={r.id} className="group relative flex items-center rounded-lg hover:bg-muted/60">
+              <button onClick={() => { setMobileNav(false); openRecent(r); }} className="flex-1 min-w-0 text-left flex items-center gap-2 px-2 py-1.5 text-[12.5px] text-foreground/80 hover:text-foreground">
+                {r.starred ? <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400 shrink-0" /> : (r.type === 'Research report' ? <FileText className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> : r.type === 'Chat' ? <MessageSquare className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> : <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />)}
+                <span className="truncate">{r.question}</span>
+              </button>
+              <button onClick={(e) => { e.stopPropagation(); setRecentMenu(recentMenu === r.id ? null : r.id); }} title="Options" className={'shrink-0 px-1.5 py-1 text-muted-foreground hover:text-foreground ' + (recentMenu === r.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100')}><MoreHorizontal className="w-4 h-4" /></button>
+              {recentMenu === r.id ? (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setRecentMenu(null)} />
+                  <div className="absolute right-1 top-full mt-0.5 z-40 w-[172px] bg-card border border-border rounded-lg shadow-2xl p-1">
+                    <button onClick={() => toggleStarRecent(r.id)} className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[12.5px] hover:bg-muted text-left"><Star className={'w-3.5 h-3.5 ' + (r.starred ? 'text-amber-400 fill-amber-400' : 'text-muted-foreground')} /> {r.starred ? 'Unstar' : 'Star'}</button>
+                    <div className="my-1 border-t border-border" />
+                    <div className="px-2.5 py-0.5 text-[10.5px] font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5"><FolderInput className="w-3 h-3" /> Move to</div>
+                    <div className="max-h-[160px] overflow-y-auto">
+                      {collections.length === 0 ? <div className="px-2.5 py-1.5 text-[11.5px] text-muted-foreground italic">No collections yet</div> : collections.map((c) => (
+                        <button key={c.id} onClick={() => moveRecent(r.id, c.name)} className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[12.5px] hover:bg-muted text-left"><BookOpen className="w-3.5 h-3.5 text-muted-foreground" /> <span className="truncate">{c.name}</span>{r.collection === c.name ? <Check className="w-3.5 h-3.5 text-primary ml-auto shrink-0" /> : null}</button>
+                      ))}
+                    </div>
+                    <div className="my-1 border-t border-border" />
+                    <button onClick={() => deleteRecent(r.id)} className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[12.5px] hover:bg-muted text-left text-red-500"><Trash2 className="w-3.5 h-3.5" /> Delete</button>
+                  </div>
+                </>
+              ) : null}
+            </div>
           ))}
         </div>
       ) : <div className="flex-1" />}
@@ -2810,7 +2840,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
           <div>
             <div className="text-[12px] font-bold text-muted-foreground uppercase tracking-wide mb-2">Suggested</div>
             {['Does intermittent fasting improve weight loss in adults?', 'Effectiveness of CBT for anxiety disorders', 'Impact of remote work on employee productivity'].map((ex) => (
-              <button key={ex} onClick={() => runReview(ex)} className="w-full text-left border border-border rounded-xl p-3 bg-card hover:border-primary transition-colors text-[13px] text-muted-foreground mb-2 flex items-center gap-2"><Sparkles className="w-3.5 h-3.5 text-primary shrink-0" /> {ex}</button>
+              <button key={ex} onClick={() => { if (deepMode) runDeepReview(ex); else runReview(ex); }} className="w-full text-left border border-border rounded-xl p-3 bg-card hover:border-primary transition-colors text-[13px] text-muted-foreground mb-2 flex items-center gap-2"><Sparkles className="w-3.5 h-3.5 text-primary shrink-0" /> {ex}</button>
             ))}
           </div>
           <div>
