@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles, ArrowRight, ArrowUp, ArrowLeft, FileText, Table2, BookOpen, Copy, SlidersHorizontal, Bookmark, Clock, Library as LibraryIcon, Bell, Upload, FolderPlus, Trash2, PanelLeft, MessageSquare, ChevronDown, Check, ListChecks, Tag, Home, Share2, Settings, LogOut, ChevronsUpDown, FolderInput, Menu, AlertTriangle } from 'lucide-react';
 
-import { authHeaders } from '@/lib/supabaseClient';
+import { authHeaders, supabase } from '@/lib/supabaseClient';
 // Literature Review workspace (Elicit-style)
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -1466,9 +1466,12 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     if (ids.length) { const next = libDocs.map((d) => ids.indexOf(d.id || docName(d)) !== -1 ? { ...d, tag: t } : d); setLibDocs(next); try { localStorage.setItem('pinnovix_library_docs', JSON.stringify(next)); } catch {} }
     setTagModal(false); setTagInput(''); setLibSel({});
   }
-  function logout() {
+  async function logout() {
+    setAcctMenu(false);
+    try { if (supabase) await supabase.auth.signOut(); } catch {}
     try { localStorage.removeItem('pinnovix_email'); localStorage.removeItem('pinnovix_name'); } catch {}
-    setUserEmail(''); setUserName(''); setAcctMenu(false);
+    // Full sign-out + hard redirect to the homepage so no workspace stays usable.
+    try { window.location.href = '/'; } catch {}
   }
   function saveAccount() {
     try { localStorage.setItem('pinnovix_email', userEmail); localStorage.setItem('pinnovix_name', userName); } catch {}

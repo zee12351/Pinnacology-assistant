@@ -166,7 +166,8 @@ export default function HomePage() {
     try { localStorage.removeItem('pinnovix_email'); localStorage.removeItem('pinnovix_name'); } catch {}
     setAuthUser(null);
     setIsChatActive(false); setMessages([]); setCurrentChatId(null); setQuery('');
-    try { window.history.pushState({}, '', '/'); } catch {}
+    // Hard redirect to the homepage so nothing from the session remains usable.
+    try { window.location.href = '/'; } catch {}
   };
   const [selectedPersona, setSelectedPersona] = useState('ACADEMIC WRITING');
   const [isPersonaDropdownOpen, setIsPersonaDropdownOpen] = useState(false);

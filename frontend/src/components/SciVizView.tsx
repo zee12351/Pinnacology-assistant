@@ -1,10 +1,16 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { Image as ImageIcon, FileText, Presentation, BarChart3, GitBranch, Network, Upload, Sparkles, Download, Copy, Loader2, ArrowRight, ArrowLeft, Home, Plus, Clock, ChevronLeft, ChevronRight, RefreshCw, PanelLeft, X, ChevronDown, Menu, Shapes } from 'lucide-react';
+import { Image as ImageIcon, FileText, Presentation, BarChart3, GitBranch, Network, Upload, Sparkles, Download, Copy, Loader2, ArrowRight, ArrowLeft, Home, Plus, Clock, ChevronLeft, ChevronRight, RefreshCw, PanelLeft, X, ChevronDown, Menu, Shapes, LogOut } from 'lucide-react';
 import { FigureBuilder } from './FigureBuilder';
-import { authHeaders } from '@/lib/supabaseClient';
+import { authHeaders, supabase } from '@/lib/supabaseClient';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+async function pnxLogout() {
+  try { if (supabase) await supabase.auth.signOut(); } catch {}
+  try { localStorage.removeItem('pinnovix_email'); localStorage.removeItem('pinnovix_name'); } catch {}
+  try { window.location.href = '/'; } catch {}
+}
 
 async function callChat(message: string): Promise<string> {
   try {
@@ -529,7 +535,10 @@ export function SciVizView({ onHome }: any) {
           ))}
         </div>
       ) : <div className="flex-1" />}
-      {onHome ? <div className="p-2 border-t border-border shrink-0"><button onClick={() => { setMobileNav(false); onHome(); }} className="w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] text-muted-foreground hover:bg-muted/60 hover:text-foreground"><ArrowLeft className="w-4 h-4 shrink-0" /> {(navOpen || mobileNav) ? <span>Personas</span> : null}</button></div> : null}
+      <div className="p-2 border-t border-border shrink-0 flex flex-col gap-0.5">
+        {onHome ? <button onClick={() => { setMobileNav(false); onHome(); }} className="w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] text-muted-foreground hover:bg-muted/60 hover:text-foreground"><ArrowLeft className="w-4 h-4 shrink-0" /> {(navOpen || mobileNav) ? <span>Personas</span> : null}</button> : null}
+        <button onClick={pnxLogout} className="w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] text-red-500 hover:bg-muted/60"><LogOut className="w-4 h-4 shrink-0" /> {(navOpen || mobileNav) ? <span>Log out</span> : null}</button>
+      </div>
     </aside>
   );
 

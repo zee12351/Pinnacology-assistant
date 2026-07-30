@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTheme } from 'next-themes';
-import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Upload, X, Search, Check, Star, Users, ListChecks, Play, SlidersHorizontal, ChevronsRight, ChevronsLeft, Type, Home, Settings2, Download, ThumbsUp, ThumbsDown, Info, ChevronDown, GraduationCap, FlaskConical, Feather, CheckCircle2, ChevronLeft, RotateCcw, Loader2, Sparkles, Trash2, Moon, Sun, Pencil, ArrowLeftRight, ExternalLink, Bookmark, Menu, Link2, ArrowUpDown, ArrowUp, ArrowDown, Globe, Folder, FileText, Paperclip, Undo2, Redo2, MessageCircle, Archive, CheckCheck, AlertTriangle, SquarePen, GripVertical, Quote, Minus, List, ListOrdered, Code2, Image as ImageIcon, Sigma, Copy, Library as LibraryIcon } from 'lucide-react';
+import { Plus, MessageSquare, Clock, CheckCircle, ChevronRight, ChevronUp, Upload, X, Search, Check, Star, Users, ListChecks, Play, SlidersHorizontal, ChevronsRight, ChevronsLeft, Type, Home, Settings2, Download, ThumbsUp, ThumbsDown, Info, ChevronDown, GraduationCap, FlaskConical, Feather, CheckCircle2, ChevronLeft, RotateCcw, Loader2, Sparkles, Trash2, Moon, Sun, Pencil, ArrowLeftRight, ExternalLink, Bookmark, Menu, Link2, ArrowUpDown, ArrowUp, ArrowDown, Globe, Folder, FileText, Paperclip, Undo2, Redo2, MessageCircle, Archive, CheckCheck, AlertTriangle, SquarePen, GripVertical, Quote, Minus, List, ListOrdered, Code2, Image as ImageIcon, Sigma, Copy, Library as LibraryIcon, LogOut } from 'lucide-react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
@@ -15,7 +15,13 @@ import { Mark, Extension, mergeAttributes } from '@tiptap/core';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import axios from 'axios';
-import { authHeaders } from '@/lib/supabaseClient';
+import { authHeaders, supabase } from '@/lib/supabaseClient';
+
+async function pnxLogout() {
+  try { if (supabase) await supabase.auth.signOut(); } catch {}
+  try { localStorage.removeItem('pinnovix_email'); localStorage.removeItem('pinnovix_name'); } catch {}
+  try { window.location.href = '/'; } catch {}
+}
 import { UploadModal } from './UploadModal';
 
 // Initialize Mermaid
@@ -4207,6 +4213,12 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
 
                   <button onClick={(e) => { e.stopPropagation(); }} className="w-full flex items-center gap-2 px-4 py-3 text-[13px] font-bold text-[#7fa3ff] hover:bg-[#0c1830] transition-colors">
                     <Star className="w-4 h-4" /> See Pricing
+                  </button>
+
+                  <div className="h-[1px] bg-[#222] my-1"></div>
+
+                  <button onClick={(e) => { e.stopPropagation(); pnxLogout(); }} className="w-full flex items-center gap-2 px-4 py-3 text-[13px] font-bold text-red-400 hover:bg-[#0c1830] transition-colors">
+                    <LogOut className="w-4 h-4" /> Log out
                   </button>
 
                 </div>
