@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Type, Square, Circle, MoveRight, Trash2, Copy, Sparkles, Download, Search, Layers, Loader2, Undo2, Image as ImageIcon } from 'lucide-react';
+import { authHeaders } from '@/lib/supabaseClient';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 async function fbCallChat(message: string): Promise<string> {
   try {
     const res = await fetch(API + '/api/chat', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({ message, agent_type: 'review', use_rag: false, persona: 'SCIVIZ' }),
     });
     const reader = res.body ? res.body.getReader() : null;

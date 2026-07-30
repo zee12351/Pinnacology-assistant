@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Image as ImageIcon, FileText, Presentation, BarChart3, GitBranch, Network, Upload, Sparkles, Download, Copy, Loader2, ArrowRight, ArrowLeft, Home, Plus, Clock, ChevronLeft, ChevronRight, RefreshCw, PanelLeft, X, ChevronDown, Menu, Shapes } from 'lucide-react';
 import { FigureBuilder } from './FigureBuilder';
+import { authHeaders } from '@/lib/supabaseClient';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -9,7 +10,7 @@ async function callChat(message: string): Promise<string> {
   try {
     const res = await fetch(API + '/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({ message: message, agent_type: 'review', use_rag: false, persona: 'SCIVIZ' }),
     });
     const reader = res.body ? res.body.getReader() : null;
@@ -185,12 +186,12 @@ export function SciVizView({ onHome }: any) {
     // Extract embedded figures in the background (best-effort, PDF only).
     if (/\.pdf$/i.test(f.name)) {
       const fdF = new FormData(); fdF.append('file', f);
-      fetch(API + '/api/extract-figures', { method: 'POST', body: fdF })
-        .then((r) => r.json()).then((j) => setFigures((j && j.figures) || [])).catch(() => {});
+      authHeaders().then((h) => fetch(API + '/api/extract-figures', { method: 'POST', headers: h, body: fdF })
+        .then((r) => r.json()).then((j) => setFigures((j && j.figures) || [])).catch(() => {}));
     }
     try {
       const fd = new FormData(); fd.append('file', f);
-      const r = await fetch(API + '/api/parse-document', { method: 'POST', body: fd });
+      const r = await fetch(API + '/api/parse-document', { method: 'POST', headers: await authHeaders(), body: fd });
       const j = await r.json();
       setInputText((j && j.text) ? j.text.slice(0, 8000) : '');
     } catch { setInputText(''); }

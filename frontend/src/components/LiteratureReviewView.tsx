@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles, ArrowRight, ArrowUp, ArrowLeft, FileText, Table2, BookOpen, Copy, SlidersHorizontal, Bookmark, Clock, Library as LibraryIcon, Bell, Upload, FolderPlus, Trash2, PanelLeft, MessageSquare, ChevronDown, Check, ListChecks, Tag, Home, Share2, Settings, LogOut, ChevronsUpDown, FolderInput, Menu, AlertTriangle } from 'lucide-react';
 
+import { authHeaders } from '@/lib/supabaseClient';
 // Literature Review workspace (Elicit-style)
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -22,7 +23,7 @@ async function callChatOnce(message: string, useRag: boolean, persona: string): 
   try {
     const res = await fetch(API + '/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({ message: message, agent_type: 'review', use_rag: useRag, persona: persona }),
     });
     if (!res.ok) {
@@ -1193,7 +1194,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
 
   async function fetchShared(email: string) {
     try {
-      const r = await fetch(API + '/api/lit/shared?email=' + encodeURIComponent(email));
+      const r = await fetch(API + '/api/lit/shared?email=' + encodeURIComponent(email), { headers: { ...(await authHeaders()) } });
       const j = await r.json();
       const items = (j.shared || []).map((x: any) => ({ id: 'shr_' + x.id, question: (x.session && x.session.question) || 'Shared item', type: 'Shared by ' + (x.from_email || 'someone'), ts: x.ts, shared: true, payload: x.session }));
       if (items.length) setRecents((prev) => { const ids: any = {}; prev.forEach((p) => { ids[p.id] = 1; }); const add = items.filter((i: any) => !ids[i.id]); return add.concat(prev); });
@@ -1496,7 +1497,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       if (from) { setUserEmail(from); try { localStorage.setItem('pinnovix_email', from); } catch {} }
     }
     try {
-      await fetch(API + '/api/lit/share', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to_email: to, from_email: from || 'someone', session: buildSharePayload() }) });
+      await fetch(API + '/api/lit/share', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) }, body: JSON.stringify({ to_email: to, from_email: from || 'someone', session: buildSharePayload() }) });
     } catch {
       // ignore
     }

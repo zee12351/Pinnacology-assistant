@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import os
@@ -10,8 +10,11 @@ from app.rag.processor import processor
 from app.vectorstore.chroma_client import chroma_store
 from app.utils.docx_generator import create_docx_from_markdown
 from app.utils.pdf_generator import create_pdf_from_markdown
+from app.api.auth import get_current_user
 
-router = APIRouter()
+# Every route requires a valid Supabase token IF SUPABASE_JWT_SECRET is set.
+# Until then get_current_user is a no-op, so existing behaviour is unchanged.
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)

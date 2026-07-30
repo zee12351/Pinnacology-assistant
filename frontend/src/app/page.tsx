@@ -126,12 +126,13 @@ export default function HomePage() {
 
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
   const [authUser, setAuthUser] = useState<any>(null);
+  const [authReady, setAuthReady] = useState(false); // true once the initial session check resolves
   const [authOpen, setAuthOpen] = useState(false);
 
   useEffect(() => {
-    if (!supabase) return;
+    if (!supabase) { setAuthReady(true); return; }
     const syncLocal = (u: any) => {
-      if (!u) return;
+      if (!u) { try { localStorage.removeItem('pinnovix_email'); localStorage.removeItem('pinnovix_name'); } catch {} return; }
       try {
         if (u.email) localStorage.setItem('pinnovix_email', u.email);
         const nm = u.user_metadata && u.user_metadata.name;
@@ -141,13 +142,32 @@ export default function HomePage() {
     supabase.auth.getSession().then(({ data }: any) => {
       const u = (data && data.session && data.session.user) || null;
       if (u) { setAuthUser(u); syncLocal(u); }
+      setAuthReady(true);
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_e: any, session: any) => {
       const u = (session && session.user) || null;
-      setAuthUser(u); syncLocal(u);
+      setAuthUser(u); syncLocal(u); setAuthReady(true);
     });
     return () => { try { sub.subscription.unsubscribe(); } catch {} };
   }, []);
+
+  // Auth gate: once the session is known, a logged-out user cannot stay inside a workspace.
+  // (Login is required when Supabase auth is configured.) Kick them back to the landing page.
+  useEffect(() => {
+    if (!authConfigured || !authReady) return;
+    if (!authUser && isChatActive) {
+      setIsChatActive(false);
+      setMessages([]); setCurrentChatId(null); setQuery('');
+      try { if (window.location.pathname.startsWith('/home/')) window.history.pushState({}, '', '/'); } catch {}
+    }
+  }, [authUser, authReady, isChatActive]);
+  const doLogout = async () => {
+    try { if (supabase) await supabase.auth.signOut(); } catch {}
+    try { localStorage.removeItem('pinnovix_email'); localStorage.removeItem('pinnovix_name'); } catch {}
+    setAuthUser(null);
+    setIsChatActive(false); setMessages([]); setCurrentChatId(null); setQuery('');
+    try { window.history.pushState({}, '', '/'); } catch {}
+  };
   const [selectedPersona, setSelectedPersona] = useState('ACADEMIC WRITING');
   const [isPersonaDropdownOpen, setIsPersonaDropdownOpen] = useState(false);
   const [isPreferencesOpen, setIsPreferencesOpen] = useState(false);
@@ -547,7 +567,7 @@ export default function HomePage() {
                       <div className="text-[11.5px] text-muted-foreground truncate">{authUser.email}</div>
                     </div>
                   </div>
-                  <button onClick={async () => { try { if (supabase) await supabase.auth.signOut(); } catch {} try { localStorage.removeItem('pinnovix_email'); localStorage.removeItem('pinnovix_name'); } catch {} setAuthUser(null); }} className="w-full flex items-center justify-center gap-2 border border-border text-foreground font-semibold py-2 rounded-lg text-[13px] hover:bg-muted transition-colors">
+                  <button onClick={doLogout} className="w-full flex items-center justify-center gap-2 border border-border text-foreground font-semibold py-2 rounded-lg text-[13px] hover:bg-muted transition-colors">
                     Log out
                   </button>
                 </div>
@@ -592,7 +612,7 @@ export default function HomePage() {
               {authUser ? (
                 <div className="flex items-center gap-2">
                   <span className="w-8 h-8 rounded-full bg-gradient-to-br from-sky-400 to-blue-600 text-white flex items-center justify-center font-bold text-[14px] shrink-0">{String((authUser.user_metadata && authUser.user_metadata.name) || authUser.email || 'U').slice(0, 1).toUpperCase()}</span>
-                  <button onClick={async () => { try { if (supabase) await supabase.auth.signOut(); } catch {} try { localStorage.removeItem('pinnovix_email'); localStorage.removeItem('pinnovix_name'); } catch {} setAuthUser(null); }} className="text-[13px] font-semibold border border-border rounded-lg px-2.5 py-1.5 hover:bg-muted">Log out</button>
+                  <button onClick={doLogout} className="text-[13px] font-semibold border border-border rounded-lg px-2.5 py-1.5 hover:bg-muted">Log out</button>
                 </div>
               ) : (
                 <button onClick={() => setAuthOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-3.5 py-1.5 rounded-lg text-[14px]">Login</button>
@@ -782,7 +802,7 @@ export default function HomePage() {
                   <span className="text-[13px] text-gray-400">{authUser ? (authUser.email || 'Signed in') : 'You are not signed in.'}</span>
                 </div>
                 {authUser ? (
-                  <button onClick={async () => { try { if (supabase) await supabase.auth.signOut(); } catch {} setAuthUser(null); }} className="border border-[#444] bg-[#111] hover:bg-[#2a2a2a] rounded-lg px-4 py-2 text-[14px] font-medium transition-colors">Log out</button>
+                  <button onClick={() => { setIsPreferencesOpen(false); doLogout(); }} className="border border-[#444] bg-[#111] hover:bg-[#2a2a2a] rounded-lg px-4 py-2 text-[14px] font-medium transition-colors">Log out</button>
                 ) : (
                   <button onClick={() => { setIsPreferencesOpen(false); setAuthOpen(true); }} className="bg-blue-600 hover:bg-blue-700 rounded-lg px-4 py-2 text-[14px] font-medium transition-colors">Sign in</button>
                 )}
