@@ -947,6 +947,36 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [papers, paperGapBusy, question]);
+  // Per-paper "Novelty" column — AI rates how novel/original each paper's contribution is.
+  const [paperNovBusy, setPaperNovBusy] = useState(false);
+  const novColRef = useRef('');
+  async function generatePaperNovelty() {
+    const missing = papers.map((p, i) => ({ p, i })).filter((x) => !x.p.novelty && (x.p.summary || x.p.abstract));
+    if (!missing.length) return;
+    setPaperNovBusy(true);
+    try {
+      const list = missing.map((x, k) => '[' + k + '] ' + x.p.title + ' (' + (x.p.year || 'n.d.') + ') — ' + String(x.p.summary || x.p.abstract || '').slice(0, 280)).join('\n');
+      const raw = await callChat('For EACH paper below, judge how NOVEL / original its contribution is relative to the topic "' + (question || '') + '" and the wider literature. Return ONLY a JSON array of exactly ' + missing.length + ' strings in the SAME order, each formatted "LEVEL — reason", where LEVEL is exactly one of High, Moderate, or Incremental, and reason is a short phrase (max ~12 words) saying what is new (e.g. "High — first to benchmark VQE vs classical HPC at scale", "Incremental — applies known method to a new dataset").\n\nPapers:\n' + list, false, 'LITERATURE REVIEW');
+      const arr = extractJSON(raw);
+      if (Array.isArray(arr)) {
+        const byId: Record<string, string> = {};
+        missing.forEach((x, k) => { if (typeof arr[k] === 'string' && arr[k].trim()) byId[x.p.id] = arr[k].trim(); });
+        setPapers((prev) => prev.map((p) => byId[p.id] ? { ...p, novelty: byId[p.id] } : p));
+      }
+    } catch {}
+    setPaperNovBusy(false);
+  }
+  useEffect(() => {
+    if (paperNovBusy || !papers.length) return;
+    const missing = papers.filter((p) => !p.novelty && (p.summary || p.abstract));
+    if (!missing.length) return;
+    const key = (question || '') + '|' + papers.length + '|' + papers.filter((p) => p.novelty).length;
+    if (novColRef.current === key) return;
+    novColRef.current = key;
+    const t = setTimeout(() => { generatePaperNovelty(); }, 1100);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [papers, paperNovBusy, question]);
   const [followups, setFollowups] = useState([] as string[]);
   const [filtOpen, setFiltOpen] = useState(false);
   const [minYear, setMinYear] = useState('');
@@ -2042,17 +2072,17 @@ export function LiteratureReviewView({ messages, onHome }: any) {
 
   function downloadCSV() {
     const esc = (v: any) => '"' + String(v === undefined || v === null ? '' : v).split('"').join('""') + '"';
-    const head = ['Title', 'Authors', 'Year', 'Journal', 'Cited by', 'DOI', 'Summary', 'Gap identification'].concat(columns.map((c) => c.name));
-    const body = dlRows().map((p) => [p.title, p.authors.join('; '), p.year, p.venue, p.cited, p.doi, p.summary, p.gap || ''].concat(columns.map((c) => p.cols[c.id] || '')));
+    const head = ['Title', 'Authors', 'Year', 'Journal', 'Cited by', 'DOI', 'Summary', 'Gap identification', 'Novelty'].concat(columns.map((c) => c.name));
+    const body = dlRows().map((p) => [p.title, p.authors.join('; '), p.year, p.venue, p.cited, p.doi, p.summary, p.gap || '', p.novelty || ''].concat(columns.map((c) => p.cols[c.id] || '')));
     const csv = [head].concat(body).map((row) => row.map(esc).join(',')).join('\n');
     doDownload(csv, (question || 'literature-review').slice(0, 40) + '.csv', 'text/csv');
   }
 
   function downloadExcel() {
     const esc = (v: any) => String(v === undefined || v === null ? '' : v).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');
-    const head = ['Title', 'Authors', 'Year', 'Journal', 'Cited by', 'DOI', 'Summary', 'Gap identification'].concat(columns.map((c) => c.name));
+    const head = ['Title', 'Authors', 'Year', 'Journal', 'Cited by', 'DOI', 'Summary', 'Gap identification', 'Novelty'].concat(columns.map((c) => c.name));
     const bodyRows = dlRows().map((p) => {
-      const cells = [p.title, p.authors.join('; '), p.year, p.venue, p.cited, p.doi, p.summary, p.gap || ''].concat(columns.map((c) => p.cols[c.id] || ''));
+      const cells = [p.title, p.authors.join('; '), p.year, p.venue, p.cited, p.doi, p.summary, p.gap || '', p.novelty || ''].concat(columns.map((c) => p.cols[c.id] || ''));
       return '<tr>' + cells.map((c) => '<td>' + esc(c) + '</td>').join('') + '</tr>';
     }).join('');
     const html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head><body><table border="1"><tr>' + head.map((h) => '<th>' + esc(h) + '</th>').join('') + '</tr>' + bodyRows + '</table></body></html>';
@@ -3337,15 +3367,16 @@ export function LiteratureReviewView({ messages, onHome }: any) {
               {!busy ? <p className="text-[12px] text-muted-foreground mt-1">Ask a research question to build your review table.</p> : null}
             </div>
           ) : (
-            <table className="min-w-[1080px] border-collapse text-[13px]">
+            <table className={(columns.length ? 'min-w-[900px] w-full ' : 'w-full table-fixed ') + 'border-collapse text-[12.5px]'}>
               <thead className="sticky top-0 bg-card z-10">
                 <tr className="border-b border-border text-left text-muted-foreground">
-                  <th className="pl-3 pr-1 py-3 w-8"><input type="checkbox" checked={rows.length > 0 && rows.every((p) => selRows[p.id])} onChange={(e) => { const v = e.target.checked; setSelRows(() => { const o: any = {}; if (v) rows.forEach((p) => { o[p.id] = true; }); return o; }); }} /></th>
-                  <th className="pl-1 pr-3 py-3 font-semibold w-[34%] min-w-[280px]">Source ({rows.length})</th>
-                  <th className="p-3 font-semibold w-[33%] min-w-[240px]">Summary</th>
-                  <th className="p-3 font-semibold w-[33%] min-w-[240px]"><span className="flex items-center gap-1.5">Gap identification {paperGapBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null}</span></th>
+                  <th className="pl-2.5 pr-1 py-2.5 w-8"><input type="checkbox" checked={rows.length > 0 && rows.every((p) => selRows[p.id])} onChange={(e) => { const v = e.target.checked; setSelRows(() => { const o: any = {}; if (v) rows.forEach((p) => { o[p.id] = true; }); return o; }); }} /></th>
+                  <th className={'pl-1 pr-2.5 py-2.5 font-semibold ' + (columns.length ? 'min-w-[220px]' : 'w-[30%]')}>Source ({rows.length})</th>
+                  <th className={'px-2.5 py-2.5 font-semibold ' + (columns.length ? 'min-w-[200px]' : 'w-[24%]')}>Summary</th>
+                  <th className={'px-2.5 py-2.5 font-semibold ' + (columns.length ? 'min-w-[190px]' : 'w-[23%]')}><span className="flex items-center gap-1.5">Gap identification {paperGapBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null}</span></th>
+                  <th className={'px-2.5 py-2.5 font-semibold ' + (columns.length ? 'min-w-[190px]' : 'w-[23%]')}><span className="flex items-center gap-1.5">Novelty {paperNovBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null}</span></th>
                   {columns.map((c) => (
-                    <th key={c.id} className="p-3 font-semibold min-w-[160px]">
+                    <th key={c.id} className="px-2.5 py-2.5 font-semibold min-w-[150px]">
                       <div className="flex items-center gap-1 justify-between"><span className="truncate">{c.name}</span><button onClick={() => removeColumn(c.id)} className="text-muted-foreground hover:text-red-400 shrink-0"><X className="w-3.5 h-3.5" /></button></div>
                     </th>
                   ))}
@@ -3354,27 +3385,36 @@ export function LiteratureReviewView({ messages, onHome }: any) {
               <tbody>
                 {rows.map((p) => (
                   <tr key={p.id} className="border-b border-border align-top hover:bg-muted/30">
-                    <td className="pl-3 pr-1 py-3 align-top"><input type="checkbox" checked={!!selRows[p.id]} onChange={() => setSelRows((prev: any) => ({ ...prev, [p.id]: !prev[p.id] }))} /></td>
-                    <td className="pl-1 pr-3 py-3">
+                    <td className="pl-2.5 pr-1 py-2.5 align-top"><input type="checkbox" checked={!!selRows[p.id]} onChange={() => setSelRows((prev: any) => ({ ...prev, [p.id]: !prev[p.id] }))} /></td>
+                    <td className="pl-1 pr-2.5 py-2.5 align-top break-words">
                       {p.url || p.doi ? (
                         <a href={p.url || ('https://doi.org/' + p.doi)} target="_blank" rel="noreferrer"
                           onMouseEnter={(e) => { const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); if (citeHideTimer.current) { clearTimeout(citeHideTimer.current); citeHideTimer.current = null; } setCitePop({ paper: p, x: Math.min(Math.max(r.left, 12), (typeof window !== 'undefined' ? window.innerWidth : 1200) - 360), y: r.bottom + 6 }); }}
                           onMouseLeave={scheduleHideCitePop}
-                          className="block font-semibold text-foreground leading-snug mb-1 hover:text-primary transition-colors no-underline">{p.title}</a>
-                      ) : <div className="font-semibold text-foreground leading-snug mb-1">{p.title}</div>}
-                      <div className="text-[12px] text-muted-foreground">{p.authorStr}</div>
-                      <div className="text-[12px] text-muted-foreground mt-0.5">{[p.venue, p.year, p.cited + ' citations'].filter(Boolean).join(' - ')}</div>
-                      <div className="flex items-center gap-2 mt-1.5">
-                        {p.doi ? <a href={p.url} target="_blank" rel="noreferrer" className="text-[11.5px] font-semibold text-blue-500 hover:text-blue-600 flex items-center gap-1"><ExternalLink className="w-3 h-3" /> DOI</a> : null}
-                        {p.oa ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-green-500/15 text-green-500">OPEN ACCESS</span> : null}
-                        {p.fullText ? <span className="text-[11px] text-emerald-600 flex items-center gap-1"><FileText className="w-3 h-3" /> Full text available</span> : <span className="text-[11px] text-muted-foreground flex items-center gap-1"><FileText className="w-3 h-3" /> Abstract only</span>}
+                          className="block font-semibold text-foreground leading-snug mb-1 hover:text-primary transition-colors no-underline break-words">{p.title}</a>
+                      ) : <div className="font-semibold text-foreground leading-snug mb-1 break-words">{p.title}</div>}
+                      <div className="text-[11.5px] text-muted-foreground break-words">{p.authorStr}</div>
+                      <div className="text-[11.5px] text-muted-foreground mt-0.5 break-words">{[p.venue, p.year, p.cited + ' citations'].filter(Boolean).join(' · ')}</div>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5">
+                        {p.doi ? <a href={p.url} target="_blank" rel="noreferrer" className="text-[11px] font-semibold text-blue-500 hover:text-blue-600 flex items-center gap-1"><ExternalLink className="w-3 h-3" /> DOI</a> : null}
+                        {p.oa ? <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded bg-green-500/15 text-green-500 whitespace-nowrap">OPEN ACCESS</span> : null}
+                        {p.fullText ? <span className="text-[10.5px] text-emerald-600 flex items-center gap-1 whitespace-nowrap"><FileText className="w-3 h-3" /> Full text</span> : <span className="text-[10.5px] text-muted-foreground flex items-center gap-1 whitespace-nowrap"><FileText className="w-3 h-3" /> Abstract only</span>}
                       </div>
                     </td>
-                    <td className="p-3 text-foreground/90 leading-relaxed">
+                    <td className="px-2.5 py-2.5 text-foreground/90 leading-snug align-top break-words">
                       {p.summary ? p.summary : (busy ? <span className="text-muted-foreground flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> summarising...</span> : (p.abstract ? p.abstract.slice(0, 220) + '...' : 'No abstract.'))}
                     </td>
-                    <td className="p-3 text-foreground/90 leading-relaxed align-top">
+                    <td className="px-2.5 py-2.5 text-foreground/90 leading-snug align-top break-words">
                       {p.gap ? <span className="flex items-start gap-1.5"><AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" /> <span>{p.gap}</span></span> : (paperGapBusy ? <span className="text-muted-foreground flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> identifying gap…</span> : <span className="text-muted-foreground">—</span>)}
+                    </td>
+                    <td className="px-2.5 py-2.5 text-foreground/90 leading-snug align-top break-words">
+                      {p.novelty ? (() => {
+                        const m = String(p.novelty).match(/^\s*(high|moderate|incremental|low)\b\s*[—\-:]*\s*(.*)$/i);
+                        const lvl = m ? m[1].toLowerCase() : '';
+                        const note = m ? m[2] : String(p.novelty);
+                        const cls = lvl === 'high' ? 'bg-emerald-500/15 text-emerald-500' : lvl === 'moderate' ? 'bg-amber-500/15 text-amber-500' : 'bg-muted-foreground/15 text-muted-foreground';
+                        return <div><span className={'text-[10.5px] font-bold uppercase tracking-wide rounded-full px-2 py-0.5 ' + cls}>{lvl || 'note'}</span>{note ? <div className="mt-1">{note}</div> : null}</div>;
+                      })() : (paperNovBusy ? <span className="text-muted-foreground flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> assessing…</span> : <span className="text-muted-foreground">—</span>)}
                     </td>
                     {columns.map((c) => (
                       <td key={c.id} className="p-3 text-foreground/90">
