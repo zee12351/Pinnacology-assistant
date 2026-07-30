@@ -901,6 +901,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [colInput, setColInput] = useState('');
   const [colBusy, setColBusy] = useState(false);
   const lastQRef = useRef('');
+  const runIdRef = useRef(0); // bumped on New/reset to cancel stale in-flight generations
   const agentSessionKeyRef = useRef('');
   const [input, setInput] = useState('');
   // Elicit-style question-strength coach (evaluates the typed query, suggests refinements).
@@ -1242,6 +1243,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     if (deepMode) runDeepReview(q); else runReview(q);
   }
   function resetSearch() {
+    runIdRef.current++;               // invalidate any in-flight generation so its callbacks stop updating the UI
+    setBusy(false); setPhase('');     // clear the loading overlay immediately
     setQuestion(''); setPapers([]); setSynthesis(''); setGaps(''); setColumns([]); setSearchTerms([]); setInput(''); setFollowups([]); setChatThread([]); setChatInput(''); lastQRef.current = '';
     setDeepActive(false); setDeepSteps([]); setDeepStepsExpanded(false); setDeepStats({ retrieved: 0, eligible: 0, included: 0, searches: 0 }); setDeepTables(null);
     setChatStarted(false); setPaperChat([]); setChatSources([]); setSrcSel({});
@@ -1520,6 +1523,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   }, [messages]);
 
   async function runReview(q: string) {
+    const myRun = ++runIdRef.current;
     setMode('find');
     setNavView('search');
     setQuestion(q);
@@ -1535,6 +1539,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setChatThread([]);
     try {
       const items = await searchPapers(q, paperSource, 12);
+      if (runIdRef.current !== myRun) return; // cancelled by New/reset
       setPapers(items);
       setSearchTerms([q]);
       if (!items.length) {
@@ -1549,6 +1554,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         + 'Below are ' + items.length + ' papers. For EACH paper (in order), write a 1-2 sentence summary of what it found that is RELEVANT to the research question, with specific numbers/outcomes if present. Then write a 3-4 sentence overall synthesis across all papers (agreement, disagreement, bottom line). Finally, propose 2-3 SHORT next-step edits to improve THIS table (each max 6 words, phrased as an action like "Add sample size" or "Separate by study design").\n\n'
         + 'Return ONLY valid JSON, no markdown fences, in exactly this shape: ' + jsonShape + '\n\nPapers:\n' + list;
       const rawText = await callChat(prompt);
+      if (runIdRef.current !== myRun) return; // cancelled by New/reset
       const parsed = extractJSON(rawText);
       if (parsed && Array.isArray(parsed.summaries)) {
         setPapers((prev) => prev.map((p, i) => ({ ...p, summary: parsed.summaries[i] || (p.abstract || '').slice(0, 220) })));
@@ -1559,10 +1565,9 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         setSynthesis(rawText && rawText.length < 1200 ? rawText : '');
       }
     } catch {
-      setPapers((prev) => prev.map((p) => ({ ...p, summary: p.abstract ? p.abstract.slice(0, 240) + '...' : '' })));
+      if (runIdRef.current === myRun) setPapers((prev) => prev.map((p) => ({ ...p, summary: p.abstract ? p.abstract.slice(0, 240) + '...' : '' })));
     } finally {
-      setBusy(false);
-      setPhase('');
+      if (runIdRef.current === myRun) { setBusy(false); setPhase(''); }
     }
   }
 
@@ -1570,6 +1575,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const addDeepStep = (step: any) => setDeepSteps((prev) => [...prev, step]);
   const patchLastDeepStep = (patch: any) => setDeepSteps((prev) => prev.length ? prev.map((s, i) => i === prev.length - 1 ? { ...s, ...patch } : s) : prev);
   async function runDeepReview(q: string) {
+    const myRun = ++runIdRef.current;
     setMode('find'); setNavView('search'); setQuestion(q); pushRecent(q, 'Deep research');
     setBusy(true); setPhase('Running deep research…');
     setPapers([]); setSynthesis(''); setGaps(''); setGapsBusy(false); setColumns([]); setFollowups([]); setChatThread([]);
@@ -1585,6 +1591,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       // Semantic Scholar, DOAJ) so we pull from millions of papers, not one source.
       const deepSource = 'all';
       const [initial, corpus] = await Promise.all([searchPapers(q, deepSource, 80), corpusCounts(q)]);
+      if (runIdRef.current !== myRun) return; // cancelled by New/reset
       pool = pool.concat(initial);
       // Retrieved / Eligible reflect the REAL number of matching papers across the open databases.
       corpusRetrieved = corpus.retrieved; corpusEligible = corpus.eligible;
@@ -1608,9 +1615,11 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       patchLastDeepStep({ status: 'done', plain: true, label: 'Planned ' + subs.length + ' sub-topics' });
       // 4) Search each sub-topic live (papers + corpus match count)
       for (const sub of subs) {
+        if (runIdRef.current !== myRun) return; // cancelled by New/reset
         addDeepStep({ label: sub, status: 'searching' });
         let r: any[] = [];
         try { r = await searchPapers(sub, deepSource, 24); } catch {}
+        if (runIdRef.current !== myRun) return;
         pool = pool.concat(r);
         patchLastDeepStep({ status: 'done', count: r.length });
         setDeepFetched(pool.length);
@@ -1648,6 +1657,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       const included = includedScored.map((x: any, i: number) => ({ ...x.p, idx: i, rel: 100000 - i }));
       setDeepStats((s) => ({ ...s, included: included.length, searches: subs.length + 1 }));
       patchLastDeepStep({ status: 'done', plain: true, label: 'Screened → ' + eligibleCount + ' eligible → ' + included.length + ' included' });
+      if (runIdRef.current !== myRun) return; // cancelled by New/reset
       addDeepStep({ label: 'Synthesising ' + included.length + ' papers…', status: 'searching', plain: true });
       setPapers(included);
       // 6) Generate the report + per-paper answers in TWO separate calls (never one giant
@@ -1671,6 +1681,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         + '## Conclusion\n(2-3 sentences)\n\nPapers:\n' + list;
       try {
         let reportText = await callChat(reportPrompt, false, 'LITERATURE REVIEW');
+        if (runIdRef.current !== myRun) return; // cancelled by New/reset
         reportText = (reportText || '').replace(/^```(?:markdown)?\s*/i, '').replace(/```\s*$/i, '').trim();
         setSynthesis(reportText);
       } catch { setSynthesis(''); }
@@ -1696,7 +1707,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       } catch {}
       patchLastDeepStep({ status: 'done', plain: true, label: 'Included ' + included.length + ' papers' });
     } catch { /* ignore */ }
-    finally { setBusy(false); setPhase(''); setDeepActive(false); }
+    finally { if (runIdRef.current === myRun) { setBusy(false); setPhase(''); setDeepActive(false); } }
   }
 
   // Fetch the next batch of papers and append them (like Persona 1's "Load more").
