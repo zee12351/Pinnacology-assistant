@@ -583,7 +583,7 @@ export default function HomePage() {
       )}
 
       {/* CENTER WORKSPACE */}
-      <div className="flex-1 flex flex-col relative transition-all duration-300">
+      <div className="flex-1 min-w-0 flex flex-col relative transition-all duration-300">
         
         {!isLeftSidebarOpen && (
           <button 

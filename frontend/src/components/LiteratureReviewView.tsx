@@ -3098,8 +3098,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   // ---- FIND RESULTS SPLIT VIEW ----
   const resultsView = (
     <div ref={resultsRef} className="flex flex-col md:flex-row w-full h-full overflow-hidden">
-      <div style={{ width: leftW + '%' }} className="max-md:!w-full flex flex-col border-b md:border-b-0 border-border h-auto md:h-full max-h-[45vh] md:max-h-none shrink-0">
-        <div className="flex-1 min-h-0 overflow-y-auto p-6 custom-scrollbar flex flex-col gap-4">
+      <div style={{ width: leftW + '%' }} className="max-md:!w-full flex flex-col border-b md:border-b-0 border-border h-auto md:h-full max-h-[45vh] md:max-h-none shrink-0 min-w-0">
+        <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden p-6 custom-scrollbar flex flex-col gap-4">
           <div className="flex items-center justify-between">
             {modeDropdown}
             <div className="flex items-center gap-2">
@@ -3346,7 +3346,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
 
       <div className="flex-1 min-w-0 min-h-0 bg-card flex flex-col md:h-full overflow-hidden">
         <div className="p-3 border-b border-border flex items-center gap-2 flex-wrap shrink-0">
-          <div className="relative flex-1 min-w-[160px]">
+          <div className="relative flex-1 min-w-[140px] max-w-[260px]">
             <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search papers..." className="w-full bg-muted/40 border border-border rounded-lg pl-8 pr-2 py-1.5 text-[13px] outline-none focus:border-primary" />
           </div>
