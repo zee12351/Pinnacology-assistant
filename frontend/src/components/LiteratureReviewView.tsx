@@ -883,6 +883,20 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [filter, setFilter] = useState('');
   const [sortKey, setSortKey] = useState('relevance');
   const [addingCol, setAddingCol] = useState(false);
+  const addColRef = useRef<HTMLDivElement>(null);
+  // Close the "Add column" panel when clicking outside it (or its trigger buttons).
+  useEffect(() => {
+    if (!addingCol) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (t && t.closest && (t.closest('[data-addcol-panel]') || t.closest('[data-addcol-trigger]'))) return;
+      setAddingCol(false); setColInput('');
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [addingCol]);
+  // Built-in extract columns that can be hidden (Source & Summary always stay).
+  const [hiddenCols, setHiddenCols] = useState<Record<string, boolean>>({});
   const [colInput, setColInput] = useState('');
   const [colBusy, setColBusy] = useState(false);
   const lastQRef = useRef('');
@@ -3273,7 +3287,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
             <div className="border border-border rounded-2xl bg-card px-3 py-2.5">
               <textarea value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); refine(chatInput); } }} rows={2} placeholder="Ask about anything you see, update your analysis, or explore a new direction" className="w-full bg-transparent text-[13.5px] outline-none resize-none placeholder:text-muted-foreground" />
               <div className="flex items-center justify-between mt-1">
-                <button onClick={() => setAddingCol(true)} title="Add column" className="text-muted-foreground hover:text-foreground"><Plus className="w-4 h-4" /></button>
+                <button data-addcol-trigger="1" onClick={() => setAddingCol((v) => !v)} title="Add column" className="text-muted-foreground hover:text-foreground"><Plus className="w-4 h-4" /></button>
                 <button onClick={() => refine(chatInput)} disabled={!chatInput.trim() || chatBusy} className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40" title="Send"><ArrowUp className="w-4 h-4" /></button>
               </div>
             </div>
@@ -3300,7 +3314,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
             </select>
           </div>
           <button onClick={() => setFiltOpen((v) => !v)} disabled={!papers.length} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40"><SlidersHorizontal className="w-3.5 h-3.5" /> Filters</button>
-          <button onClick={() => setAddingCol(true)} disabled={!papers.length} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40"><Plus className="w-3.5 h-3.5" /> Add column</button>
+          <button data-addcol-trigger="1" onClick={() => setAddingCol((v) => !v)} disabled={!papers.length} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40"><Plus className="w-3.5 h-3.5" /> Add column</button>
           <div className="relative inline-block">
             <button ref={dlBtnRef} onClick={toggleDlMenu} disabled={!papers.length} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-semibold border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-40"><Download className="w-3.5 h-3.5" /> Download{selCount() ? ' (' + selCount() + ')' : ''} <ChevronDown className="w-3 h-3" /></button>
             {dlMenu ? (
@@ -3341,7 +3355,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         ) : null}
 
         {addingCol ? (
-          <div className="p-4 border-b border-border bg-muted/30">
+          <div ref={addColRef} data-addcol-panel="1" className="p-4 border-b border-border bg-muted/30">
             <div className="flex items-start justify-between">
               <div>
                 <div className="text-[13.5px] font-bold">Search or create a column</div>
@@ -3359,6 +3373,13 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                 {columns.map((c) => (
                   <div key={c.id} className="flex items-center justify-between px-2 py-1.5 rounded hover:bg-muted text-[13px]"><span className="truncate">{c.name}</span><button onClick={() => removeColumn(c.id)} className="text-muted-foreground hover:text-red-400 shrink-0"><X className="w-3.5 h-3.5" /></button></div>
                 ))}
+              </div>
+            ) : null}
+            {(hiddenCols.gap || hiddenCols.nov) ? (
+              <div className="mt-4">
+                <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-1">Restore columns</div>
+                {hiddenCols.gap ? <button onClick={() => setHiddenCols((h) => ({ ...h, gap: false }))} className="w-full flex items-center gap-2 text-left px-2 py-2 rounded hover:bg-muted text-[13px]"><Plus className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> Gap identification</button> : null}
+                {hiddenCols.nov ? <button onClick={() => setHiddenCols((h) => ({ ...h, nov: false }))} className="w-full flex items-center gap-2 text-left px-2 py-2 rounded hover:bg-muted text-[13px]"><Plus className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> Novelty</button> : null}
               </div>
             ) : null}
             <div className="mt-4">
@@ -3384,14 +3405,14 @@ export function LiteratureReviewView({ messages, onHome }: any) {
               {!busy ? <p className="text-[12px] text-muted-foreground mt-1">Ask a research question to build your review table.</p> : null}
             </div>
           ) : (
-            <table ref={tableRef} className="w-full table-fixed border-collapse text-[12.5px]" style={{ minWidth: 34 + colW.src + colW.sum + colW.gap + colW.nov + columns.length * 170 }}>
+            <table ref={tableRef} className="w-full table-fixed border-collapse text-[12.5px]" style={{ minWidth: 34 + colW.src + colW.sum + (hiddenCols.gap ? 0 : colW.gap) + (hiddenCols.nov ? 0 : colW.nov) + columns.length * 170 }}>
               <thead className="sticky top-0 bg-card z-10">
                 <tr className="border-b border-border text-left text-muted-foreground">
                   <th className="pl-2.5 pr-1 py-2.5" style={{ width: 34 }}><input type="checkbox" checked={rows.length > 0 && rows.every((p) => selRows[p.id])} onChange={(e) => { const v = e.target.checked; setSelRows(() => { const o: any = {}; if (v) rows.forEach((p) => { o[p.id] = true; }); return o; }); }} /></th>
                   <th className="relative pl-1 pr-2.5 py-2.5 font-semibold" style={{ width: colW.src }}>Source ({rows.length})<div onPointerDown={(e) => startColResize('src', e)} title="Drag to resize column" className="absolute top-0 -right-1 h-full w-2 cursor-col-resize hover:bg-primary/50 active:bg-primary z-20" /></th>
                   <th className="relative px-2.5 py-2.5 font-semibold" style={{ width: colW.sum }}>Summary<div onPointerDown={(e) => startColResize('sum', e)} title="Drag to resize column" className="absolute top-0 -right-1 h-full w-2 cursor-col-resize hover:bg-primary/50 active:bg-primary z-20" /></th>
-                  <th className="relative px-2.5 py-2.5 font-semibold" style={{ width: colW.gap }}><span className="flex items-center gap-1.5">Gap identification {paperGapBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null}</span><div onPointerDown={(e) => startColResize('gap', e)} title="Drag to resize column" className="absolute top-0 -right-1 h-full w-2 cursor-col-resize hover:bg-primary/50 active:bg-primary z-20" /></th>
-                  <th className="relative px-2.5 py-2.5 font-semibold" style={{ width: colW.nov }}><span className="flex items-center gap-1.5">Novelty {paperNovBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null}</span><div onPointerDown={(e) => startColResize('nov', e)} title="Drag to resize column" className="absolute top-0 -right-1 h-full w-2 cursor-col-resize hover:bg-primary/50 active:bg-primary z-20" /></th>
+                  {!hiddenCols.gap ? <th className="relative px-2.5 py-2.5 font-semibold" style={{ width: colW.gap }}><span className="flex items-center gap-1.5">Gap identification {paperGapBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null}<button onClick={() => setHiddenCols((h) => ({ ...h, gap: true }))} title="Remove column" className="ml-auto text-muted-foreground hover:text-red-400"><X className="w-3.5 h-3.5" /></button></span><div onPointerDown={(e) => startColResize('gap', e)} title="Drag to resize column" className="absolute top-0 -right-1 h-full w-2 cursor-col-resize hover:bg-primary/50 active:bg-primary z-20" /></th> : null}
+                  {!hiddenCols.nov ? <th className="relative px-2.5 py-2.5 font-semibold" style={{ width: colW.nov }}><span className="flex items-center gap-1.5">Novelty {paperNovBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null}<button onClick={() => setHiddenCols((h) => ({ ...h, nov: true }))} title="Remove column" className="ml-auto text-muted-foreground hover:text-red-400"><X className="w-3.5 h-3.5" /></button></span><div onPointerDown={(e) => startColResize('nov', e)} title="Drag to resize column" className="absolute top-0 -right-1 h-full w-2 cursor-col-resize hover:bg-primary/50 active:bg-primary z-20" /></th> : null}
                   {columns.map((c) => (
                     <th key={c.id} className="px-2.5 py-2.5 font-semibold" style={{ width: 170 }}>
                       <div className="flex items-center gap-1 justify-between"><span className="truncate">{c.name}</span><button onClick={() => removeColumn(c.id)} className="text-muted-foreground hover:text-red-400 shrink-0"><X className="w-3.5 h-3.5" /></button></div>
@@ -3421,10 +3442,10 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                     <td className="px-2.5 py-2.5 text-foreground/90 leading-snug align-top break-words">
                       {p.summary ? p.summary : (busy ? <span className="text-muted-foreground flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> summarising...</span> : (p.abstract ? p.abstract.slice(0, 220) + '...' : 'No abstract.'))}
                     </td>
-                    <td className="px-2.5 py-2.5 text-foreground/90 leading-snug align-top break-words">
+                    {!hiddenCols.gap ? <td className="px-2.5 py-2.5 text-foreground/90 leading-snug align-top break-words">
                       {p.gap ? <span className="flex items-start gap-1.5"><AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" /> <span>{p.gap}</span></span> : (paperGapBusy ? <span className="text-muted-foreground flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> identifying gap…</span> : <span className="text-muted-foreground">—</span>)}
-                    </td>
-                    <td className="px-2.5 py-2.5 text-foreground/90 leading-snug align-top break-words">
+                    </td> : null}
+                    {!hiddenCols.nov ? <td className="px-2.5 py-2.5 text-foreground/90 leading-snug align-top break-words">
                       {p.novelty ? (() => {
                         const m = String(p.novelty).match(/^\s*(high|moderate|incremental|low)\b\s*[—\-:]*\s*(.*)$/i);
                         const lvl = m ? m[1].toLowerCase() : '';
@@ -3432,7 +3453,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                         const cls = lvl === 'high' ? 'bg-emerald-500/15 text-emerald-500' : lvl === 'moderate' ? 'bg-amber-500/15 text-amber-500' : 'bg-muted-foreground/15 text-muted-foreground';
                         return <div><span className={'text-[10.5px] font-bold uppercase tracking-wide rounded-full px-2 py-0.5 ' + cls}>{lvl || 'note'}</span>{note ? <div className="mt-1">{note}</div> : null}</div>;
                       })() : (paperNovBusy ? <span className="text-muted-foreground flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> assessing…</span> : <span className="text-muted-foreground">—</span>)}
-                    </td>
+                    </td> : null}
                     {columns.map((c) => (
                       <td key={c.id} className="p-3 text-foreground/90">
                         {p.cols[c.id] ? (() => {
