@@ -861,39 +861,23 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp);
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
   }, []);
-  // Resizable result-table columns. Widths are RATIOS (weights) that always sum to the panel
-  // width, so the table can never overflow / cut off on any screen. Dragging a column edge
-  // rebalances it against its neighbour. Persists across searches.
-  const COL_ORDER = ['src', 'sum', 'gap', 'nov'] as const;
+  // Resizable result-table columns (fixed pixel widths). The table has a min-width equal to the
+  // sum of the columns, so when the panel is narrower than that a HORIZONTAL SCROLLBAR appears
+  // INSIDE the panel (the panel has min-w-0, so it never overflows the screen). On wide panels
+  // the table fills the width. Drag a column edge to resize; widths persist across searches.
   const [colW, setColW] = useState<{ src: number; sum: number; gap: number; nov: number }>(() => {
-    try { const r = localStorage.getItem('pinnovix_lit_colw'); if (r) { const o = JSON.parse(r); if (o && o.src) return o; } } catch {}
-    return { src: 30, sum: 28, gap: 21, nov: 21 };
+    try { const r = localStorage.getItem('pinnovix_lit_colw'); if (r) { const o = JSON.parse(r); if (o && o.src && o.src > 60) return o; } } catch {}
+    return { src: 300, sum: 300, gap: 240, nov: 240 };
   });
-  const tableRef = useRef<HTMLTableElement>(null);
-  const colDrag = useRef<{ idx: number; startX: number; a: number; b: number; tableW: number } | null>(null);
+  const colDrag = useRef<{ key: 'src' | 'sum' | 'gap' | 'nov'; startX: number; startW: number } | null>(null);
   useEffect(() => {
-    const mv = (e: PointerEvent) => {
-      const d = colDrag.current; if (!d) return;
-      const total = colW.src + colW.sum + colW.gap + colW.nov;
-      const deltaW = ((e.clientX - d.startX) / Math.max(d.tableW, 1)) * total; // px -> weight
-      let a = d.a + deltaW, b = d.b - deltaW;
-      const min = total * 0.08; // no column below ~8%
-      if (a < min) { b -= (min - a); a = min; }
-      if (b < min) { a -= (min - b); b = min; }
-      const kA = COL_ORDER[d.idx], kB = COL_ORDER[d.idx + 1];
-      setColW((w) => ({ ...w, [kA]: a, [kB]: b }));
-    };
+    const mv = (e: PointerEvent) => { const d = colDrag.current; if (!d) return; setColW((w) => ({ ...w, [d.key]: Math.max(110, d.startW + (e.clientX - d.startX)) })); };
     const up = () => { if (colDrag.current) { colDrag.current = null; document.body.style.cursor = ''; document.body.style.userSelect = ''; setColW((w) => { try { localStorage.setItem('pinnovix_lit_colw', JSON.stringify(w)); } catch {} return w; }); } };
     window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
     return () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); };
-  }, [colW]);
-  const startColResize = (idx: number, e: React.PointerEvent) => {
-    e.preventDefault(); e.stopPropagation();
-    const kA = COL_ORDER[idx], kB = COL_ORDER[idx + 1];
-    colDrag.current = { idx, startX: e.clientX, a: colW[kA], b: colW[kB], tableW: tableRef.current ? tableRef.current.offsetWidth : 900 };
-    document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none';
-  };
-  const colPct = (k: 'src' | 'sum' | 'gap' | 'nov') => { const total = colW.src + colW.sum + colW.gap + colW.nov; return (colW[k] / total * 100).toFixed(3) + '%'; };
+  }, []);
+  const startColResize = (key: 'src' | 'sum' | 'gap' | 'nov', e: React.PointerEvent) => { e.preventDefault(); e.stopPropagation(); colDrag.current = { key, startX: e.clientX, startW: colW[key] }; document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; };
+  const tableRef = useRef<HTMLTableElement>(null);
   const [searchTerms, setSearchTerms] = useState([] as string[]);
   const [columns, setColumns] = useState([] as any[]);
   const [filter, setFilter] = useState('');
@@ -3400,16 +3384,16 @@ export function LiteratureReviewView({ messages, onHome }: any) {
               {!busy ? <p className="text-[12px] text-muted-foreground mt-1">Ask a research question to build your review table.</p> : null}
             </div>
           ) : (
-            <table ref={tableRef} className="w-full table-fixed border-collapse text-[12.5px]" style={columns.length ? { minWidth: 900 } : undefined}>
+            <table ref={tableRef} className="w-full table-fixed border-collapse text-[12.5px]" style={{ minWidth: 34 + colW.src + colW.sum + colW.gap + colW.nov + columns.length * 170 }}>
               <thead className="sticky top-0 bg-card z-10">
                 <tr className="border-b border-border text-left text-muted-foreground">
-                  <th className="pl-2.5 pr-1 py-2.5" style={{ width: 30 }}><input type="checkbox" checked={rows.length > 0 && rows.every((p) => selRows[p.id])} onChange={(e) => { const v = e.target.checked; setSelRows(() => { const o: any = {}; if (v) rows.forEach((p) => { o[p.id] = true; }); return o; }); }} /></th>
-                  <th className="relative pl-1 pr-2.5 py-2.5 font-semibold" style={{ width: colPct('src') }}>Source ({rows.length})<div onPointerDown={(e) => startColResize(0, e)} title="Drag to resize" className="absolute top-0 -right-1 h-full w-2 cursor-col-resize hover:bg-primary/50 active:bg-primary z-20" /></th>
-                  <th className="relative px-2.5 py-2.5 font-semibold" style={{ width: colPct('sum') }}>Summary<div onPointerDown={(e) => startColResize(1, e)} title="Drag to resize" className="absolute top-0 -right-1 h-full w-2 cursor-col-resize hover:bg-primary/50 active:bg-primary z-20" /></th>
-                  <th className="relative px-2.5 py-2.5 font-semibold" style={{ width: colPct('gap') }}><span className="flex items-center gap-1.5">Gap identification {paperGapBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null}</span><div onPointerDown={(e) => startColResize(2, e)} title="Drag to resize" className="absolute top-0 -right-1 h-full w-2 cursor-col-resize hover:bg-primary/50 active:bg-primary z-20" /></th>
-                  <th className="px-2.5 py-2.5 font-semibold" style={{ width: colPct('nov') }}><span className="flex items-center gap-1.5">Novelty {paperNovBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null}</span></th>
+                  <th className="pl-2.5 pr-1 py-2.5" style={{ width: 34 }}><input type="checkbox" checked={rows.length > 0 && rows.every((p) => selRows[p.id])} onChange={(e) => { const v = e.target.checked; setSelRows(() => { const o: any = {}; if (v) rows.forEach((p) => { o[p.id] = true; }); return o; }); }} /></th>
+                  <th className="relative pl-1 pr-2.5 py-2.5 font-semibold" style={{ width: colW.src }}>Source ({rows.length})<div onPointerDown={(e) => startColResize('src', e)} title="Drag to resize column" className="absolute top-0 -right-1 h-full w-2 cursor-col-resize hover:bg-primary/50 active:bg-primary z-20" /></th>
+                  <th className="relative px-2.5 py-2.5 font-semibold" style={{ width: colW.sum }}>Summary<div onPointerDown={(e) => startColResize('sum', e)} title="Drag to resize column" className="absolute top-0 -right-1 h-full w-2 cursor-col-resize hover:bg-primary/50 active:bg-primary z-20" /></th>
+                  <th className="relative px-2.5 py-2.5 font-semibold" style={{ width: colW.gap }}><span className="flex items-center gap-1.5">Gap identification {paperGapBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null}</span><div onPointerDown={(e) => startColResize('gap', e)} title="Drag to resize column" className="absolute top-0 -right-1 h-full w-2 cursor-col-resize hover:bg-primary/50 active:bg-primary z-20" /></th>
+                  <th className="relative px-2.5 py-2.5 font-semibold" style={{ width: colW.nov }}><span className="flex items-center gap-1.5">Novelty {paperNovBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null}</span><div onPointerDown={(e) => startColResize('nov', e)} title="Drag to resize column" className="absolute top-0 -right-1 h-full w-2 cursor-col-resize hover:bg-primary/50 active:bg-primary z-20" /></th>
                   {columns.map((c) => (
-                    <th key={c.id} className="px-2.5 py-2.5 font-semibold" style={{ width: 160 }}>
+                    <th key={c.id} className="px-2.5 py-2.5 font-semibold" style={{ width: 170 }}>
                       <div className="flex items-center gap-1 justify-between"><span className="truncate">{c.name}</span><button onClick={() => removeColumn(c.id)} className="text-muted-foreground hover:text-red-400 shrink-0"><X className="w-3.5 h-3.5" /></button></div>
                     </th>
                   ))}
