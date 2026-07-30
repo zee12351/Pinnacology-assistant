@@ -3401,7 +3401,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
           </div>
         ) : null}
 
-        <div className="flex-1 overflow-auto custom-scrollbar">
+        <div className="flex-1 min-w-0 max-w-full overflow-auto custom-scrollbar">
           {papers.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center p-8 opacity-60">
               {busy ? <Loader2 className="w-8 h-8 animate-spin text-primary mb-3" /> : <FlaskConical className="w-10 h-10 text-muted-foreground mb-3" />}
