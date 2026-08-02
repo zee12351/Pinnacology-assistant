@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles, ArrowRight, ArrowUp, ArrowLeft, FileText, Table2, BookOpen, Copy, SlidersHorizontal, Bookmark, Clock, Library as LibraryIcon, Bell, Upload, FolderPlus, Trash2, PanelLeft, MessageSquare, ChevronDown, Check, ListChecks, Tag, Home, Share2, Settings, LogOut, ChevronsUpDown, FolderInput, Menu, AlertTriangle, Star, MoreHorizontal } from 'lucide-react';
+import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles, ArrowRight, ArrowUp, ArrowLeft, FileText, Table2, BookOpen, Copy, SlidersHorizontal, Bookmark, Clock, Library as LibraryIcon, Bell, Upload, FolderPlus, Trash2, PanelLeft, MessageSquare, ChevronDown, Check, ListChecks, Tag, Home, Share2, Settings, LogOut, ChevronsUpDown, FolderInput, Menu, AlertTriangle, Star, MoreHorizontal, Microscope } from 'lucide-react';
 
 import { authHeaders, supabase } from '@/lib/supabaseClient';
 // Literature Review workspace (Elicit-style)
@@ -854,6 +854,11 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setMode('chat');
     setCitePop(null);
   }
+  // Evidence-intelligence mode: cumulative Evidence Extraction + Gap Identification + Novelty.
+  const [evidenceData, setEvidenceData] = useState<any>(null);
+  const [evidenceBusy, setEvidenceBusy] = useState(false);
+  const [evidencePhase, setEvidencePhase] = useState('');
+  const [evidenceQuestion, setEvidenceQuestion] = useState('');
   // Resizable divider between the report (left) and references (right) panels.
   const [leftW, setLeftW] = useState(38);
   const resultsRef = useRef<HTMLDivElement>(null);
@@ -1251,10 +1256,90 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     saveFindSession(question, { question, papers, synthesis, gaps, columns, followups, searchTerms, deepSteps, deepStats, deepTables });
   }, [papers, synthesis, gaps, deepTables, columns, followups, question, busy, deepActive]);
 
+  // ---- EVIDENCE INTELLIGENCE (Evidence Extraction + Gap Identification + Novelty) ----
+  async function runEvidence(qArg?: string) {
+    const q = (qArg != null ? qArg : input).trim();
+    if (!q) return;
+    const myRun = ++runIdRef.current;
+    setMode('evidence'); setNavView('search');
+    setEvidenceData(null); setEvidenceBusy(true); setEvidenceQuestion(q); setInput('');
+    setEvidencePhase('Searching the literature across databases…');
+    pushRecent(q, 'Evidence');
+    let papersList: any[] = [];
+    try { papersList = await searchPapers(q, 'all', 40); } catch {}
+    if (runIdRef.current !== myRun) return;
+    setEvidencePhase('Extracting evidence, detecting gaps, scoring novelty…');
+    let corpus = { retrieved: 0, eligible: 0 };
+    try { corpus = await corpusCounts(q); } catch {}
+    if (runIdRef.current !== myRun) return;
+    const corpusText = papersList.slice(0, 30).map((p, i) => '[' + (i + 1) + '] ' + p.title + (p.year ? ' (' + p.year + ')' : '') + (p.venue ? ' — ' + p.venue : '') + '. ' + (cleanText(p.abstract) ? cleanText(p.abstract).slice(0, 500) : 'No abstract available')).join('\n\n');
+    const shape = '{'
+      + '"overview":{"totalPapers":0,"clinical":0,"animal":0,"cell":0,"reviews":0,"period":"YYYY–YYYY"},'
+      + '"evidenceSummary":[{"claim":"short evidence statement","result":"Supported|Limited evidence|Contradicted","confidence":"High|Medium|Low"}],'
+      + '"targets":[{"name":"gene/protein","papers":0,"evidence":"Strong|Moderate|Weak"}],'
+      + '"mechanisms":[{"chain":["Entity","Pathway","Effect"]}],'
+      + '"experimental":[{"model":"cell line / model","finding":"short finding"}],'
+      + '"quantitative":[{"metric":"IC50|Hazard Ratio|p-value|AUC|Survival|…","range":"reported value or range"}],'
+      + '"safety":["short safety observation"],'
+      + '"gaps":[{"gap":"what is missing","severity":"Critical|High|Medium|Low","confidence":"High|Medium|Low"}],'
+      + '"geography":[{"region":"Country/Region","count":0}],'
+      + '"missingAreas":["under-studied area"],'
+      + '"gapScores":[{"category":"Clinical Gap|Mechanistic Gap|Validation Gap|AI Integration Gap|Translational Gap","score":0}],'
+      + '"novelty":{"idea":"restate the research idea","similar":[{"band":">90%","papers":0},{"band":"70–90%","papers":0},{"band":"50–70%","papers":0},{"band":"<50%","papers":0}],"analysis":[{"component":"Drug/target/method combination","status":"Well explored|Moderately explored|Partially novel|Novel|Highly novel"}],"publicationOverlap":0,"patentOverlap":0,"scores":[{"criterion":"Publication Novelty|Mechanistic Novelty|Target Novelty|Combination Novelty|Clinical Novelty|Patent Novelty","score":0}],"overall":0,"confidence":"High|Medium|Low"},'
+      + '"recommendations":["actionable next experiment/step"]'
+      + '}';
+    const prompt = 'You are a biomedical research-intelligence engine (comparable to Scopus AI / Consensus / PandaOmics). '
+      + 'For the research query: "' + q + '", produce a STRUCTURED research-intelligence report with three parts: '
+      + '(1) Evidence Extraction, (2) Gap Identification, (3) Novelty Detection. '
+      + 'Ground the evidence, targets, mechanisms, experimental models and quantitative results in the retrieved papers below. '
+      + 'For gaps and novelty, reason about what is under-studied or unexplored. All numbers must be realistic. '
+      + 'Percentages/scores are 0–100 integers. Provide 4–8 items per list where possible. '
+      + 'The real retrieved corpus size across open databases for this query is approximately ' + (corpus.retrieved || papersList.length) + ' papers — use it for overview.totalPapers. '
+      + 'Return ONLY valid minified JSON in EXACTLY this shape (no markdown, no commentary):\n' + shape
+      + '\n\nRetrieved papers:\n' + (corpusText || '(no abstracts retrieved — infer conservatively from domain knowledge)');
+    let data: any = null;
+    try { const raw = await callChat(prompt, false, 'LITERATURE REVIEW'); data = extractJSON(raw); } catch {}
+    if (runIdRef.current !== myRun) return;
+    if (data && typeof data === 'object') {
+      data.overview = data.overview || {};
+      if (corpus.retrieved && !data.overview.totalPapers) data.overview.totalPapers = corpus.retrieved;
+      data._papers = papersList.slice(0, 40);
+      data._corpus = corpus;
+      setEvidenceData(data);
+    } else {
+      setEvidenceData({ _error: true });
+    }
+    setEvidenceBusy(false); setEvidencePhase('');
+  }
+  function evidenceMarkdown(): string {
+    const d = evidenceData; if (!d) return '';
+    const L: string[] = [];
+    L.push('# Research Intelligence Report'); L.push('\n**Query:** ' + evidenceQuestion + '\n');
+    const ov = d.overview || {};
+    L.push('## 1. Evidence Extraction');
+    L.push('\n**Research overview** — Total papers: ' + (ov.totalPapers || '—') + ' · Clinical: ' + (ov.clinical || 0) + ' · Animal: ' + (ov.animal || 0) + ' · Cell: ' + (ov.cell || 0) + ' · Reviews: ' + (ov.reviews || 0) + ' · Period: ' + (ov.period || '—') + '\n');
+    if (d.evidenceSummary) { L.push('\n### Evidence summary'); (d.evidenceSummary || []).forEach((e: any) => L.push('- ' + e.claim + ' — *' + e.result + '* (confidence: ' + e.confidence + ')')); }
+    if (d.targets) { L.push('\n### Biological targets'); (d.targets || []).forEach((t: any) => L.push('- ' + t.name + ': ' + t.papers + ' papers — ' + t.evidence)); }
+    if (d.quantitative) { L.push('\n### Quantitative results'); (d.quantitative || []).forEach((qq: any) => L.push('- ' + qq.metric + ': ' + qq.range)); }
+    if (d.safety) { L.push('\n### Safety'); (d.safety || []).forEach((s: string) => L.push('- ' + s)); }
+    L.push('\n## 2. Gap Identification');
+    if (d.gaps) { L.push('\n### Research gaps detected'); (d.gaps || []).forEach((g: any) => L.push('- ' + g.gap + ' — severity: ' + g.severity + ' (confidence: ' + g.confidence + ')')); }
+    if (d.gapScores) { L.push('\n### Gap scores'); (d.gapScores || []).forEach((g: any) => L.push('- ' + g.category + ': ' + g.score + '/100')); }
+    if (d.missingAreas) { L.push('\n### Missing research areas'); (d.missingAreas || []).forEach((m: string) => L.push('- ' + m)); }
+    L.push('\n## 3. Novelty Detection');
+    const nv = d.novelty || {};
+    L.push('\n**Proposed idea:** ' + (nv.idea || evidenceQuestion));
+    L.push('**Overall novelty:** ' + (nv.overall || '—') + '/100 (confidence: ' + (nv.confidence || '—') + ')');
+    L.push('**Publication overlap:** ' + (nv.publicationOverlap ?? '—') + '% · **Patent overlap:** ' + (nv.patentOverlap ?? '—') + '%');
+    if (nv.scores) { L.push('\n### Novelty breakdown'); (nv.scores || []).forEach((s: any) => L.push('- ' + s.criterion + ': ' + s.score + '/100')); }
+    if (d.recommendations) { L.push('\n## AI recommendations'); (d.recommendations || []).forEach((r: string, i: number) => L.push((i + 1) + '. ' + r)); }
+    return L.join('\n');
+  }
   function submitStart() {
     const q = input.trim();
     if (!q) return;
     lastQRef.current = q;
+    if (mode === 'evidence') { runEvidence(q); return; }
     if (deepMode) runDeepReview(q); else runReview(q);
   }
   function resetSearch() {
@@ -1266,6 +1351,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setReport(null); setReportInput(''); setDetailsOpen(false); setReportChat([]);
     setSysStep(0); setSysQ(''); setSysPapers([]); setSysCols([]);
     setAgentChat([]); setAgentInput('');
+    setEvidenceData(null); setEvidenceBusy(false); setEvidencePhase(''); setEvidenceQuestion('');
     setSelRows({}); setShareOpen(false); setShareList([]);
   }
   function startNew() {
@@ -2238,8 +2324,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     { id: 'report', label: 'Report', Icon: FileText, group: 'WORKFLOWS' },
     { id: 'systematic', label: 'Systematic review', Icon: ListChecks, group: 'WORKFLOWS' },
   ];
-  const modeLabel = mode === 'chat' ? 'Chat with papers' : mode === 'report' ? 'Report' : mode === 'extract' ? 'Extract data' : mode === 'systematic' ? 'Systematic review' : mode === 'agent' ? 'Research agent' : 'Find papers';
-  const modeIcon = mode === 'chat' ? MessageSquare : mode === 'report' ? FileText : mode === 'extract' ? Table2 : mode === 'systematic' ? ListChecks : mode === 'agent' ? FlaskConical : Search;
+  const modeLabel = mode === 'chat' ? 'Chat with papers' : mode === 'report' ? 'Report' : mode === 'extract' ? 'Extract data' : mode === 'evidence' ? 'Evidence extraction' : mode === 'systematic' ? 'Systematic review' : mode === 'agent' ? 'Research agent' : 'Find papers';
+  const modeIcon = mode === 'chat' ? MessageSquare : mode === 'report' ? FileText : mode === 'extract' ? Table2 : mode === 'evidence' ? Microscope : mode === 'systematic' ? ListChecks : mode === 'agent' ? FlaskConical : Search;
   const filteredRecents = recents.filter((r) => !recentSearch || (r.question || '').toLowerCase().indexOf(recentSearch.toLowerCase()) !== -1);
   const shownDocs = libDocs.filter((d) => (activeCol === 'all' || activeCol === 'trash') ? activeCol !== 'trash' : d.collection === activeCol).filter((d) => !libSearch || docName(d).toLowerCase().indexOf(libSearch.toLowerCase()) !== -1);
 
@@ -2859,6 +2945,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
           {[
             { l: 'Create table', m: 'find', I: Table2 },
             { l: 'Extract data', m: 'extract', I: Table2 },
+            { l: 'Evidence extraction', m: 'evidence', I: Microscope },
             { l: 'Draft report', m: 'report', I: FileText },
             { l: 'Systematic review', m: 'systematic', I: ListChecks },
             { l: 'Research agent', m: 'agent', I: FlaskConical },
@@ -2870,7 +2957,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
           <div>
             <div className="text-[12px] font-bold text-muted-foreground uppercase tracking-wide mb-2">Suggested</div>
             {['Does intermittent fasting improve weight loss in adults?', 'Effectiveness of CBT for anxiety disorders', 'Impact of remote work on employee productivity'].map((ex) => (
-              <button key={ex} onClick={() => { if (deepMode) runDeepReview(ex); else runReview(ex); }} className="w-full text-left border border-border rounded-xl p-3 bg-card hover:border-primary transition-colors text-[13px] text-muted-foreground mb-2 flex items-center gap-2"><Sparkles className="w-3.5 h-3.5 text-primary shrink-0" /> {ex}</button>
+              <button key={ex} onClick={() => { if (mode === 'evidence') runEvidence(ex); else if (deepMode) runDeepReview(ex); else runReview(ex); }} className="w-full text-left border border-border rounded-xl p-3 bg-card hover:border-primary transition-colors text-[13px] text-muted-foreground mb-2 flex items-center gap-2"><Sparkles className="w-3.5 h-3.5 text-primary shrink-0" /> {ex}</button>
             ))}
           </div>
           <div>
@@ -3702,11 +3789,160 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     </div>
   );
 
+  // ---- EVIDENCE INTELLIGENCE VIEW (Evidence Extraction + Gap Identification + Novelty) ----
+  const evSev = (s: string) => { const x = String(s || '').toLowerCase(); return x.startsWith('crit') ? 'bg-red-500/15 text-red-400' : x.startsWith('high') ? 'bg-amber-500/15 text-amber-500' : x.startsWith('med') ? 'bg-yellow-500/15 text-yellow-500' : 'bg-muted text-muted-foreground'; };
+  const evConf = (s: string) => { const x = String(s || '').toLowerCase(); return x.startsWith('high') || x.startsWith('strong') || x.startsWith('support') ? 'bg-green-500/15 text-green-500' : x.startsWith('med') || x.startsWith('mod') || x.startsWith('partial') ? 'bg-amber-500/15 text-amber-500' : 'bg-muted text-muted-foreground'; };
+  const evCard = 'border border-border rounded-xl bg-card overflow-hidden';
+  const evHead = 'px-4 py-2.5 bg-muted/40 border-b border-border text-[12.5px] font-bold text-muted-foreground flex items-center gap-2';
+  const downloadEvidencePdf = async () => {
+    try {
+      const r = await fetch(API + '/api/export-pdf', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) }, body: JSON.stringify({ markdown_text: evidenceMarkdown() }) });
+      const b = await r.blob(); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href = u; a.download = (evidenceQuestion || 'research-intelligence').slice(0, 40) + '.pdf'; a.click(); URL.revokeObjectURL(u);
+    } catch {}
+  };
+  const evd = evidenceData || {};
+  const evOv = evd.overview || {};
+  const evNv = evd.novelty || {};
+  const evGeoMax = Math.max(1, ...((evd.geography || []).map((g: any) => Number(g.count) || 0)));
+  const evidenceView = (
+    <div className="flex flex-col h-full">
+      <div className="px-4 py-3 border-b border-border flex items-center gap-3 shrink-0 flex-wrap">
+        {modeDropdown}
+        <div className="flex items-center gap-2 ml-auto">
+          {evidenceData && !evidenceData._error ? (
+            <>
+              <button onClick={() => doDownload(evidenceMarkdown(), (evidenceQuestion || 'research-intelligence').slice(0, 40) + '.md', 'text/markdown')} className="text-[12.5px] font-semibold flex items-center gap-1 border border-border rounded-lg px-2.5 py-1 hover:bg-muted"><Download className="w-3.5 h-3.5" /> Markdown</button>
+              <button onClick={downloadEvidencePdf} className="text-[12.5px] font-semibold flex items-center gap-1 border border-border rounded-lg px-2.5 py-1 hover:bg-muted"><FileText className="w-3.5 h-3.5" /> PDF</button>
+            </>
+          ) : null}
+          <button onClick={() => { resetSearch(); setMode('evidence'); }} className="text-[12.5px] text-primary font-semibold flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> New</button>
+        </div>
+      </div>
+      <div className="flex-1 min-h-0 min-w-0 overflow-y-auto custom-scrollbar">
+        <div className="max-w-4xl mx-auto p-5 flex flex-col gap-5">
+          <div className="border border-border rounded-xl bg-card p-4 flex items-center gap-3"><Microscope className="w-5 h-5 text-primary shrink-0" /><div><div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">Research intelligence</div><div className="text-[16px] font-bold leading-tight">{evidenceQuestion}</div></div></div>
+
+          {evidenceBusy && !evidenceData ? (
+            <div className="flex flex-col items-center justify-center py-24 text-center"><Loader2 className="w-8 h-8 animate-spin text-primary mb-3" /><div className="text-[13.5px] text-foreground">{evidencePhase || 'Working…'}</div><div className="text-[12px] text-muted-foreground mt-1">Extracting evidence, detecting gaps and scoring novelty across the literature.</div></div>
+          ) : evidenceData && evidenceData._error ? (
+            <div className="border border-border rounded-xl bg-card p-6 text-center text-[13.5px] text-muted-foreground">Could not build the report. Please try again with a more specific query.</div>
+          ) : evidenceData ? (
+            <>
+              {/* ===== 1. EVIDENCE EXTRACTION ===== */}
+              <div className="flex items-center gap-2 text-[15px] font-bold"><span className="w-6 h-6 rounded-lg bg-primary/15 text-primary flex items-center justify-center text-[12px] font-bold">1</span> Evidence Extraction</div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+                {[['Total papers', evOv.totalPapers], ['Clinical', evOv.clinical], ['Animal', evOv.animal], ['Cell', evOv.cell], ['Reviews', evOv.reviews]].map(([k, v]: any) => (
+                  <div key={k} className="border border-border rounded-xl bg-card p-3"><div className="text-[20px] font-bold text-foreground leading-none">{v != null ? fmtCount(Number(v)) : '—'}</div><div className="text-[11.5px] text-muted-foreground mt-1">{k}</div></div>
+                ))}
+              </div>
+              {(evd.evidenceSummary || []).length ? (
+                <div className={evCard}><div className={evHead}><ListChecks className="w-3.5 h-3.5" /> Evidence summary</div>
+                  {(evd.evidenceSummary || []).map((e: any, i: number) => (
+                    <div key={i} className="px-4 py-2.5 border-b border-border last:border-0 flex items-center justify-between gap-3"><span className="text-[13px] text-foreground">{e.claim}</span><span className="flex items-center gap-1.5 shrink-0"><span className="text-[11px] text-muted-foreground">{e.result}</span><span className={'text-[10.5px] px-2 py-0.5 rounded-full font-semibold ' + evConf(e.confidence)}>{e.confidence}</span></span></div>
+                  ))}
+                </div>
+              ) : null}
+              {(evd.targets || []).length ? (
+                <div className={evCard}><div className={evHead}>Biological targets</div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-px bg-border">
+                    {(evd.targets || []).map((t: any, i: number) => (
+                      <div key={i} className="bg-card p-3"><div className="text-[13.5px] font-bold text-foreground">{t.name}</div><div className="text-[11.5px] text-muted-foreground">{fmtCount(Number(t.papers) || 0)} papers · <span className={'font-semibold ' + (String(t.evidence).toLowerCase().startsWith('strong') ? 'text-green-500' : String(t.evidence).toLowerCase().startsWith('mod') ? 'text-amber-500' : 'text-muted-foreground')}>{t.evidence}</span></div></div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {(evd.mechanisms || []).length ? (
+                <div className={evCard}><div className={evHead}>Mechanisms</div>
+                  <div className="p-4 flex flex-col gap-2.5">
+                    {(evd.mechanisms || []).map((m: any, i: number) => (
+                      <div key={i} className="flex items-center gap-1.5 flex-wrap">{(m.chain || []).map((c: string, k: number) => (<span key={k} className="flex items-center gap-1.5">{k ? <ArrowRight className="w-3.5 h-3.5 text-muted-foreground" /> : null}<span className="text-[12px] font-semibold px-2.5 py-1 rounded-lg bg-primary/10 text-primary">{c}</span></span>))}</div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                {(evd.experimental || []).length ? (
+                  <div className={evCard}><div className={evHead}>Experimental evidence</div>
+                    {(evd.experimental || []).map((x: any, i: number) => (<div key={i} className="px-4 py-2.5 border-b border-border last:border-0 flex items-center justify-between gap-3"><span className="text-[12.5px] font-semibold text-foreground">{x.model}</span><span className="text-[12px] text-muted-foreground text-right">{x.finding}</span></div>))}
+                  </div>
+                ) : null}
+                {(evd.quantitative || []).length ? (
+                  <div className={evCard}><div className={evHead}>Quantitative results</div>
+                    {(evd.quantitative || []).map((qq: any, i: number) => (<div key={i} className="px-4 py-2.5 border-b border-border last:border-0 flex items-center justify-between gap-3"><span className="text-[12.5px] font-semibold text-foreground">{qq.metric}</span><span className="text-[12px] text-muted-foreground">{qq.range}</span></div>))}
+                  </div>
+                ) : null}
+              </div>
+              {(evd.safety || []).length ? (
+                <div className={evCard}><div className={evHead}>Safety</div><div className="p-4 flex flex-col gap-1.5">{(evd.safety || []).map((s: string, i: number) => (<div key={i} className="text-[12.5px] text-foreground flex items-start gap-2"><Check className="w-3.5 h-3.5 text-green-500 mt-0.5 shrink-0" /> {s}</div>))}</div></div>
+              ) : null}
+
+              {/* ===== 2. GAP IDENTIFICATION ===== */}
+              <div className="flex items-center gap-2 text-[15px] font-bold mt-2"><span className="w-6 h-6 rounded-lg bg-amber-500/15 text-amber-500 flex items-center justify-center text-[12px] font-bold">2</span> Gap Identification</div>
+              {(evd.gaps || []).length ? (
+                <div className={evCard}><div className={evHead}><AlertTriangle className="w-3.5 h-3.5" /> Research gaps detected</div>
+                  {(evd.gaps || []).map((g: any, i: number) => (<div key={i} className="px-4 py-2.5 border-b border-border last:border-0 flex items-center justify-between gap-3"><span className="text-[13px] text-foreground">{g.gap}</span><span className="flex items-center gap-1.5 shrink-0"><span className={'text-[10.5px] px-2 py-0.5 rounded-full font-semibold ' + evSev(g.severity)}>{g.severity}</span><span className={'text-[10.5px] px-2 py-0.5 rounded-full font-semibold ' + evConf(g.confidence)}>{g.confidence}</span></span></div>))}
+                </div>
+              ) : null}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                {(evd.gapScores || []).length ? (
+                  <div className={evCard}><div className={evHead}>Gap scores</div><div className="p-4 flex flex-col gap-3">
+                    {(evd.gapScores || []).map((g: any, i: number) => (<div key={i}><div className="flex items-center justify-between text-[12px] mb-1"><span className="text-foreground font-semibold">{g.category}</span><span className="text-muted-foreground">{g.score}/100</span></div><div className="h-2 rounded-full bg-muted overflow-hidden"><div className="h-full bg-amber-500 rounded-full" style={{ width: Math.min(100, Number(g.score) || 0) + '%' }} /></div></div>))}
+                  </div></div>
+                ) : null}
+                {(evd.geography || []).length ? (
+                  <div className={evCard}><div className={evHead}>Geographic distribution</div><div className="p-4 flex flex-col gap-2">
+                    {(evd.geography || []).map((g: any, i: number) => (<div key={i} className="flex items-center gap-2"><span className="text-[12px] text-foreground w-24 shrink-0 truncate">{g.region}</span><div className="flex-1 h-3 rounded bg-muted overflow-hidden"><div className="h-full bg-primary rounded" style={{ width: (Math.max(4, (Number(g.count) || 0) / evGeoMax * 100)) + '%' }} /></div><span className="text-[11px] text-muted-foreground w-8 text-right">{fmtCount(Number(g.count) || 0)}</span></div>))}
+                  </div></div>
+                ) : null}
+              </div>
+              {(evd.missingAreas || []).length ? (
+                <div className={evCard}><div className={evHead}>Missing research areas</div><div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-1.5">{(evd.missingAreas || []).map((m: string, i: number) => (<div key={i} className="text-[12.5px] text-foreground flex items-start gap-2"><span className="text-green-500 mt-0.5">✅</span> {m}</div>))}</div></div>
+              ) : null}
+
+              {/* ===== 3. NOVELTY DETECTION ===== */}
+              <div className="flex items-center gap-2 text-[15px] font-bold mt-2"><span className="w-6 h-6 rounded-lg bg-green-500/15 text-green-500 flex items-center justify-center text-[12px] font-bold">3</span> Novelty Detection</div>
+              <div className="border border-border rounded-xl bg-card p-4">
+                <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">Proposed idea</div>
+                <div className="text-[14px] font-semibold text-foreground mt-0.5">{evNv.idea || evidenceQuestion}</div>
+                <div className="mt-4 flex items-center gap-4 flex-wrap">
+                  <div className="flex flex-col items-center justify-center w-28 h-28 rounded-full border-4 border-primary/30 shrink-0" style={{ background: 'conic-gradient(var(--primary, #2563eb) ' + (Number(evNv.overall) || 0) * 3.6 + 'deg, transparent 0deg)' }}>
+                    <div className="w-24 h-24 rounded-full bg-card flex flex-col items-center justify-center"><span className="text-[26px] font-bold text-foreground leading-none">{evNv.overall != null ? evNv.overall : '—'}</span><span className="text-[10px] text-muted-foreground">/ 100 novelty</span></div>
+                  </div>
+                  <div className="flex-1 min-w-[200px] flex flex-col gap-2">
+                    <div><div className="flex items-center justify-between text-[11.5px] mb-1"><span className="text-muted-foreground">Publication overlap</span><span className="text-foreground font-semibold">{evNv.publicationOverlap ?? '—'}%</span></div><div className="h-2 rounded-full bg-muted overflow-hidden"><div className="h-full bg-blue-500 rounded-full" style={{ width: Math.min(100, Number(evNv.publicationOverlap) || 0) + '%' }} /></div></div>
+                    <div><div className="flex items-center justify-between text-[11.5px] mb-1"><span className="text-muted-foreground">Patent overlap</span><span className="text-foreground font-semibold">{evNv.patentOverlap ?? '—'}%</span></div><div className="h-2 rounded-full bg-muted overflow-hidden"><div className="h-full bg-purple-500 rounded-full" style={{ width: Math.min(100, Number(evNv.patentOverlap) || 0) + '%' }} /></div></div>
+                    <div className="text-[11.5px] text-muted-foreground">Confidence: <span className="font-semibold text-foreground">{evNv.confidence || '—'}</span></div>
+                  </div>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                {(evNv.analysis || []).length ? (
+                  <div className={evCard}><div className={evHead}>Novelty analysis</div>{(evNv.analysis || []).map((a: any, i: number) => (<div key={i} className="px-4 py-2.5 border-b border-border last:border-0 flex items-center justify-between gap-3"><span className="text-[12.5px] text-foreground">{a.component}</span><span className={'text-[10.5px] px-2 py-0.5 rounded-full font-semibold ' + evConf(a.status)}>{a.status}</span></div>))}</div>
+                ) : null}
+                {(evNv.scores || []).length ? (
+                  <div className={evCard}><div className={evHead}>Novelty breakdown</div><div className="p-4 flex flex-col gap-3">{(evNv.scores || []).map((s: any, i: number) => (<div key={i}><div className="flex items-center justify-between text-[12px] mb-1"><span className="text-foreground font-semibold">{s.criterion}</span><span className="text-muted-foreground">{s.score}/100</span></div><div className="h-2 rounded-full bg-muted overflow-hidden"><div className="h-full bg-green-500 rounded-full" style={{ width: Math.min(100, Number(s.score) || 0) + '%' }} /></div></div>))}</div></div>
+                ) : null}
+              </div>
+              {(evNv.similar || []).length ? (
+                <div className={evCard}><div className={evHead}>Similar research</div><div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-border">{(evNv.similar || []).map((s: any, i: number) => (<div key={i} className="bg-card p-3 text-center"><div className="text-[18px] font-bold text-foreground">{fmtCount(Number(s.papers) || 0)}</div><div className="text-[11px] text-muted-foreground">{s.band} similar</div></div>))}</div></div>
+              ) : null}
+              {(evd.recommendations || []).length ? (
+                <div className={evCard}><div className={evHead}><Sparkles className="w-3.5 h-3.5 text-primary" /> AI recommendations · suggested next steps</div><div className="p-4 flex flex-col gap-2">{(evd.recommendations || []).map((r: string, i: number) => (<div key={i} className="text-[13px] text-foreground flex items-start gap-2.5"><span className="w-5 h-5 rounded-full bg-primary/15 text-primary text-[11px] font-bold flex items-center justify-center shrink-0">{i + 1}</span> {r}</div>))}</div></div>
+              ) : null}
+              <div className="text-[11px] text-muted-foreground text-center pb-2">Evidence is grounded in retrieved literature; gap and novelty assessments are AI-generated estimates — verify before use.</div>
+            </>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+
   let searchArea: any;
   if (mode === 'chat') searchArea = chatStarted ? chatView : startScreen;
   else if (mode === 'report') searchArea = report ? (detailsOpen ? detailsView : reportView) : startScreen;
   else if (mode === 'systematic') searchArea = sysPapers.length ? systematicView : startScreen;
   else if (mode === 'agent') searchArea = agentChat.length ? agentView : startScreen;
+  else if (mode === 'evidence') searchArea = (evidenceData || evidenceBusy) ? evidenceView : startScreen;
   else searchArea = (!question && !busy && papers.length === 0) ? startScreen : resultsView;
 
   const main = navView === 'recents' ? recentsPage
