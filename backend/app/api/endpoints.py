@@ -206,9 +206,9 @@ async def extract_figures(file: UploadFile = File(...)):
 
 @router.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
-    allowed_extensions = ('.pdf', '.docx', '.txt', '.md')
+    allowed_extensions = ('.pdf', '.docx', '.txt', '.md', '.xml')
     if not file.filename.lower().endswith(allowed_extensions):
-        raise HTTPException(status_code=400, detail="Only PDF, DOCX, TXT, and MD files are allowed")
+        raise HTTPException(status_code=400, detail="Only PDF, DOCX, TXT, MD, and XML files are allowed")
         
     file_path = os.path.join(UPLOAD_DIR, file.filename)
     
@@ -225,21 +225,26 @@ async def upload_file(file: UploadFile = File(...)):
 
 @router.post("/parse-document")
 async def parse_document(file: UploadFile = File(...)):
-    allowed_extensions = ('.pdf', '.docx', '.txt', '.md')
+    allowed_extensions = ('.pdf', '.docx', '.txt', '.md', '.xml')
     if not file.filename.lower().endswith(allowed_extensions):
-        raise HTTPException(status_code=400, detail="Only PDF, DOCX, TXT, and MD files are allowed")
-        
+        raise HTTPException(status_code=400, detail="Only PDF, DOCX, TXT, MD, and XML files are allowed")
+
     file_path = os.path.join(UPLOAD_DIR, file.filename)
-    
+
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-        
-    text, error_msg = processor.extract_text(file_path, file.filename)
-    
+
+    text, sections, ocr_used, error_msg = processor.extract_structured(file_path, file.filename)
+
     if not text:
         raise HTTPException(status_code=500, detail=f"Failed to parse document: {error_msg}")
-        
-    return {"message": "Document parsed successfully", "text": text}
+
+    return {
+        "message": "Document parsed successfully",
+        "text": text,
+        "sections": sections,
+        "ocr_used": ocr_used,
+    }
 
 class ExportDocxRequest(BaseModel):
     markdown_text: str

@@ -325,6 +325,8 @@ async function searchClinicalTrials(q: string, n: number): Promise<any[]> {
     return ((j && j.studies) || []).map(mkTrial).filter((x: any) => x.title).map((p: any, i: number) => ({ ...p, idx: i, rel: 100000 - i }));
   } catch { return []; }
 }
+// Patents (USPTO + EPO/WIPO) via our backend proxy — the patent APIs need keys and
+// block browser CORS, so this runs server-side. Returns [] until keys are configured.
 
 function fmtCount(n: number): string {
   if (!n) return '0';
@@ -1147,13 +1149,19 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     for (let i = 0; i < sel.length; i++) {
       const d = sel[i];
       let paper: any = null;
-      try {
-        const qq = d.name || docName(d);
-        const url = 'https://api.openalex.org/works?search=' + encodeURIComponent(qq) + '&per_page=1&filter=has_abstract:true&mailto=support@pinnovix.app';
-        const r = await fetch(url);
-        const j = await r.json();
-        if (j.results && j.results[0]) paper = mkPaper(j.results[0], i);
-      } catch {}
+      // Uploaded & parsed docs: use their extracted text directly (don't guess via OpenAlex).
+      if (d.abstract && (d.parsed || d.creationMethod === 'upload')) {
+        paper = { id: d.id || ('p' + i), kind: 'paper', title: docName(d), authors: d.authorStr ? [d.authorStr] : [], authorStr: d.authorStr || 'Uploaded document', year: d.year || '', venue: d.ocrUsed ? 'Uploaded · OCR' : 'Uploaded document', cited: 0, doi: d.doi || '', url: d.url || '', oa: false, fullText: true, ftLabel: 'Full text', abstract: d.abstract, summary: '', cols: {}, colQuotes: {}, rel: 1000 - i, idx: i };
+      }
+      if (!paper) {
+        try {
+          const qq = d.name || docName(d);
+          const url = 'https://api.openalex.org/works?search=' + encodeURIComponent(qq) + '&per_page=1&filter=has_abstract:true&mailto=support@pinnovix.app';
+          const r = await fetch(url);
+          const j = await r.json();
+          if (j.results && j.results[0]) paper = mkPaper(j.results[0], i);
+        } catch {}
+      }
       if (!paper) paper = { id: d.id || ('p' + i), kind: 'paper', title: docName(d), authors: d.authorStr ? [d.authorStr] : [], authorStr: d.authorStr || 'Unknown authors', year: d.year || '', venue: '', cited: 0, doi: d.doi || '', url: d.url || (d.doi ? 'https://doi.org/' + d.doi : ''), oa: false, fullText: false, ftLabel: '', abstract: '', summary: '', cols: {}, colQuotes: {}, rel: 1000 - i, idx: i };
       built.push(paper);
       setPapers(built.slice());
@@ -1327,11 +1335,11 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     try { localStorage.setItem('pinnovix_lit_collections', JSON.stringify(next)); } catch {}
     setColModal(false); setColName('');
   }
-  function onUploadFiles(e: any) {
+  async function onUploadFiles(e: any) {
     const files = Array.from((e.target && e.target.files) || []) as any[];
     if (!files.length) return;
     const preCol = activeCol !== 'all' && activeCol !== 'trash' ? activeCol : '';
-    const add = files.map((f, i) => ({ id: 'd' + Date.now() + '_' + i, name: f.name, size: f.size, ts: Date.now(), collection: preCol, creationMethod: 'upload' }));
+    const add = files.map((f, i) => ({ id: 'd' + Date.now() + '_' + i, name: f.name, size: f.size, ts: Date.now(), collection: preCol, creationMethod: 'upload', parsing: true }));
     const next = add.concat(libDocs);
     setLibDocs(next);
     try { localStorage.setItem('pinnovix_library_docs', JSON.stringify(next)); } catch {}
@@ -1339,6 +1347,28 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setUploadCollection(preCol || 'none');
     setUploadModal(true);
     if (e.target) e.target.value = '';
+    const persist = (updater: (prev: any[]) => any[]) => setLibDocs((prev) => { const nx = updater(prev); try { localStorage.setItem('pinnovix_library_docs', JSON.stringify(nx)); } catch {} return nx; });
+    // Parse each file server-side: text extraction + OCR for scanned PDFs + JATS-XML
+    // ingestion + section detection. Store the extracted text on the doc (so chat/extract
+    // use the real content) and push a copy to RAG so chat-with-papers can ground on it.
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i]; const id = add[i].id;
+      try {
+        const fd = new FormData(); fd.append('file', f);
+        const r = await fetch(API + '/api/parse-document', { method: 'POST', headers: { ...(await authHeaders()) }, body: fd });
+        if (r.ok) {
+          const j = await r.json();
+          const text = String(j.text || '');
+          const secLabels = Array.isArray(j.sections) ? j.sections.map((s: any) => s.label) : [];
+          persist((prev) => prev.map((d) => d.id === id ? { ...d, parsing: false, parsed: true, abstract: text.slice(0, 6000), textLen: text.length, sectionLabels: secLabels, ocrUsed: !!j.ocr_used } : d));
+          try { const fd2 = new FormData(); fd2.append('file', f); fetch(API + '/api/upload', { method: 'POST', headers: { ...(await authHeaders()) }, body: fd2 }).catch(() => {}); } catch {}
+        } else {
+          persist((prev) => prev.map((d) => d.id === id ? { ...d, parsing: false, parseError: true } : d));
+        }
+      } catch {
+        persist((prev) => prev.map((d) => d.id === id ? { ...d, parsing: false, parseError: true } : d));
+      }
+    }
   }
   function moveUploadedToCollection(colId: string) {
     setUploadCollection(colId);
@@ -3719,7 +3749,16 @@ export function LiteratureReviewView({ messages, onHome }: any) {
           <div className="flex items-center gap-2 text-[14px] font-bold"><span className="w-5 h-5 rounded-full bg-green-500/15 text-green-500 flex items-center justify-center"><Check className="w-3 h-3" /></span> Successfully uploaded</div>
           <div className="text-[12.5px] text-muted-foreground mt-0.5 ml-7">{lastUploadIds.length} paper{lastUploadIds.length > 1 ? 's' : ''} successfully uploaded.</div>
           <div className="mt-3 ml-7 flex flex-col gap-1">
-            {libDocs.filter((d) => lastUploadIds.indexOf(d.id) !== -1).map((d) => (<div key={d.id} className="text-[13px]">{docName(d)}</div>))}
+            {libDocs.filter((d) => lastUploadIds.indexOf(d.id) !== -1).map((d) => (
+              <div key={d.id} className="text-[13px] flex items-center gap-2 flex-wrap">
+                <span>{docName(d)}</span>
+                {d.parsing ? <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" /> Parsing…</span> : null}
+                {d.parsed ? <span className="text-[11px] text-green-500 font-semibold">Text extracted</span> : null}
+                {d.ocrUsed ? <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500 font-semibold">OCR</span> : null}
+                {d.parsed && d.sectionLabels && d.sectionLabels.length ? <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-semibold">{d.sectionLabels.length} sections</span> : null}
+                {d.parseError ? <span className="text-[11px] text-red-400">Could not parse</span> : null}
+              </div>
+            ))}
           </div>
         </div>
         <div className="flex justify-end mt-5">

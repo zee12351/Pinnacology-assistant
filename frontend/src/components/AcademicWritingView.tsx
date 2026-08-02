@@ -4421,7 +4421,7 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
                       </div>
                       
                       <label className="rounded-lg bg-[#222] border border-[#1b2c4e] hover:bg-[#1b2c4e] transition-colors cursor-pointer flex items-center justify-between p-3 relative">
-                        <input type="file" accept=".docx,.pdf,.md,.txt" onChange={handleDocumentImport} disabled={uploadingDoc || localUploadingDoc} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
+                        <input type="file" accept=".docx,.pdf,.md,.txt,.xml" onChange={handleDocumentImport} disabled={uploadingDoc || localUploadingDoc} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
                         <div className="flex items-center gap-3">
                           <div className="w-6 h-6 rounded bg-[#2b579a] flex items-center justify-center text-white font-bold text-[11px]">W</div>
                           <div className="flex flex-col gap-0.5">
@@ -6199,7 +6199,7 @@ Required JSON structure:
               )}
             </div>
             <div className="border-t border-[#1b2c4e] p-3 shrink-0 relative">
-              <input ref={aiChatFileRef} type="file" accept=".pdf,.docx,.txt,.md" className="hidden" onChange={handleAiChatUpload} />
+              <input ref={aiChatFileRef} type="file" accept=".pdf,.docx,.txt,.md,.xml" className="hidden" onChange={handleAiChatUpload} />
 
               {aiChatPlusOpen && (
                 <>
@@ -6604,7 +6604,7 @@ Required JSON structure:
             <div className="flex items-center justify-between mb-3"><h2 className="text-[16px] font-bold text-white flex items-center gap-2"><LibraryIcon className="w-4 h-4 text-[#7fa3ff]" /> Library</h2><button onClick={() => setShowLibraryModal(false)} className="text-gray-400 hover:text-white"><X className="w-5 h-5" /></button></div>
             <p className="text-[12.5px] text-gray-400 mb-3">Documents and saved sources here can be used in AI Chat by typing <span className="text-gray-200 font-bold">@</span>.</p>
             <button onClick={() => aiChatFileRef.current?.click()} className="mb-3 self-start flex items-center gap-2 bg-[#2563eb] hover:bg-[#3b82f6] text-white rounded-lg px-3 py-1.5 text-[13px] font-bold"><Upload className="w-4 h-4" /> Upload document</button>
-            <input ref={aiChatFileRef} type="file" accept=".pdf,.docx,.txt,.md" className="hidden" onChange={handleAiChatUpload} />
+            <input ref={aiChatFileRef} type="file" accept=".pdf,.docx,.txt,.md,.xml" className="hidden" onChange={handleAiChatUpload} />
             <div className="flex-1 overflow-y-auto flex flex-col gap-2">
               {(aiLibraryDocs.length === 0 && savedCitations.length === 0) && <div className="text-[13px] text-gray-500 italic">Your library is empty. Upload a document, or use Save on any citation.</div>}
               {aiLibraryDocs.map((d: any) => { const label = typeof d === 'string' ? d : ((d && (d.name || d.title)) || 'Document'); return (

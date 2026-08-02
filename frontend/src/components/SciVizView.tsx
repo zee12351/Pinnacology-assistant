@@ -564,7 +564,7 @@ export function SciVizView({ onHome }: any) {
             </div>
           ) : (
             <div className="p-6">
-              <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.md" className="hidden" onChange={onPickFile} />
+              <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.md,.xml" className="hidden" onChange={onPickFile} />
               <button onClick={() => fileRef.current && fileRef.current.click()} className="w-full border-2 border-dashed border-border rounded-xl py-10 flex flex-col items-center gap-2 hover:border-primary transition-colors">
                 <Upload className="w-8 h-8 text-muted-foreground" />
                 <span className="text-[13.5px] font-semibold">{fileName || 'Click to upload a PDF'}</span>
