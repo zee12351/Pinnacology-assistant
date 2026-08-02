@@ -178,6 +178,21 @@ function mkTrial(s: any, i: number): any {
   };
 }
 
+// OpenAlex level-0 (root) fields of study — used for precise, source-backed field filtering.
+const OA_FIELDS: { label: string; id: string }[] = [
+  { label: 'Medicine', id: 'C71924100' }, { label: 'Biology', id: 'C86803240' }, { label: 'Chemistry', id: 'C185592680' },
+  { label: 'Computer science', id: 'C41008148' }, { label: 'Physics', id: 'C121332964' }, { label: 'Materials science', id: 'C192562407' },
+  { label: 'Engineering', id: 'C127413603' }, { label: 'Psychology', id: 'C15744967' }, { label: 'Economics', id: 'C162324750' },
+  { label: 'Business', id: 'C144133560' }, { label: 'Political science', id: 'C17744445' }, { label: 'Sociology', id: 'C144024400' },
+  { label: 'Geography', id: 'C205649164' }, { label: 'Geology', id: 'C127313418' }, { label: 'Environmental science', id: 'C39432304' },
+  { label: 'Mathematics', id: 'C33923547' }, { label: 'Art', id: 'C142362112' }, { label: 'History', id: 'C95457728' },
+  { label: 'Philosophy', id: 'C138885662' },
+];
+// Preprint detection (for the "Exclude preprints" filter) — matches known preprint servers/venues.
+function isPreprint(p: any): boolean {
+  const s = ((p.srcName || '') + ' ' + (p.venue || '') + ' ' + (p.url || '')).toLowerCase();
+  return /arxiv|biorxiv|medrxiv|chemrxiv|ssrn|research\s*square|preprint|preprints\.org|osf\.io|psyarxiv|techrxiv|authorea/.test(s);
+}
 const EXTRACT_PRESETS = ['Population / sample', 'Intervention or exposure', 'Main outcome or effect', 'Sample size', 'Study design'];
 const COLUMN_SUGGESTIONS = ['Intervention', 'Outcome measured', 'Intervention effects', 'Study design', 'Duration', 'Length of follow-up', 'Dose', 'Participant count', 'Participant age', 'Population sex', 'Population health conditions', 'Sample size', 'Population', 'Region', 'Main findings', 'Limitations', 'Funding source'];
 
@@ -208,13 +223,23 @@ function normPaper(o: any): any {
   };
 }
 
-async function searchOpenAlex(q: string, n: number): Promise<any[]> {
+async function searchOpenAlex(q: string, n: number, opts?: any): Promise<any[]> {
   try {
+    const o = opts || {};
+    const extra: string[] = [];
+    if (o.fromYear) extra.push('from_publication_date:' + o.fromYear + '-01-01');
+    if (o.toYear) extra.push('to_publication_date:' + o.toYear + '-12-31');
+    if (o.oaOnly) extra.push('is_oa:true');
+    if (o.fieldIds && o.fieldIds.length) extra.push('concepts.id:' + o.fieldIds.join('|'));
     const base = 'https://api.openalex.org/works?search=' + encodeURIComponent(q) + '&per_page=' + n + '&sort=relevance_score:desc&mailto=support@pinnovix.app';
-    let r = await fetch(base + '&filter=has_abstract:true'); let j = await r.json();
+    const withAbs = base + '&filter=' + ['has_abstract:true'].concat(extra).join(',');
+    let r = await fetch(withAbs); let j = await r.json();
     let res = (j.results || []).map(mkPaper).filter((p: any) => p.title);
-    // If the abstract filter is too strict for this query, retry without it.
-    if (!res.length) { r = await fetch(base); j = await r.json(); res = (j.results || []).map(mkPaper).filter((p: any) => p.title); }
+    // If the abstract filter is too strict for this query, retry without it (but keep the other filters).
+    if (!res.length) {
+      const noAbs = extra.length ? (base + '&filter=' + extra.join(',')) : base;
+      r = await fetch(noAbs); j = await r.json(); res = (j.results || []).map(mkPaper).filter((p: any) => p.title);
+    }
     return res;
   } catch { return []; }
 }
@@ -438,7 +463,7 @@ function dedupeAndRank(papers: any[]): any[] {
   return good.concat(junk).map((x) => x.p);
 }
 
-async function searchPapers(q: string, source: string, n: number): Promise<any[]> {
+async function searchPapers(q: string, source: string, n: number, opts?: any): Promise<any[]> {
   n = n || 12;
   // Clean the query: strip question marks and quotes that break some search APIs.
   const cq = String(q || '').replace(/[?"“”'’]/g, ' ').replace(/\s{2,}/g, ' ').trim() || q;
@@ -446,7 +471,7 @@ async function searchPapers(q: string, source: string, n: number): Promise<any[]
   if (source === 'all') {
     const per = Math.max(5, Math.ceil(n / 3) + 1);
     const arrs = await Promise.all([
-      searchOpenAlex(cq, per), searchSemanticScholar(cq, per), searchEuropePMC(cq, per), searchArxiv(cq, Math.min(per, 6)), searchCrossref(cq, per), searchPubMed(cq, per), searchDOAJ(cq, per),
+      searchOpenAlex(cq, per, opts), searchSemanticScholar(cq, per), searchEuropePMC(cq, per), searchArxiv(cq, Math.min(per, 6)), searchCrossref(cq, per), searchPubMed(cq, per), searchDOAJ(cq, per),
     ]);
     results = ([] as any[]).concat.apply([], arrs);
   } else if (source === 'semanticscholar') results = await searchSemanticScholar(cq, n + 6);
@@ -456,7 +481,7 @@ async function searchPapers(q: string, source: string, n: number): Promise<any[]
   else if (source === 'pubmed') results = await searchPubMed(cq, n + 6);
   else if (source === 'doaj') results = await searchDOAJ(cq, n + 6);
   else if (source === 'clinicaltrials') { return (await searchClinicalTrials(cq, n)).slice(0, n); }
-  else results = await searchOpenAlex(cq, n + 8);
+  else results = await searchOpenAlex(cq, n + 8, opts);
   // Fallback: if the chosen source returned nothing, broaden across several sources.
   if (!results.length && source !== 'all') {
     const per = Math.max(6, Math.ceil(n / 2));
@@ -1022,6 +1047,13 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [minYear, setMinYear] = useState('');
   const [minCited, setMinCited] = useState('');
   const [oaOnly, setOaOnly] = useState(false);
+  // Consensus-style search filters (applied precisely to every search mode)
+  const [maxYear, setMaxYear] = useState('');
+  const [yearPreset, setYearPreset] = useState('any');
+  const [excludePreprints, setExcludePreprints] = useState(false);
+  const [pubContains, setPubContains] = useState('');
+  const [filterFields, setFilterFields] = useState<string[]>([]);
+  const [filterDrawer, setFilterDrawer] = useState(false);
   const [saved, setSaved] = useState(false);
   const [chatThread, setChatThread] = useState([] as any[]);
   const [chatInput, setChatInput] = useState('');
@@ -1266,7 +1298,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setEvidencePhase('Searching the literature across databases…');
     pushRecent(q, 'Evidence');
     let papersList: any[] = [];
-    try { papersList = await searchPapers(q, 'all', 40); } catch {}
+    try { papersList = await searchPapers(q, 'all', 40, curFilterOpts()); } catch {}
+    papersList = applyFilters(papersList);
     if (runIdRef.current !== myRun) return;
     setEvidencePhase('Extracting evidence, detecting gaps, scoring novelty…');
     let corpus = { retrieved: 0, eligible: 0 };
@@ -1300,15 +1333,48 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     let data: any = null;
     try { const raw = await callChat(prompt, false, 'LITERATURE REVIEW'); data = extractJSON(raw); } catch {}
     if (runIdRef.current !== myRun) return;
-    if (data && typeof data === 'object') {
-      data.overview = data.overview || {};
-      if (corpus.retrieved && !data.overview.totalPapers) data.overview.totalPapers = corpus.retrieved;
-      data._papers = papersList.slice(0, 40);
-      data._corpus = corpus;
-      setEvidenceData(data);
-    } else {
-      setEvidenceData({ _error: true });
-    }
+    if (!data || typeof data !== 'object') { setEvidenceData({ _error: true }); setEvidenceBusy(false); setEvidencePhase(''); return; }
+    data.overview = data.overview || {};
+    if (corpus.retrieved && !data.overview.totalPapers) data.overview.totalPapers = corpus.retrieved;
+    data._papers = papersList.slice(0, 40);
+    data._corpus = corpus;
+    // ---- Second pass: AI screening (Modules 2/3), quality/risk-of-bias (Module 5), knowledge graph (Module 10) ----
+    setEvidencePhase('Screening papers, assessing risk of bias, building the knowledge graph…');
+    const scList = papersList.slice(0, 16).map((p, i) => '[' + (i + 1) + '] ' + p.title + (p.year ? ' (' + p.year + ')' : '') + '. ' + (cleanText(p.abstract) ? cleanText(p.abstract).slice(0, 380) : 'No abstract')).join('\n\n');
+    const shape2 = '{'
+      + '"screening":[{"idx":1,"title":"exact paper title","decision":"Include|Exclude","confidence":0,"reason":"one-line reason","studyType":"RCT|Cohort|Case-control|Cross-sectional|In vitro|In vivo|Computational|Meta-analysis|Systematic review|Review|Other","evidenceUsed":"which criteria","riskTool":"RoB 2|ROBINS-I|QUADAS-2|SYRCLE|Newcastle–Ottawa|AMSTAR 2|—","riskLevel":"Low|Moderate|High|—"}],'
+      + '"graph":{"nodes":[{"id":"d1","label":"name","type":"drug|target|pathway|disease|outcome"}],"edges":[{"from":"d1","to":"t1","label":"inhibits|activates|targets|associated with|treats|leads to"}]}'
+      + '}';
+    const prompt2 = 'You are a systematic-review screening + biomedical knowledge-graph engine. For the research query "' + q + '":\n'
+      + '1) SCREEN each retrieved paper below: decide Include or Exclude for a systematic review on this topic, with a confidence (0–100 int), a one-line reason, the study design, and — for included primary/clinical/observational/animal/review studies — the appropriate risk-of-bias tool (RoB 2 for RCTs, ROBINS-I for non-randomised interventions, QUADAS-2 for diagnostic, SYRCLE for animal, Newcastle–Ottawa for cohort/case-control, AMSTAR 2 for systematic reviews, — if not applicable) and an overall risk level (Low/Moderate/High). Use the paper index numbers.\n'
+      + '2) Build a KNOWLEDGE GRAPH of the key entities as Drug→Target→Pathway→Disease→Outcome with typed nodes and labelled directed edges (6–16 nodes).\n'
+      + 'Return ONLY valid minified JSON in EXACTLY this shape:\n' + shape2 + '\n\nRetrieved papers:\n' + (scList || '(none)');
+    let data2: any = null;
+    try { const raw2 = await callChat(prompt2, false, 'LITERATURE REVIEW'); data2 = extractJSON(raw2); } catch {}
+    if (runIdRef.current !== myRun) return;
+    if (data2 && typeof data2 === 'object') { data.screening = Array.isArray(data2.screening) ? data2.screening : []; data.graph = data2.graph && Array.isArray(data2.graph.nodes) ? data2.graph : null; }
+    // ---- PRISMA (Module 4) over the assessed set ----
+    const scr = data.screening || [];
+    const inc = scr.filter((s: any) => /incl/i.test(String(s.decision))).length;
+    const exc = scr.length - inc;
+    const exReasons: any = {};
+    scr.filter((s: any) => !/incl/i.test(String(s.decision))).forEach((s: any) => { const r = (s.reason || 'Other').slice(0, 40); exReasons[r] = (exReasons[r] || 0) + 1; });
+    data.prisma = { identified: corpus.retrieved || papersList.length, retrieved: papersList.length, assessed: scr.length || papersList.length, included: scr.length ? inc : papersList.length, excluded: exc, exclusionReasons: Object.keys(exReasons).map((k) => ({ reason: k, n: exReasons[k] })) };
+    // ---- Quality distribution (Module 5) ----
+    const q2 = { Low: 0, Moderate: 0, High: 0 } as any;
+    scr.forEach((s: any) => { const rl = String(s.riskLevel || ''); if (/low/i.test(rl)) q2.Low++; else if (/mod/i.test(rl)) q2.Moderate++; else if (/high/i.test(rl)) q2.High++; });
+    data.quality = q2;
+    // ---- Publication analytics (Module 11), computed precisely from the real retrieved papers ----
+    const byYear: any = {}, byVenue: any = {}, byAuthor: any = {};
+    papersList.forEach((p) => { if (p.year) byYear[p.year] = (byYear[p.year] || 0) + 1; if (p.venue) byVenue[p.venue] = (byVenue[p.venue] || 0) + 1; (p.authors || []).forEach((a: string) => { if (a) byAuthor[a] = (byAuthor[a] || 0) + 1; }); });
+    const topOf = (o: any, n: number) => Object.keys(o).map((k) => ({ k, v: o[k] })).sort((a, b) => b.v - a.v).slice(0, n);
+    data.analytics = {
+      trend: Object.keys(byYear).map((y) => ({ year: parseInt(y, 10), count: byYear[y] })).filter((x) => x.year).sort((a, b) => a.year - b.year),
+      topVenues: topOf(byVenue, 8), topAuthors: topOf(byAuthor, 8),
+      openAccess: papersList.filter((p) => p.oa).length, total: papersList.length,
+    };
+    if (runIdRef.current !== myRun) return;
+    setEvidenceData(data);
     setEvidenceBusy(false); setEvidencePhase('');
   }
   function evidenceMarkdown(): string {
@@ -1332,6 +1398,10 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     L.push('**Overall novelty:** ' + (nv.overall || '—') + '/100 (confidence: ' + (nv.confidence || '—') + ')');
     L.push('**Publication overlap:** ' + (nv.publicationOverlap ?? '—') + '% · **Patent overlap:** ' + (nv.patentOverlap ?? '—') + '%');
     if (nv.scores) { L.push('\n### Novelty breakdown'); (nv.scores || []).forEach((s: any) => L.push('- ' + s.criterion + ': ' + s.score + '/100')); }
+    if (d.prisma) { L.push('\n## Screening & PRISMA'); L.push('Identified: ' + d.prisma.identified + ' · Assessed: ' + d.prisma.assessed + ' · Included: ' + d.prisma.included + ' · Excluded: ' + d.prisma.excluded); (d.prisma.exclusionReasons || []).forEach((r: any) => L.push('- Excluded — ' + r.reason + ' (' + r.n + ')')); }
+    if (d.quality) { L.push('\n## Quality / Risk of Bias'); L.push('Low: ' + (d.quality.Low || 0) + ' · Moderate: ' + (d.quality.Moderate || 0) + ' · High: ' + (d.quality.High || 0)); }
+    if (d.graph && d.graph.edges) { L.push('\n## Knowledge Graph'); (d.graph.edges || []).forEach((e: any) => { const nm = (id: string) => { const n = (d.graph.nodes || []).find((x: any) => x.id === id); return n ? n.label : id; }; L.push('- ' + nm(e.from) + ' —[' + e.label + ']→ ' + nm(e.to)); }); }
+    if (d.analytics) { L.push('\n## Publication Analytics'); L.push('Trend: ' + (d.analytics.trend || []).map((t: any) => t.year + ':' + t.count).join(', ')); if ((d.analytics.topVenues || []).length) L.push('Top venues: ' + (d.analytics.topVenues || []).map((v: any) => v.k + ' (' + v.v + ')').join('; ')); }
     if (d.recommendations) { L.push('\n## AI recommendations'); (d.recommendations || []).forEach((r: string, i: number) => L.push((i + 1) + '. ' + r)); }
     return L.join('\n');
   }
@@ -1664,7 +1734,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setFollowups([]);
     setChatThread([]);
     try {
-      const items = await searchPapers(q, paperSource, 12);
+      const items = applyFilters(await searchPapers(q, paperSource, 12, curFilterOpts()));
       if (runIdRef.current !== myRun) return; // cancelled by New/reset
       setPapers(items);
       setSearchTerms([q]);
@@ -1744,7 +1814,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         if (runIdRef.current !== myRun) return; // cancelled by New/reset
         addDeepStep({ label: sub, status: 'searching' });
         let r: any[] = [];
-        try { r = await searchPapers(sub, deepSource, 24); } catch {}
+        try { r = applyFilters(await searchPapers(sub, deepSource, 24, curFilterOpts())); } catch {}
         if (runIdRef.current !== myRun) return;
         pool = pool.concat(r);
         patchLastDeepStep({ status: 'done', count: r.length });
@@ -1843,7 +1913,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     const keyOf = (p: any) => (p.id || '') + '|' + normTitleKey(p.title || '');
     try {
       const want = papers.length + 12;
-      const all = await searchPapers(question, paperSource, want);
+      const all = applyFilters(await searchPapers(question, paperSource, want, curFilterOpts()));
       const seen = new Set(papers.map(keyOf));
       const fresh = all.filter((p: any) => !seen.has(keyOf(p)));
       if (!fresh.length) { setLoadingMore(false); return; }
@@ -2294,12 +2364,44 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     doDownload(txt, (question || 'literature-review').slice(0, 40) + '.ris', 'application/x-research-info-systems');
   }
 
+  // Precise gate applied to every result across all search modes.
+  function passesFilters(p: any): boolean {
+    const yr = Number(p.year) || 0;
+    if (minYear && yr && yr < parseInt(minYear, 10)) return false;
+    if (minYear && !yr) return false; // unknown year can't satisfy a lower bound
+    if (maxYear && yr && yr > parseInt(maxYear, 10)) return false;
+    if (minCited && (Number(p.cited) || 0) < parseInt(minCited, 10)) return false;
+    if (oaOnly && !p.oa) return false;
+    if (excludePreprints && isPreprint(p)) return false;
+    if (pubContains && String(p.venue || '').toLowerCase().indexOf(pubContains.toLowerCase()) === -1) return false;
+    return true;
+  }
+  function applyFilters(list: any[]): any[] { return list.filter(passesFilters); }
+  // Filter options passed down to the source query (OpenAlex supports these precisely).
+  function curFilterOpts(): any {
+    return {
+      fromYear: minYear ? parseInt(minYear, 10) : undefined,
+      toYear: maxYear ? parseInt(maxYear, 10) : undefined,
+      oaOnly: oaOnly || undefined,
+      fieldIds: filterFields.length ? filterFields : undefined,
+    };
+  }
+  function filterActiveCount(): number {
+    return (minYear ? 1 : 0) + (maxYear ? 1 : 0) + (minCited ? 1 : 0) + (oaOnly ? 1 : 0) + (excludePreprints ? 1 : 0) + (pubContains ? 1 : 0) + (filterFields.length ? 1 : 0);
+  }
+  function applyYearPreset(preset: string) {
+    setYearPreset(preset);
+    const now = new Date().getFullYear();
+    if (preset === 'any') { setMinYear(''); setMaxYear(''); }
+    else { setMinYear(String(now - parseInt(preset, 10))); setMaxYear(''); }
+  }
+  function clearFilters() {
+    setMinYear(''); setMaxYear(''); setMinCited(''); setOaOnly(false); setExcludePreprints(false); setPubContains(''); setFilterFields([]); setYearPreset('any');
+  }
   function view() {
     const f = filter.toLowerCase();
     let list = papers.filter((p) => !f || (p.title + ' ' + p.abstract + ' ' + p.summary).toLowerCase().indexOf(f) !== -1);
-    if (minYear) list = list.filter((p) => (p.year || 0) >= parseInt(minYear, 10));
-    if (minCited) list = list.filter((p) => (p.cited || 0) >= parseInt(minCited, 10));
-    if (oaOnly) list = list.filter((p) => p.oa);
+    list = applyFilters(list);
     list = list.slice().sort((a, b) => {
       if (sortKey === 'year') return (b.year || 0) - (a.year || 0);
       if (sortKey === 'cited') return (b.cited || 0) - (a.cited || 0);
@@ -2324,7 +2426,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     { id: 'report', label: 'Report', Icon: FileText, group: 'WORKFLOWS' },
     { id: 'systematic', label: 'Systematic review', Icon: ListChecks, group: 'WORKFLOWS' },
   ];
-  const modeLabel = mode === 'chat' ? 'Chat with papers' : mode === 'report' ? 'Report' : mode === 'extract' ? 'Extract data' : mode === 'evidence' ? 'Evidence extraction' : mode === 'systematic' ? 'Systematic review' : mode === 'agent' ? 'Research agent' : 'Find papers';
+  const modeLabel = mode === 'chat' ? 'Chat with papers' : mode === 'report' ? 'Report' : mode === 'extract' ? 'Extract data' : mode === 'evidence' ? 'Literature intelligence' : mode === 'systematic' ? 'Systematic review' : mode === 'agent' ? 'Research agent' : 'Find papers';
   const modeIcon = mode === 'chat' ? MessageSquare : mode === 'report' ? FileText : mode === 'extract' ? Table2 : mode === 'evidence' ? Microscope : mode === 'systematic' ? ListChecks : mode === 'agent' ? FlaskConical : Search;
   const filteredRecents = recents.filter((r) => !recentSearch || (r.question || '').toLowerCase().indexOf(recentSearch.toLowerCase()) !== -1);
   const shownDocs = libDocs.filter((d) => (activeCol === 'all' || activeCol === 'trash') ? activeCol !== 'trash' : d.collection === activeCol).filter((d) => !libSearch || docName(d).toLowerCase().indexOf(libSearch.toLowerCase()) !== -1);
@@ -2935,6 +3037,9 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                   <button onClick={() => setDeepMode(v => !v)} title="Deep research: plan many sub-topics, search each, follow citations, then synthesise" className={'flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-semibold transition-colors ' + (deepMode ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground hover:bg-muted')}>
                     <Sparkles className="w-3.5 h-3.5" /> Deep{deepMode ? ' · on' : ''}
                   </button>
+                  <button onClick={() => setFilterDrawer(true)} title="Filter results by year, citations, access, preprints, field and publisher" className={'flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-semibold transition-colors ' + (filterActiveCount() ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground hover:bg-muted')}>
+                    <SlidersHorizontal className="w-3.5 h-3.5" /> Filter{filterActiveCount() ? ' · ' + filterActiveCount() : ''}
+                  </button>
                 </div>
                 <button onClick={submitStart} disabled={!input.trim()} className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40" title="Search"><ArrowRight className="w-4 h-4" /></button>
               </div>
@@ -2945,7 +3050,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
           {[
             { l: 'Create table', m: 'find', I: Table2 },
             { l: 'Extract data', m: 'extract', I: Table2 },
-            { l: 'Evidence extraction', m: 'evidence', I: Microscope },
+            { l: 'Literature intelligence', m: 'evidence', I: Microscope },
             { l: 'Draft report', m: 'report', I: FileText },
             { l: 'Systematic review', m: 'systematic', I: ListChecks },
             { l: 'Research agent', m: 'agent', I: FlaskConical },
@@ -3804,6 +3909,20 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const evOv = evd.overview || {};
   const evNv = evd.novelty || {};
   const evGeoMax = Math.max(1, ...((evd.geography || []).map((g: any) => Number(g.count) || 0)));
+  // Knowledge-graph layout (Module 10): columns Drug → Target → Pathway → Disease → Outcome
+  const GRAPH_TYPES = ['drug', 'target', 'pathway', 'disease', 'outcome'];
+  const GRAPH_COLORS: any = { drug: '#2563eb', target: '#16a34a', pathway: '#9333ea', disease: '#dc2626', outcome: '#d97706' };
+  function evGraphLayout(graph: any) {
+    const cols: any = {}; GRAPH_TYPES.forEach((t) => (cols[t] = []));
+    (graph?.nodes || []).forEach((n: any) => { const t = GRAPH_TYPES.indexOf(n.type) !== -1 ? n.type : 'target'; cols[t].push(n); });
+    const W = 820, colW = W / GRAPH_TYPES.length, rowH = 62, pos: any = {};
+    GRAPH_TYPES.forEach((t, ci) => { cols[t].forEach((n: any, ri: number) => { pos[n.id] = { x: ci * colW + colW / 2, y: 46 + ri * rowH, type: t, label: n.label }; }); });
+    const height = Math.max(1, ...GRAPH_TYPES.map((t) => cols[t].length)) * rowH + 60;
+    return { pos, height, W, cols };
+  }
+  const evGraph = evd.graph && Array.isArray(evd.graph.nodes) && evd.graph.nodes.length ? evGraphLayout(evd.graph) : null;
+  const downloadGraphSvg = () => { const el = document.getElementById('ev-kgraph'); if (!el) return; const s = new XMLSerializer().serializeToString(el); doDownload('<?xml version="1.0"?>\n' + s, (evidenceQuestion || 'knowledge-graph').slice(0, 40) + '.svg', 'image/svg+xml'); };
+  const evTrendMax = Math.max(1, ...((evd.analytics?.trend || []).map((t: any) => t.count || 0)));
   const evidenceView = (
     <div className="flex flex-col h-full">
       <div className="px-4 py-3 border-b border-border flex items-center gap-3 shrink-0 flex-wrap">
@@ -3828,6 +3947,18 @@ export function LiteratureReviewView({ messages, onHome }: any) {
             <div className="border border-border rounded-xl bg-card p-6 text-center text-[13.5px] text-muted-foreground">Could not build the report. Please try again with a more specific query.</div>
           ) : evidenceData ? (
             <>
+              {/* ===== DASHBOARD (Module 15) ===== */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                {[
+                  ['Papers assessed', (evd.prisma?.assessed ?? evd._papers?.length) || '—', 'text-foreground'],
+                  ['Included', evd.prisma?.included ?? '—', 'text-green-500'],
+                  ['Novelty', (evd.novelty?.overall != null ? evd.novelty.overall + '/100' : '—'), 'text-primary'],
+                  ['High risk', (evd.quality ? evd.quality.High : '—'), 'text-red-400'],
+                ].map(([k, v, c]: any) => (
+                  <div key={k} className="border border-border rounded-xl bg-card p-3"><div className={'text-[20px] font-bold leading-none ' + c}>{v}</div><div className="text-[11.5px] text-muted-foreground mt-1">{k}</div></div>
+                ))}
+              </div>
+
               {/* ===== 1. EVIDENCE EXTRACTION ===== */}
               <div className="flex items-center gap-2 text-[15px] font-bold"><span className="w-6 h-6 rounded-lg bg-primary/15 text-primary flex items-center justify-center text-[12px] font-bold">1</span> Evidence Extraction</div>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
@@ -3874,6 +4005,72 @@ export function LiteratureReviewView({ messages, onHome }: any) {
               </div>
               {(evd.safety || []).length ? (
                 <div className={evCard}><div className={evHead}>Safety</div><div className="p-4 flex flex-col gap-1.5">{(evd.safety || []).map((s: string, i: number) => (<div key={i} className="text-[12.5px] text-foreground flex items-start gap-2"><Check className="w-3.5 h-3.5 text-green-500 mt-0.5 shrink-0" /> {s}</div>))}</div></div>
+              ) : null}
+
+              {/* ===== AI SCREENING + PRISMA (Modules 2/3/4) ===== */}
+              {evd.prisma ? (
+                <>
+                  <div className="flex items-center gap-2 text-[15px] font-bold mt-2"><span className="w-6 h-6 rounded-lg bg-blue-500/15 text-blue-400 flex items-center justify-center text-[12px] font-bold">S</span> Screening &amp; PRISMA</div>
+                  <div className={evCard}><div className={evHead}><ListChecks className="w-3.5 h-3.5" /> PRISMA flow</div>
+                    <div className="p-4 flex flex-wrap items-stretch gap-2">
+                      {[['Identified', evd.prisma.identified], ['Assessed', evd.prisma.assessed], ['Included', evd.prisma.included], ['Excluded', evd.prisma.excluded]].map(([k, v]: any, i: number) => (
+                        <span key={k} className="flex items-center gap-2">{i ? <ArrowRight className="w-4 h-4 text-muted-foreground" /> : null}<span className="flex flex-col items-center bg-muted/50 rounded-lg px-3.5 py-2 min-w-[84px]"><span className="text-[18px] font-bold text-foreground leading-none">{v != null ? fmtCount(Number(v)) : '—'}</span><span className="text-[10.5px] text-muted-foreground mt-0.5">{k}</span></span></span>
+                      ))}
+                    </div>
+                    {(evd.prisma.exclusionReasons || []).length ? (<div className="px-4 pb-3 text-[11.5px] text-muted-foreground">Excluded for: {(evd.prisma.exclusionReasons || []).map((r: any) => r.reason + ' (' + r.n + ')').join(' · ')}</div>) : null}
+                  </div>
+                  {(evd.screening || []).length ? (
+                    <div className={evCard}><div className={evHead}>Per-paper screening decisions</div>
+                      <div className="max-h-[360px] overflow-y-auto custom-scrollbar">
+                        {(evd.screening || []).map((s: any, i: number) => (
+                          <div key={i} className="px-4 py-2.5 border-b border-border last:border-0">
+                            <div className="flex items-start justify-between gap-3">
+                              <span className="text-[12.5px] text-foreground leading-snug">{s.title}</span>
+                              <span className={'text-[10.5px] px-2 py-0.5 rounded-full font-semibold shrink-0 ' + (/incl/i.test(String(s.decision)) ? 'bg-green-500/15 text-green-500' : 'bg-red-500/15 text-red-400')}>{/incl/i.test(String(s.decision)) ? 'Include' : 'Exclude'} · {s.confidence}%</span>
+                            </div>
+                            <div className="text-[11.5px] text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">{s.studyType ? <span className="px-1.5 py-0.5 rounded bg-muted text-[10.5px] font-semibold">{s.studyType}</span> : null}<span>{s.reason}</span></div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {/* ===== QUALITY / RISK OF BIAS (Module 5) ===== */}
+                  <div className="flex items-center gap-2 text-[15px] font-bold mt-2"><span className="w-6 h-6 rounded-lg bg-purple-500/15 text-purple-400 flex items-center justify-center text-[12px] font-bold">Q</span> Quality &amp; Risk of Bias</div>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                    <div className={evCard}><div className={evHead}>Risk-of-bias distribution</div><div className="p-4 flex flex-col gap-3">
+                      {[['Low', 'bg-green-500'], ['Moderate', 'bg-amber-500'], ['High', 'bg-red-500']].map(([lvl, col]: any) => { const n = (evd.quality && evd.quality[lvl]) || 0; const tot = Math.max(1, (evd.quality?.Low || 0) + (evd.quality?.Moderate || 0) + (evd.quality?.High || 0)); return (
+                        <div key={lvl}><div className="flex items-center justify-between text-[12px] mb-1"><span className="text-foreground font-semibold">{lvl} risk</span><span className="text-muted-foreground">{n}</span></div><div className="h-2 rounded-full bg-muted overflow-hidden"><div className={'h-full rounded-full ' + col} style={{ width: (n / tot * 100) + '%' }} /></div></div>
+                      ); })}
+                    </div></div>
+                    <div className={evCard}><div className={evHead}>Assessment tools applied</div>
+                      <div className="max-h-[220px] overflow-y-auto custom-scrollbar">
+                        {(evd.screening || []).filter((s: any) => s.riskTool && s.riskTool !== '—').slice(0, 30).map((s: any, i: number) => (
+                          <div key={i} className="px-4 py-2 border-b border-border last:border-0 flex items-center justify-between gap-3"><span className="text-[12px] text-foreground truncate">{s.title}</span><span className="flex items-center gap-1.5 shrink-0"><span className="text-[10.5px] text-muted-foreground">{s.riskTool}</span><span className={'text-[10.5px] px-2 py-0.5 rounded-full font-semibold ' + (/low/i.test(s.riskLevel) ? 'bg-green-500/15 text-green-500' : /mod/i.test(s.riskLevel) ? 'bg-amber-500/15 text-amber-500' : 'bg-red-500/15 text-red-400')}>{s.riskLevel}</span></span></div>
+                        ))}
+                        {!(evd.screening || []).some((s: any) => s.riskTool && s.riskTool !== '—') ? <div className="p-4 text-[12px] text-muted-foreground">No formal RoB tool applicable to the assessed studies.</div> : null}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : null}
+
+              {/* ===== KNOWLEDGE GRAPH (Module 10) ===== */}
+              {evGraph ? (
+                <>
+                  <div className="flex items-center gap-2 text-[15px] font-bold mt-2"><span className="w-6 h-6 rounded-lg bg-primary/15 text-primary flex items-center justify-center text-[12px] font-bold">K</span> Knowledge Graph</div>
+                  <div className={evCard}>
+                    <div className={evHead}><span className="flex items-center gap-2"><Sparkles className="w-3.5 h-3.5" /> Drug → Target → Pathway → Disease → Outcome</span><button onClick={downloadGraphSvg} className="ml-auto text-[11.5px] font-semibold flex items-center gap-1 hover:text-foreground"><Download className="w-3.5 h-3.5" /> SVG</button></div>
+                    <div className="overflow-x-auto p-3">
+                      <svg id="ev-kgraph" viewBox={'0 0 ' + evGraph.W + ' ' + evGraph.height} width={evGraph.W} height={evGraph.height} style={{ maxWidth: '100%' }} xmlns="http://www.w3.org/2000/svg">
+                        <defs><marker id="evarrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#94a3b8" /></marker></defs>
+                        {(evd.graph.edges || []).map((e: any, i: number) => { const a = evGraph.pos[e.from], b = evGraph.pos[e.to]; if (!a || !b) return null; const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2; return (<g key={i}><line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#94a3b8" strokeWidth="1.3" markerEnd="url(#evarrow)" opacity="0.7" /><text x={mx} y={my - 3} fill="#94a3b8" fontSize="8.5" textAnchor="middle">{e.label}</text></g>); })}
+                        {Object.keys(evGraph.pos).map((id: string) => { const n = evGraph.pos[id]; const w = Math.min(150, 44 + (String(n.label).length) * 6.2); return (<g key={id}><rect x={n.x - w / 2} y={n.y - 13} width={w} height={26} rx={13} fill={GRAPH_COLORS[n.type]} opacity="0.16" stroke={GRAPH_COLORS[n.type]} strokeWidth="1.2" /><text x={n.x} y={n.y + 4} fill="currentColor" className="text-foreground" fontSize="10.5" fontWeight="600" textAnchor="middle">{String(n.label).slice(0, 22)}</text></g>); })}
+                      </svg>
+                    </div>
+                    <div className="px-4 py-2 border-t border-border flex flex-wrap gap-3 text-[10.5px] text-muted-foreground">{GRAPH_TYPES.map((t) => (<span key={t} className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: GRAPH_COLORS[t] }} /> {t}</span>))}</div>
+                  </div>
+                </>
               ) : null}
 
               {/* ===== 2. GAP IDENTIFICATION ===== */}
@@ -3929,7 +4126,24 @@ export function LiteratureReviewView({ messages, onHome }: any) {
               {(evd.recommendations || []).length ? (
                 <div className={evCard}><div className={evHead}><Sparkles className="w-3.5 h-3.5 text-primary" /> AI recommendations · suggested next steps</div><div className="p-4 flex flex-col gap-2">{(evd.recommendations || []).map((r: string, i: number) => (<div key={i} className="text-[13px] text-foreground flex items-start gap-2.5"><span className="w-5 h-5 rounded-full bg-primary/15 text-primary text-[11px] font-bold flex items-center justify-center shrink-0">{i + 1}</span> {r}</div>))}</div></div>
               ) : null}
-              <div className="text-[11px] text-muted-foreground text-center pb-2">Evidence is grounded in retrieved literature; gap and novelty assessments are AI-generated estimates — verify before use.</div>
+              {/* ===== PUBLICATION ANALYTICS (Module 11) ===== */}
+              {evd.analytics && (evd.analytics.trend || []).length ? (
+                <>
+                  <div className="flex items-center gap-2 text-[15px] font-bold mt-2"><span className="w-6 h-6 rounded-lg bg-primary/15 text-primary flex items-center justify-center text-[12px] font-bold">A</span> Publication Analytics</div>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                    <div className={evCard}><div className={evHead}>Publication trend</div><div className="p-4 flex items-end gap-1.5 h-40">
+                      {(evd.analytics.trend || []).map((t: any, i: number) => (<div key={i} className="flex-1 flex flex-col items-center justify-end gap-1"><div className="w-full bg-primary/70 rounded-t" style={{ height: (Math.max(6, (t.count / evTrendMax) * 130)) + 'px' }} title={t.count + ' papers'} /><span className="text-[9px] text-muted-foreground rotate-0">{String(t.year).slice(2)}</span></div>))}
+                    </div></div>
+                    <div className={evCard}><div className={evHead}>Top journals / venues</div><div className="p-1">
+                      {(evd.analytics.topVenues || []).map((v: any, i: number) => (<div key={i} className="px-3 py-1.5 flex items-center justify-between gap-3"><span className="text-[12px] text-foreground truncate">{v.k}</span><span className="text-[11px] text-muted-foreground shrink-0">{v.v}</span></div>))}
+                    </div></div>
+                  </div>
+                  {(evd.analytics.topAuthors || []).length ? (
+                    <div className={evCard}><div className={evHead}>Top authors</div><div className="p-2 flex flex-wrap gap-1.5">{(evd.analytics.topAuthors || []).map((a: any, i: number) => (<span key={i} className="text-[11.5px] px-2.5 py-1 rounded-full bg-muted text-foreground">{a.k} <span className="text-muted-foreground">· {a.v}</span></span>))}</div></div>
+                  ) : null}
+                </>
+              ) : null}
+              <div className="text-[11px] text-muted-foreground text-center pb-2">Evidence, screening, quality and analytics are grounded in the retrieved papers; gap and novelty scores are AI estimates — verify before use.</div>
             </>
           ) : null}
         </div>
@@ -3951,6 +4165,66 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     : searchArea;
 
   const shareTitle = report ? (report.title || report.question) : (question || 'this session');
+  const filterDrawerEl = filterDrawer ? (
+    <div className="fixed inset-0 z-[75]" onClick={() => setFilterDrawer(false)}>
+      <div className="absolute inset-0 bg-black/40" />
+      <div onClick={(e) => e.stopPropagation()} className="absolute top-0 right-0 h-full w-full max-w-[380px] bg-card border-l border-border shadow-2xl flex flex-col">
+        <div className="px-5 py-4 border-b border-border flex items-center justify-between shrink-0">
+          <div className="text-[16px] font-bold">Filter</div>
+          <div className="flex items-center gap-2">
+            {filterActiveCount() ? <button onClick={clearFilters} className="text-[12px] font-semibold text-primary hover:underline">Clear all</button> : null}
+            <button onClick={() => setFilterDrawer(false)} className="w-7 h-7 rounded-lg border border-border flex items-center justify-center hover:bg-muted"><X className="w-4 h-4" /></button>
+          </div>
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-5 flex flex-col gap-6">
+          {/* General */}
+          <div>
+            <div className="text-[13px] font-bold mb-3">General</div>
+            <div className="text-[12px] font-semibold text-muted-foreground mb-1.5">Publish year</div>
+            <div className="flex flex-wrap gap-1.5 mb-2.5">
+              {[['any', 'Any'], ['2', 'Past 2 yrs.'], ['5', 'Past 5 yrs.'], ['10', 'Past 10 yrs.']].map(([v, l]) => (
+                <button key={v} onClick={() => applyYearPreset(v)} className={'px-3 py-1.5 rounded-lg text-[12.5px] font-semibold border transition-colors ' + (yearPreset === v ? 'border-primary bg-primary text-primary-foreground' : 'border-border hover:bg-muted')}>{l}</button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <input value={minYear} onChange={(e) => { setMinYear(e.target.value.replace(/[^0-9]/g, '').slice(0, 4)); setYearPreset(''); }} placeholder="No min" className="flex-1 bg-muted/40 border border-border rounded-lg px-3 py-2 text-[13px] outline-none focus:border-primary" />
+              <span className="text-muted-foreground">—</span>
+              <input value={maxYear} onChange={(e) => { setMaxYear(e.target.value.replace(/[^0-9]/g, '').slice(0, 4)); setYearPreset(''); }} placeholder={String(new Date().getFullYear())} className="flex-1 bg-muted/40 border border-border rounded-lg px-3 py-2 text-[13px] outline-none focus:border-primary" />
+            </div>
+            <div className="text-[12px] font-semibold text-muted-foreground mt-4 mb-1.5">Citations</div>
+            <div className="flex items-center gap-2 bg-muted/40 border border-border rounded-lg px-3 py-2"><span className="text-[13px] text-muted-foreground">At least</span><input value={minCited} onChange={(e) => setMinCited(e.target.value.replace(/[^0-9]/g, ''))} placeholder="0" className="flex-1 bg-transparent text-[13px] outline-none" /></div>
+            <div className="mt-4 flex items-center justify-between"><span className="text-[13px] font-semibold flex items-center gap-2"><FlaskConical className="w-4 h-4 text-muted-foreground" /> Exclude preprints</span>
+              <button onClick={() => setExcludePreprints((v) => !v)} className={(excludePreprints ? 'bg-primary ' : 'bg-muted ') + 'w-10 h-5 rounded-full relative transition-colors shrink-0'}><span className={'absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ' + (excludePreprints ? 'left-[22px]' : 'left-0.5')} /></button>
+            </div>
+            <div className="mt-3 flex items-center justify-between"><span className="text-[13px] font-semibold flex items-center gap-2"><BookOpen className="w-4 h-4 text-muted-foreground" /> Open access</span>
+              <button onClick={() => setOaOnly((v) => !v)} className={(oaOnly ? 'bg-primary ' : 'bg-muted ') + 'w-10 h-5 rounded-full relative transition-colors shrink-0'}><span className={'absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ' + (oaOnly ? 'left-[22px]' : 'left-0.5')} /></button>
+            </div>
+          </div>
+          {/* Fields of study */}
+          <div className="border-t border-border pt-5">
+            <div className="text-[13px] font-bold mb-1">Fields of study</div>
+            <div className="text-[11.5px] text-muted-foreground mb-2.5">{filterFields.length ? filterFields.length + ' selected' : 'All fields'} · OpenAlex taxonomy</div>
+            <div className="flex flex-wrap gap-1.5">
+              {OA_FIELDS.map((f) => { const on = filterFields.indexOf(f.id) !== -1; return (
+                <button key={f.id} onClick={() => setFilterFields((prev) => on ? prev.filter((x) => x !== f.id) : [...prev, f.id])} className={'px-2.5 py-1 rounded-full text-[12px] font-medium border transition-colors ' + (on ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground hover:bg-muted')}>{f.label}</button>
+              ); })}
+            </div>
+          </div>
+          {/* Sources / publisher */}
+          <div className="border-t border-border pt-5">
+            <div className="text-[13px] font-bold mb-1">Sources</div>
+            <div className="text-[11.5px] text-muted-foreground mb-2.5">Journal or publisher name contains</div>
+            <input value={pubContains} onChange={(e) => setPubContains(e.target.value)} placeholder="e.g. Lancet, Nature, Elsevier" className="w-full bg-muted/40 border border-border rounded-lg px-3 py-2 text-[13px] outline-none focus:border-primary" />
+          </div>
+          <div className="text-[11px] text-muted-foreground leading-relaxed border-t border-border pt-4">These filters are applied precisely to every search (year, citations, access, preprints, publisher across all sources; fields via OpenAlex). Journal-quartile, methodology and country filters need external datasets and are not yet available.</div>
+        </div>
+        <div className="p-4 border-t border-border shrink-0 flex items-center gap-2">
+          <button onClick={clearFilters} className="border border-border rounded-lg px-4 py-2 text-[13.5px] font-semibold hover:bg-muted">Reset</button>
+          <button onClick={() => { setFilterDrawer(false); if (mode === 'find' && lastQRef.current) runReview(lastQRef.current); else if (mode === 'evidence' && evidenceQuestion) runEvidence(evidenceQuestion); }} className="flex-1 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-[13.5px] font-semibold">Apply{filterActiveCount() ? ' (' + filterActiveCount() + ')' : ''}</button>
+        </div>
+      </div>
+    </div>
+  ) : null;
   const createColEl = colModal ? (
     <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-6" onClick={() => setColModal(false)}>
       <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
@@ -4204,6 +4478,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       {uploadModalEl}
       {shareModalEl}
       {createColEl}
+      {filterDrawerEl}
       {cellPopEl}
       {saveColEl}
       {tagModalEl}
