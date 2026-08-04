@@ -1136,6 +1136,15 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [sysPapers, setSysPapers] = useState([] as any[]);
   const [sysCols, setSysCols] = useState([] as any[]);
   const [sysBusy, setSysBusy] = useState(false);
+  // Paperguide-style staged systematic review
+  const [srActive, setSrActive] = useState(false);        // a review project is open
+  const [srStage, setSrStage] = useState('overview');      // overview | protocol
+  const [srPhase, setSrPhase] = useState('');
+  const [srCriteriaTA, setSrCriteriaTA] = useState<any[]>([]);   // [{id,title,instructions,include,exclude}]
+  const [srCriteriaFT, setSrCriteriaFT] = useState<any[]>([]);
+  const [srFields, setSrFields] = useState<string[]>([]);        // data-extraction field names
+  const [srStatus, setSrStatus] = useState<any>({ protocol: 'pending', papers: 'todo', screenTA: 'todo', screenFT: 'todo', extract: 'todo', report: 'todo' });
+  const [srReportDoc, setSrReportDoc] = useState<any>(null);
 
   // Research agent
   const [agentChat, setAgentChat] = useState([] as any[]);
@@ -1150,6 +1159,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [recentMenu, setRecentMenu] = useState<number | null>(null); // id of the recent whose ⋯ menu is open
   const persistRecents = (next: any[]) => { setRecents(next); try { localStorage.setItem('pinnovix_lit_recents', JSON.stringify(next)); } catch {} };
   const deleteRecent = (id: number) => { persistRecents(recents.filter((r) => r.id !== id)); setRecentMenu(null); };
+  const clearAllRecents = () => { if (typeof window !== 'undefined' && !window.confirm('Clear all recent chats? This cannot be undone.')) return; persistRecents([]); setRecentMenu(null); };
   const toggleStarRecent = (id: number) => { persistRecents(recents.map((r) => r.id === id ? { ...r, starred: !r.starred } : r)); };
   const moveRecent = (id: number, col: string) => { persistRecents(recents.map((r) => r.id === id ? { ...r, collection: col } : r)); setRecentMenu(null); };
   // Starred recents float to the top; then most-recent first.
@@ -1424,6 +1434,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setChatStarted(false); setPaperChat([]); setChatSources([]); setSrcSel({});
     setReport(null); setReportInput(''); setDetailsOpen(false); setReportChat([]);
     setSysStep(0); setSysQ(''); setSysPapers([]); setSysCols([]);
+    setSrActive(false); setSrStage('overview'); setSrPhase(''); setSrCriteriaTA([]); setSrCriteriaFT([]); setSrFields([]); setSrReportDoc(null); setSrStatus({ protocol: 'pending', papers: 'todo', screenTA: 'todo', screenFT: 'todo', extract: 'todo', report: 'todo' });
     setAgentChat([]); setAgentInput('');
     setEvidenceData(null); setEvidenceBusy(false); setEvidencePhase(''); setEvidenceQuestion('');
     setSelRows({}); setShareOpen(false); setShareList([]);
@@ -2066,6 +2077,126 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     }
   }
 
+  // ================= Paperguide-style staged systematic review =================
+  const srUid = () => 'c' + Date.now() + Math.random().toString(36).slice(2, 6);
+  async function startSystematic(q: string) {
+    setMode('systematic'); setNavView('search');
+    setSysQ(q); setSrActive(true); setSrStage('overview');
+    setSysPapers([]); setSysCols([]); setSrReportDoc(null);
+    setSrCriteriaTA([]); setSrCriteriaFT([]); setSrFields([]);
+    setSrStatus({ protocol: 'running', papers: 'todo', screenTA: 'todo', screenFT: 'todo', extract: 'todo', report: 'todo' });
+    pushRecent(q, 'Systematic review');
+    await srGenerateProtocol(q);
+  }
+  async function srGenerateProtocol(q?: string) {
+    const question = q || sysQ;
+    setSrPhase('Drafting the review protocol…'); setSrStatus((s: any) => ({ ...s, protocol: 'running' }));
+    const shape = '{"taCriteria":[{"title":"short name","instructions":"what to check in title/abstract","include":"include when…","exclude":"exclude when…"}],"ftCriteria":[{"title":"","instructions":"","include":"","exclude":""}],"fields":["data extraction field name"]}';
+    const prompt = 'You are a systematic-review methodologist. For the review question: "' + question + '", draft a screening PROTOCOL. Provide 4–6 TITLE/ABSTRACT screening criteria and 2–3 stricter FULL-TEXT criteria — each with a short title, an instruction, an "include when" rule and an "exclude when" rule. Also list 6–9 DATA EXTRACTION fields (e.g. Study design, Population, Sample size, Intervention, Comparator, Outcome, Effect size, Country, Funding). Return ONLY valid minified JSON: ' + shape;
+    let data: any = null;
+    try { data = extractJSON(await callChat(prompt, false, 'LITERATURE REVIEW')); } catch {}
+    if (data && Array.isArray(data.taCriteria)) {
+      setSrCriteriaTA(data.taCriteria.map((c: any) => ({ id: srUid(), title: c.title || '', instructions: c.instructions || '', include: c.include || '', exclude: c.exclude || '' })));
+      setSrCriteriaFT((data.ftCriteria || []).map((c: any) => ({ id: srUid(), title: c.title || '', instructions: c.instructions || '', include: c.include || '', exclude: c.exclude || '' })));
+      setSrFields(Array.isArray(data.fields) ? data.fields.slice(0, 12) : []);
+      setSrStatus((s: any) => ({ ...s, protocol: 'done' }));
+    } else { setSrStatus((s: any) => ({ ...s, protocol: 'pending' })); }
+    setSrPhase('');
+  }
+  async function srRunPapers() {
+    setSrPhase('Searching the databases…'); setSrStatus((s: any) => ({ ...s, papers: 'running' }));
+    let items: any[] = [];
+    try { items = applyFilters(await searchPapers(sysQ, paperSource === 'openalex' ? 'all' : paperSource, 40, curFilterOpts())); } catch {}
+    setSysPapers(items.map((p) => ({ ...p, ta: null, ft: null })));
+    setSrStatus((s: any) => ({ ...s, papers: items.length ? 'done' : 'pending', screenTA: 'todo' }));
+    setSrPhase('');
+  }
+  function srCritText(list: any[]) { return list.map((c, i) => (i + 1) + ') ' + c.title + ' — check: ' + c.instructions + ' | INCLUDE when: ' + c.include + ' | EXCLUDE when: ' + c.exclude).join('\n'); }
+  async function srScreen(stage: 'ta' | 'ft') {
+    const crit = stage === 'ta' ? srCriteriaTA : srCriteriaFT;
+    const pool = stage === 'ta' ? sysPapers : sysPapers.filter((p) => p.ta && /incl/i.test(p.ta.decision));
+    if (!pool.length) return;
+    setSrStatus((s: any) => ({ ...s, [stage === 'ta' ? 'screenTA' : 'screenFT']: 'running' }));
+    setSrPhase(stage === 'ta' ? 'Screening titles & abstracts against the criteria…' : 'Screening full texts against the stricter criteria…');
+    if (!crit.length) {
+      // no criteria for this stage → auto-include
+      setSysPapers((prev) => prev.map((p) => (stage === 'ta' || (p.ta && /incl/i.test(p.ta.decision))) ? { ...p, [stage]: { decision: 'Include', confidence: 100, reason: 'No ' + (stage === 'ta' ? 'title/abstract' : 'full-text') + ' criteria defined' } } : p));
+      setSrStatus((s: any) => ({ ...s, [stage === 'ta' ? 'screenTA' : 'screenFT']: 'done' }));
+      setSrPhase(''); return;
+    }
+    const batch = 12;
+    for (let start = 0; start < pool.length; start += batch) {
+      const chunk = pool.slice(start, start + batch);
+      const listTxt = chunk.map((p, i) => '[' + (i + 1) + '] ' + p.title + (p.year ? ' (' + p.year + ')' : '') + '. ' + (cleanText(p.abstract) ? cleanText(p.abstract).slice(0, 420) : 'No abstract')).join('\n\n');
+      const prompt = 'Screen each paper for a systematic review on "' + sysQ + '" against these ' + (stage === 'ta' ? 'title/abstract' : 'full-text') + ' criteria:\n' + srCritText(crit) + '\n\nFor each paper decide Include or Exclude (Exclude if ANY exclude rule is met or a required include rule is not). Return ONLY valid minified JSON: {"decisions":[{"idx":1,"decision":"Include|Exclude","confidence":0,"reason":"short reason","failed":"criterion title or empty"}]}\n\nPapers:\n' + listTxt;
+      let dec: any = null;
+      try { dec = extractJSON(await callChat(prompt, false, 'LITERATURE REVIEW')); } catch {}
+      const arr = (dec && Array.isArray(dec.decisions)) ? dec.decisions : [];
+      setSysPapers((prev) => prev.map((p) => {
+        const ci = chunk.findIndex((c) => c.id === p.id);
+        if (ci === -1) return p;
+        const d = arr.find((x: any) => Number(x.idx) === ci + 1);
+        return { ...p, [stage]: d ? { decision: /incl/i.test(String(d.decision)) ? 'Include' : 'Exclude', confidence: Number(d.confidence) || 0, reason: d.reason || '', failed: d.failed || '' } : { decision: 'Include', confidence: 50, reason: 'Not assessed' } };
+      }));
+    }
+    setSrStatus((s: any) => ({ ...s, [stage === 'ta' ? 'screenTA' : 'screenFT']: 'done', [stage === 'ta' ? 'screenFT' : 'extract']: 'todo' }));
+    setSrPhase('');
+  }
+  function srFinalIncluded() {
+    return sysPapers.filter((p) => p.ta && /incl/i.test(p.ta.decision) && (!srCriteriaFT.length || (p.ft && /incl/i.test(p.ft.decision))));
+  }
+  async function srRunExtract() {
+    const inc = srFinalIncluded();
+    if (!inc.length || !srFields.length) { setSrStatus((s: any) => ({ ...s, extract: 'pending' })); return; }
+    setSrStatus((s: any) => ({ ...s, extract: 'running' }));
+    const cols = srFields.map((name, i) => ({ id: 'sc' + Date.now() + '_' + i, name }));
+    setSysCols(cols);
+    let filled = inc.map((p) => ({ ...p, cols: { ...(p.cols || {}) } }));
+    for (let k = 0; k < srFields.length; k++) {
+      setSrPhase('Extracting: ' + srFields[k] + ' (' + (k + 1) + '/' + srFields.length + ')…');
+      const res = await extractAnswers(inc, srFields[k]);
+      filled = filled.map((p, i) => ({ ...p, cols: { ...p.cols, [cols[k].id]: res.answers[i] || 'Not reported' }, colQuotes: { ...(p.colQuotes || {}), [cols[k].id]: res.quotes[i] || '' } }));
+      const byId: any = {}; filled.forEach((p) => (byId[p.id] = p));
+      setSysPapers((prev) => prev.map((p) => byId[p.id] ? { ...p, cols: byId[p.id].cols, colQuotes: byId[p.id].colQuotes } : p));
+    }
+    setSrStatus((s: any) => ({ ...s, extract: 'done', report: 'todo' }));
+    setSrPhase('');
+  }
+  async function srRunReport() {
+    const inc = srFinalIncluded();
+    if (!inc.length) { setSrStatus((s: any) => ({ ...s, report: 'pending' })); return; }
+    setSrStatus((s: any) => ({ ...s, report: 'running' })); setSrPhase('Writing the systematic review draft…');
+    const srcTxt = inc.slice(0, 20).map((p, i) => '[' + (i + 1) + '] ' + p.title + ' (' + p.authorStr + ', ' + p.year + '). ' + (cleanText(p.abstract) || 'No abstract').slice(0, 500)).join('\n\n');
+    const shape = '{"title":"short title","abstract":"structured abstract","body":"markdown with ## Introduction, ## Methods, ## Results, ## Discussion, ## Limitations, ## Conclusion and inline [n] citations"}';
+    const prompt = 'Write a SYSTEMATIC REVIEW draft answering "' + sysQ + '" using ONLY the ' + inc.length + ' included studies below. Follow PRISMA structure, report specific findings with inline [n] citations, and include Methods (search + screening), Results, Discussion, Limitations and Conclusion. Return ONLY valid JSON: ' + shape + '\n\nIncluded studies:\n' + srcTxt;
+    let data: any = null;
+    try { data = extractJSON(await callChat(prompt, false, 'LITERATURE REVIEW')); } catch {}
+    if (data && data.body) setSrReportDoc({ title: data.title || sysQ, abstract: data.abstract || '', body: data.body, refs: inc });
+    else { const fb = synthesizeReport(sysQ, inc, sysPapers.length, 'Systematic', []); setSrReportDoc({ title: fb.title, abstract: fb.abstract, body: fb.body, refs: inc }); }
+    setSrStatus((s: any) => ({ ...s, report: 'done' })); setSrPhase('');
+  }
+  function srPrisma() {
+    const identified = sysPapers.length;
+    const taInc = sysPapers.filter((p) => p.ta && /incl/i.test(p.ta.decision));
+    const taExc = sysPapers.filter((p) => p.ta && /excl/i.test(p.ta.decision)).length;
+    const ftInc = srCriteriaFT.length ? taInc.filter((p) => p.ft && /incl/i.test(p.ft.decision)) : taInc;
+    const ftExc = srCriteriaFT.length ? taInc.filter((p) => p.ft && /excl/i.test(p.ft.decision)).length : 0;
+    return { identified, taScreened: identified, taExcluded: taExc, ftAssessed: taInc.length, ftExcluded: ftExc, included: ftInc.length };
+  }
+  function srExportCsv() {
+    const inc = srFinalIncluded();
+    const esc = (v: any) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const head = ['Title', 'Authors', 'Year', 'DOI'].concat(srFields);
+    const cols = sysCols;
+    const rows = [head].concat(inc.map((p) => [p.title, p.authorStr, p.year, p.doi].concat(cols.map((c) => p.cols?.[c.id] || ''))));
+    doDownload(rows.map((r) => r.map(esc).join(',')).join('\n'), (sysQ || 'systematic-review').slice(0, 40) + '-extraction.csv', 'text/csv');
+  }
+  function srExportPrisma() {
+    const pr = srPrisma();
+    const md = '# PRISMA flow — ' + sysQ + '\n\n- Records identified: ' + pr.identified + '\n- Title/abstract screened: ' + pr.taScreened + '\n- Excluded at title/abstract: ' + pr.taExcluded + '\n- Full-text assessed: ' + pr.ftAssessed + '\n- Excluded at full-text: ' + pr.ftExcluded + '\n- **Studies included: ' + pr.included + '**';
+    doDownload(md, (sysQ || 'systematic-review').slice(0, 40) + '-prisma.md', 'text/markdown');
+  }
+
   async function runSysSearch(q: string) {
     setMode('systematic');
     setNavView('search');
@@ -2564,7 +2695,10 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       </nav>
       {(navOpen || mobileNav) ? (
         <div className="flex-1 overflow-y-auto custom-scrollbar px-2 mt-1 min-h-0">
-          <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wide px-2 mb-1">Recents</div>
+          <div className="flex items-center justify-between px-2 mb-1">
+            <span className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wide">Recents</span>
+            {recents.length ? <button onClick={clearAllRecents} title="Clear all recent chats" className="text-[10.5px] font-semibold text-muted-foreground hover:text-red-400 flex items-center gap-1"><Trash2 className="w-3 h-3" /> Clear all</button> : null}
+          </div>
           {recents.length === 0 ? (
             <div className="px-2 text-[12px] text-muted-foreground italic">No recent searches.</div>
           ) : sortedRecents().slice(0, 30).map((r) => (
@@ -3071,9 +3205,9 @@ export function LiteratureReviewView({ messages, onHome }: any) {
             </div>
           ) : mode === 'systematic' ? (
             <div>
-              <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (input.trim()) runSysSearch(input.trim()); } }} rows={4} autoFocus placeholder="Enter a research question. I will search, let you screen papers, then extract a matrix..." className="w-full bg-transparent px-4 py-3 text-[15px] outline-none resize-none placeholder:text-muted-foreground" />
+              <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (input.trim()) startSystematic(input.trim()); } }} rows={4} autoFocus placeholder="Enter your review question. I'll draft a protocol (criteria + extraction fields), then run staged screening → PRISMA → extraction → report." className="w-full bg-transparent px-4 py-3 text-[15px] outline-none resize-none placeholder:text-muted-foreground" />
               <div className="flex justify-end px-4 py-3 border-t border-border">
-                <button onClick={() => input.trim() && runSysSearch(input.trim())} disabled={!input.trim()} className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40" title="Search"><ArrowRight className="w-4 h-4" /></button>
+                <button onClick={() => input.trim() && startSystematic(input.trim())} disabled={!input.trim()} className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40" title="Start review"><ArrowRight className="w-4 h-4" /></button>
               </div>
             </div>
           ) : mode === 'agent' ? (
@@ -3827,70 +3961,153 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     </div>
   );
 
-  const sysIncluded = sysPapers.filter((p) => p.included);
+  const srBadge = (st: string) => st === 'done' ? <span className="text-[11px] px-2 py-0.5 rounded-full bg-green-500/15 text-green-500 font-semibold">Done</span> : st === 'running' ? <span className="text-[11px] px-2 py-0.5 rounded-full bg-primary/15 text-primary font-semibold inline-flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Running</span> : st === 'pending' ? <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-500 font-semibold">Needs input</span> : <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-semibold">Not started</span>;
+  const srInc = srFinalIncluded();
+  const srPr = srPrisma();
+  const srCritEditor = (list: any[], setList: any, kind: string) => (
+    <div className="flex flex-col gap-2">
+      {list.map((c: any, i: number) => (
+        <div key={c.id} className="border border-border rounded-lg p-3 bg-muted/20">
+          <div className="flex items-center gap-2">
+            <input value={c.title} onChange={(e) => setList((prev: any[]) => prev.map((x) => x.id === c.id ? { ...x, title: e.target.value } : x))} placeholder="Criterion name" className="flex-1 bg-background border border-border rounded-md px-2.5 py-1.5 text-[13px] font-semibold outline-none focus:border-primary" />
+            <button onClick={() => setList((prev: any[]) => prev.filter((x) => x.id !== c.id))} className="text-muted-foreground hover:text-red-400"><X className="w-4 h-4" /></button>
+          </div>
+          <textarea value={c.instructions} onChange={(e) => setList((prev: any[]) => prev.map((x) => x.id === c.id ? { ...x, instructions: e.target.value } : x))} placeholder="Instructions — what to check" rows={2} className="w-full mt-2 bg-background border border-border rounded-md px-2.5 py-1.5 text-[12.5px] outline-none focus:border-primary resize-none" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+            <div><div className="text-[10.5px] font-bold text-green-500 uppercase mb-0.5">Include when</div><textarea value={c.include} onChange={(e) => setList((prev: any[]) => prev.map((x) => x.id === c.id ? { ...x, include: e.target.value } : x))} rows={2} className="w-full bg-background border border-border rounded-md px-2.5 py-1.5 text-[12px] outline-none focus:border-primary resize-none" /></div>
+            <div><div className="text-[10.5px] font-bold text-red-400 uppercase mb-0.5">Exclude when</div><textarea value={c.exclude} onChange={(e) => setList((prev: any[]) => prev.map((x) => x.id === c.id ? { ...x, exclude: e.target.value } : x))} rows={2} className="w-full bg-background border border-border rounded-md px-2.5 py-1.5 text-[12px] outline-none focus:border-primary resize-none" /></div>
+          </div>
+        </div>
+      ))}
+      <button onClick={() => setList((prev: any[]) => [...prev, { id: srUid(), title: '', instructions: '', include: '', exclude: '' }])} className="text-[12.5px] font-semibold text-primary flex items-center gap-1 self-start"><Plus className="w-3.5 h-3.5" /> Add {kind} criterion</button>
+    </div>
+  );
   const systematicView = (
     <div className="flex flex-col h-full">
-      <div className="px-6 py-3 border-b border-border flex items-center gap-4 shrink-0 flex-wrap">
+      <div className="px-5 py-3 border-b border-border flex items-center gap-3 shrink-0 flex-wrap">
         {modeDropdown}
-        <div className="flex items-center gap-2 text-[12.5px]">
-          {['Search', 'Screen', 'Extract'].map((st, i) => {
-            const active = sysStep === i || (i === 1 && sysStep === 1) || (i === 2 && sysStep === 2);
-            const done = sysStep > i;
-            return (
-              <div key={st} className="flex items-center gap-2">
-                <span className={((done || active) ? 'bg-primary text-primary-foreground ' : 'bg-muted text-muted-foreground ') + 'w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold'}>{done ? <Check className="w-3 h-3" /> : (i + 1)}</span>
-                <span className={(active ? 'text-foreground font-semibold ' : 'text-muted-foreground ') + 'text-[12.5px]'}>{st}</span>
-                {i < 2 ? <span className="text-border">-</span> : null}
-              </div>
-            );
-          })}
+        <span className="text-[13px] font-bold truncate max-w-[280px]">{sysQ}</span>
+        <div className="ml-auto flex items-center gap-2">
+          <button onClick={srExportPrisma} disabled={!sysPapers.length} className="text-[12.5px] font-semibold flex items-center gap-1 border border-border rounded-lg px-2.5 py-1 hover:bg-muted disabled:opacity-40"><ListChecks className="w-3.5 h-3.5" /> PRISMA</button>
+          <button onClick={srExportCsv} disabled={!srInc.length} className="text-[12.5px] font-semibold flex items-center gap-1 border border-border rounded-lg px-2.5 py-1 hover:bg-muted disabled:opacity-40"><Download className="w-3.5 h-3.5" /> Export</button>
+          <button onClick={startNew} className="text-[12.5px] text-primary font-semibold flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> New</button>
         </div>
-        <button onClick={startNew} className="ml-auto text-[12.5px] text-primary font-semibold flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> New</button>
       </div>
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-6 max-w-4xl w-full mx-auto">
-        <div className="flex items-center justify-between mb-4 gap-3">
-          <div className="min-w-0">
-            <div className="text-[12px] text-muted-foreground uppercase font-bold tracking-wide">Systematic review</div>
-            <div className="text-[17px] font-bold truncate">{sysQ}</div>
-          </div>
-          {sysStep === 1 ? (
-            <button onClick={runSysExtract} disabled={!sysIncluded.length || sysBusy} className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-[13.5px] font-semibold disabled:opacity-40 shrink-0">Extract from {sysIncluded.length} included</button>
+      <div className="flex-1 min-h-0 min-w-0 overflow-y-auto custom-scrollbar">
+        <div className="max-w-4xl mx-auto p-5 flex flex-col gap-4">
+          <div><div className="text-[11px] text-muted-foreground uppercase font-bold tracking-wide">Systematic review</div><div className="text-[20px] font-bold leading-tight">{sysQ}</div></div>
+          {srPhase ? <div className="flex items-center gap-2 text-[13px] text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> {srPhase}</div> : null}
+
+          {srStage === 'protocol' ? (
+            <div className="flex flex-col gap-5">
+              <div className="flex items-center justify-between"><div className="text-[15px] font-bold">Review protocol</div><button onClick={() => setSrStage('overview')} className="text-[12.5px] font-semibold text-primary">Back to overview</button></div>
+              <div className="border border-border rounded-xl p-4"><div className="text-[13px] font-bold mb-1">Research question</div><textarea value={sysQ} onChange={(e) => setSysQ(e.target.value)} rows={2} className="w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-[13.5px] outline-none focus:border-primary resize-none" /><button onClick={() => srGenerateProtocol()} disabled={srPhase !== ''} className="mt-2 text-[12.5px] font-semibold border border-border rounded-lg px-3 py-1.5 hover:bg-muted disabled:opacity-50 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5 text-primary" /> Auto-generate protocol from question</button></div>
+              <div className="border border-border rounded-xl p-4"><div className="text-[13px] font-bold mb-1">Title &amp; abstract screening criteria</div><div className="text-[12px] text-muted-foreground mb-3">These guide every include/exclude decision at title/abstract stage.</div>{srCritEditor(srCriteriaTA, setSrCriteriaTA, 'T/A')}</div>
+              <div className="border border-border rounded-xl p-4"><div className="text-[13px] font-bold mb-1">Full-text screening criteria</div><div className="text-[12px] text-muted-foreground mb-3">Stricter criteria that confirm the final included set.</div>{srCritEditor(srCriteriaFT, setSrCriteriaFT, 'full-text')}</div>
+              <div className="border border-border rounded-xl p-4"><div className="text-[13px] font-bold mb-1">Data extraction fields</div><div className="text-[12px] text-muted-foreground mb-3">Columns to extract from every included study.</div>
+                <div className="flex flex-wrap gap-1.5">{srFields.map((f, i) => (<span key={i} className="inline-flex items-center gap-1 text-[12px] px-2.5 py-1 rounded-full bg-muted"><span>{f}</span><button onClick={() => setSrFields((prev) => prev.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-red-400"><X className="w-3 h-3" /></button></span>))}</div>
+                <input placeholder="Add a field and press Enter" onKeyDown={(e: any) => { if (e.key === 'Enter' && e.currentTarget.value.trim()) { setSrFields((prev) => [...prev, e.currentTarget.value.trim()]); e.currentTarget.value = ''; } }} className="w-full mt-2 bg-muted/30 border border-border rounded-lg px-3 py-2 text-[13px] outline-none focus:border-primary" />
+              </div>
+              <button onClick={() => { setSrStatus((s: any) => ({ ...s, protocol: (srCriteriaTA.length ? 'done' : 'pending') })); setSrStage('overview'); }} className="self-start bg-primary text-primary-foreground rounded-lg px-4 py-2 text-[13.5px] font-semibold">Save protocol</button>
+            </div>
           ) : (
-            <button onClick={downloadSys} className="border border-border rounded-lg px-4 py-2 text-[13.5px] font-semibold flex items-center gap-1.5 shrink-0"><Download className="w-3.5 h-3.5" /> Download</button>
-          )}
-        </div>
-        {sysBusy ? <div className="flex items-center gap-2 text-muted-foreground text-[13px] mb-3"><Loader2 className="w-4 h-4 animate-spin" /> {sysStep === 2 ? 'Extracting data from included papers...' : 'Searching...'}</div> : null}
-        {sysStep === 1 ? (
-          <div>
-            <div className="text-[12.5px] text-muted-foreground mb-3">Screen the {sysPapers.length} results below. Toggle each paper to include or exclude, then extract.</div>
-            {sysPapers.map((p) => (
-              <div key={p.id} className={'border border-border rounded-xl p-4 mb-3 ' + (p.included ? '' : 'opacity-50')}>
+            <>
+              {/* ===== STAGE 1: PROTOCOL ===== */}
+              <div className="border border-border rounded-xl p-4">
                 <div className="flex items-start gap-3">
-                  <button onClick={() => sysToggle(p.id)} className={(p.included ? 'bg-green-500/15 text-green-600 border-green-500/40 ' : 'bg-muted text-muted-foreground border-border ') + 'shrink-0 mt-0.5 border rounded-md px-2.5 py-1 text-[11.5px] font-semibold'}>{p.included ? 'Included' : 'Excluded'}</button>
-                  <div className="min-w-0">
-                    <div className="font-semibold text-[14px] leading-snug">{p.title}</div>
-                    <div className="text-[12px] text-muted-foreground mt-0.5">{p.authorStr} - {[p.venue, p.year].filter(Boolean).join(', ')}</div>
-                    <div className="text-[12.5px] text-foreground/80 mt-1.5">{p.abstract ? p.abstract.slice(0, 240) + '...' : 'No abstract.'}</div>
+                  <span className="w-6 h-6 rounded-lg bg-primary/15 text-primary flex items-center justify-center text-[12px] font-bold shrink-0">1</span>
+                  <div className="flex-1 min-w-0"><div className="flex items-center justify-between gap-2"><span className="text-[14px] font-bold">Protocol</span>{srBadge(srStatus.protocol)}</div><div className="text-[12.5px] text-muted-foreground">Research question, screening criteria and extraction fields.</div>
+                    <div className="text-[12px] text-muted-foreground mt-1.5">{srCriteriaTA.length} T/A criteria · {srCriteriaFT.length} full-text criteria · {srFields.length} extraction fields</div>
+                    <button onClick={() => setSrStage('protocol')} className="mt-2 text-[12.5px] font-semibold border border-border rounded-lg px-3 py-1.5 hover:bg-muted">Setup protocol</button>
                   </div>
                 </div>
               </div>
-            ))}
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-[13px] border-collapse">
-              <thead><tr className="border-b border-border text-left text-muted-foreground"><th className="p-2 w-[34%]">Source ({sysIncluded.length})</th>{sysCols.map((c) => <th key={c.id} className="p-2 min-w-[140px]">{c.name}</th>)}</tr></thead>
-              <tbody>
-                {sysIncluded.map((p) => (
-                  <tr key={p.id} className="border-b border-border align-top hover:bg-muted/30">
-                    <td className="p-2"><div className="font-semibold leading-snug">{p.title}</div><div className="text-[11.5px] text-muted-foreground mt-0.5">{p.authorStr} ({p.year})</div></td>
-                    {sysCols.map((c) => <td key={c.id} className="p-2 text-foreground/90">{p.cols[c.id] ? p.cols[c.id] : (sysBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" /> : '-')}</td>)}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+              {/* ===== STAGE 2: PAPERS ===== */}
+              <div className="border border-border rounded-xl p-4">
+                <div className="flex items-start gap-3"><span className="w-6 h-6 rounded-lg bg-primary/15 text-primary flex items-center justify-center text-[12px] font-bold shrink-0">2</span>
+                  <div className="flex-1 min-w-0"><div className="flex items-center justify-between gap-2"><span className="text-[14px] font-bold">Papers</span>{srBadge(srStatus.papers)}</div><div className="text-[12.5px] text-muted-foreground">Search the research databases for candidate studies.</div>
+                    <div className="flex items-center gap-2 mt-2">
+                      <button onClick={srRunPapers} disabled={srStatus.protocol !== 'done' || srPhase !== ''} className="text-[12.5px] font-semibold bg-primary text-primary-foreground rounded-lg px-3 py-1.5 disabled:opacity-40">{sysPapers.length ? 'Re-run search' : 'Search papers'}</button>
+                      {sysPapers.length ? <span className="text-[12px] text-muted-foreground">{sysPapers.length} records retrieved</span> : null}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {/* ===== STAGE 3: TITLE/ABSTRACT SCREENING ===== */}
+              <div className="border border-border rounded-xl p-4">
+                <div className="flex items-start gap-3"><span className="w-6 h-6 rounded-lg bg-primary/15 text-primary flex items-center justify-center text-[12px] font-bold shrink-0">3</span>
+                  <div className="flex-1 min-w-0"><div className="flex items-center justify-between gap-2"><span className="text-[14px] font-bold">Title &amp; abstract screening</span>{srBadge(srStatus.screenTA)}</div><div className="text-[12.5px] text-muted-foreground">AI screens each record against your title/abstract criteria.</div>
+                    <button onClick={() => srScreen('ta')} disabled={!sysPapers.length || srPhase !== ''} className="mt-2 text-[12.5px] font-semibold bg-primary text-primary-foreground rounded-lg px-3 py-1.5 disabled:opacity-40">Run screening</button>
+                  </div>
+                </div>
+                {sysPapers.some((p) => p.ta) ? (
+                  <div className="mt-3 border-t border-border pt-3 max-h-[420px] overflow-y-auto custom-scrollbar">
+                    {sysPapers.map((p) => (
+                      <div key={p.id} className="py-2 border-b border-border last:border-0 flex items-start justify-between gap-3">
+                        <div className="min-w-0"><div className="text-[12.5px] font-semibold leading-snug">{p.title}</div><div className="text-[11px] text-muted-foreground">{p.authorStr} ({p.year})</div>{p.ta ? <div className="text-[11px] text-muted-foreground mt-0.5">{p.ta.reason}</div> : null}</div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {p.ta ? <span className="text-[10px] text-muted-foreground">{p.ta.confidence}%</span> : null}
+                          <button onClick={() => setSysPapers((prev) => prev.map((x) => x.id === p.id ? { ...x, ta: { decision: 'Include', confidence: 100, reason: 'Manual override' } } : x))} className={'text-[10.5px] px-2 py-0.5 rounded-full font-semibold ' + (p.ta && /incl/i.test(p.ta.decision) ? 'bg-green-500/15 text-green-500' : 'bg-muted text-muted-foreground')}>Include</button>
+                          <button onClick={() => setSysPapers((prev) => prev.map((x) => x.id === p.id ? { ...x, ta: { decision: 'Exclude', confidence: 100, reason: 'Manual override' } } : x))} className={'text-[10.5px] px-2 py-0.5 rounded-full font-semibold ' + (p.ta && /excl/i.test(p.ta.decision) ? 'bg-red-500/15 text-red-400' : 'bg-muted text-muted-foreground')}>Exclude</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              {/* ===== STAGE 4: FULL-TEXT SCREENING ===== */}
+              <div className="border border-border rounded-xl p-4">
+                <div className="flex items-start gap-3"><span className="w-6 h-6 rounded-lg bg-primary/15 text-primary flex items-center justify-center text-[12px] font-bold shrink-0">4</span>
+                  <div className="flex-1 min-w-0"><div className="flex items-center justify-between gap-2"><span className="text-[14px] font-bold">Full-text screening</span>{srBadge(srStatus.screenFT)}</div><div className="text-[12.5px] text-muted-foreground">Confirm the final included set against stricter full-text criteria.</div>
+                    <button onClick={() => srScreen('ft')} disabled={!sysPapers.some((p) => p.ta && /incl/i.test(p.ta.decision)) || srPhase !== ''} className="mt-2 text-[12.5px] font-semibold bg-primary text-primary-foreground rounded-lg px-3 py-1.5 disabled:opacity-40">Run full-text screening</button>
+                  </div>
+                </div>
+              </div>
+              {/* ===== PRISMA SUMMARY ===== */}
+              {sysPapers.some((p) => p.ta) ? (
+                <div className="border border-border rounded-xl p-4 bg-muted/20">
+                  <div className="text-[12.5px] font-bold text-muted-foreground mb-2 flex items-center gap-1.5"><ListChecks className="w-3.5 h-3.5" /> PRISMA flow</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {[['Identified', srPr.identified], ['T/A excluded', srPr.taExcluded], ['Full-text assessed', srPr.ftAssessed], ['FT excluded', srPr.ftExcluded], ['Included', srPr.included]].map(([k, v]: any, i: number) => (
+                      <span key={k} className="flex items-center gap-2">{i ? <ArrowRight className="w-4 h-4 text-muted-foreground" /> : null}<span className="flex flex-col items-center bg-card border border-border rounded-lg px-3 py-1.5 min-w-[78px]"><span className={'text-[16px] font-bold leading-none ' + (k === 'Included' ? 'text-green-500' : 'text-foreground')}>{v}</span><span className="text-[10px] text-muted-foreground mt-0.5">{k}</span></span></span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {/* ===== STAGE 5: DATA EXTRACTION ===== */}
+              <div className="border border-border rounded-xl p-4">
+                <div className="flex items-start gap-3"><span className="w-6 h-6 rounded-lg bg-primary/15 text-primary flex items-center justify-center text-[12px] font-bold shrink-0">5</span>
+                  <div className="flex-1 min-w-0"><div className="flex items-center justify-between gap-2"><span className="text-[14px] font-bold">Data extraction</span>{srBadge(srStatus.extract)}</div><div className="text-[12.5px] text-muted-foreground">Extract your fields from the {srInc.length} included studies into an evidence table.</div>
+                    <button onClick={srRunExtract} disabled={!srInc.length || !srFields.length || srPhase !== ''} className="mt-2 text-[12.5px] font-semibold bg-primary text-primary-foreground rounded-lg px-3 py-1.5 disabled:opacity-40">Extract from {srInc.length} included</button>
+                  </div>
+                </div>
+                {sysCols.length && srInc.some((p) => p.cols && Object.keys(p.cols).length) ? (
+                  <div className="mt-3 border-t border-border pt-3 overflow-x-auto">
+                    <table className="w-full text-[12.5px] border-collapse">
+                      <thead><tr className="border-b border-border text-left text-muted-foreground"><th className="p-2 min-w-[220px]">Study</th>{sysCols.map((c) => <th key={c.id} className="p-2 min-w-[130px]">{c.name}</th>)}</tr></thead>
+                      <tbody>{srInc.map((p) => (<tr key={p.id} className="border-b border-border align-top hover:bg-muted/30"><td className="p-2"><div className="font-semibold leading-snug">{p.title}</div><div className="text-[11px] text-muted-foreground">{p.authorStr} ({p.year})</div></td>{sysCols.map((c) => <td key={c.id} className="p-2 text-foreground/90">{p.cols?.[c.id] || '-'}</td>)}</tr>))}</tbody>
+                    </table>
+                  </div>
+                ) : null}
+              </div>
+              {/* ===== STAGE 6: REPORT ===== */}
+              <div className="border border-border rounded-xl p-4">
+                <div className="flex items-start gap-3"><span className="w-6 h-6 rounded-lg bg-primary/15 text-primary flex items-center justify-center text-[12px] font-bold shrink-0">6</span>
+                  <div className="flex-1 min-w-0"><div className="flex items-center justify-between gap-2"><span className="text-[14px] font-bold">Report</span>{srBadge(srStatus.report)}</div><div className="text-[12.5px] text-muted-foreground">Generate a cited systematic-review draft from the included studies.</div>
+                    <button onClick={srRunReport} disabled={!srInc.length || srPhase !== ''} className="mt-2 text-[12.5px] font-semibold bg-primary text-primary-foreground rounded-lg px-3 py-1.5 disabled:opacity-40">Generate report</button>
+                  </div>
+                </div>
+                {srReportDoc ? (
+                  <div className="mt-3 border-t border-border pt-3">
+                    <div className="flex items-center justify-between gap-2 mb-2"><div className="text-[15px] font-bold">{srReportDoc.title}</div><button onClick={() => doDownload('# ' + srReportDoc.title + '\n\n' + srReportDoc.abstract + '\n\n' + srReportDoc.body, (sysQ || 'systematic-review').slice(0, 40) + '.md', 'text/markdown')} className="text-[12px] font-semibold border border-border rounded-lg px-2.5 py-1 hover:bg-muted flex items-center gap-1"><Download className="w-3.5 h-3.5" /> MD</button></div>
+                    {srReportDoc.abstract ? <div className="text-[13px] text-muted-foreground italic mb-2">{srReportDoc.abstract}</div> : null}
+                    <div className="prose prose-sm dark:prose-invert max-w-none text-[13.5px] leading-relaxed"><ReactMarkdown>{srReportDoc.body}</ReactMarkdown></div>
+                  </div>
+                ) : null}
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -4247,7 +4464,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   let searchArea: any;
   if (mode === 'chat') searchArea = chatStarted ? chatView : startScreen;
   else if (mode === 'report') searchArea = report ? (detailsOpen ? detailsView : reportView) : startScreen;
-  else if (mode === 'systematic') searchArea = sysPapers.length ? systematicView : startScreen;
+  else if (mode === 'systematic') searchArea = srActive ? systematicView : startScreen;
   else if (mode === 'agent') searchArea = agentChat.length ? agentView : startScreen;
   else if (mode === 'evidence') searchArea = (evidenceData || evidenceBusy) ? evidenceView : startScreen;
   else searchArea = (!question && !busy && papers.length === 0) ? startScreen : resultsView;
