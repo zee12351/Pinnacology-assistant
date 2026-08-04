@@ -1054,6 +1054,10 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [pubContains, setPubContains] = useState('');
   const [filterFields, setFilterFields] = useState<string[]>([]);
   const [filterDrawer, setFilterDrawer] = useState(false);
+  // Advanced query builder (Boolean / MeSH / synonyms)
+  const [qbOpen, setQbOpen] = useState(false);
+  const [qbRows, setQbRows] = useState<any[]>([{ op: 'AND', field: 'all', term: '' }]);
+  const [qbBusy, setQbBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [chatThread, setChatThread] = useState([] as any[]);
   const [chatInput, setChatInput] = useState('');
@@ -1996,14 +2000,19 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       const srcTxt = screened.map((p, i) => '[' + (i + 1) + '] ' + p.title + ' (' + p.authorStr + ', ' + p.year + '). ' + (p.abstract || 'No abstract').slice(0, 600)).join('\n\n');
       const rtGuide: any = {
         Narrative: 'a NARRATIVE review — flowing prose that weaves the studies into a coherent story, lighter on formal screening sections',
-        Systematic: 'a SYSTEMATIC review — rigorous, with explicit search/screening, structured findings and a study-characteristics list',
+        Systematic: 'a SYSTEMATIC review DRAFT — rigorous, with explicit search/screening (PRISMA-style), structured findings and a study-characteristics list',
         Scoping: 'a SCOPING review — map the breadth of the evidence, themes and study types, and highlight where evidence is concentrated or missing',
+        Literature: 'a LITERATURE REVIEW — a thematically organised critical synthesis with an Introduction, thematic Body sections, and a critical Discussion',
+        Proposal: 'a RESEARCH PROPOSAL — with Background & Significance, a clear Gap Statement, Aims/Hypotheses, proposed Methods, Expected Outcomes and Impact, all grounded in the cited evidence',
+        Grant: 'a GRANT BACKGROUND & SIGNIFICANCE section — establish the problem and its importance, what is already known, the critical unmet gap, and why this research matters, with strong citations',
         Mini: 'a MINI review — concise, focusing on the few most important papers and their headline findings',
         Rapid: 'a RAPID review — a fast, high-level overview of the key takeaways with minimal formal structure',
       };
+      const needsSections = ['Systematic', 'Scoping', 'Literature', 'Narrative', 'Proposal'].indexOf(rt) !== -1;
+      const secReq = needsSections ? ' The body MUST include clearly headed sections and end with these sections: ## Discussion, ## Limitations, ## Future Directions, and ## Conclusion.' : '';
       const shape = '{"title": "short report title, max 8 words", "abstract": "2-3 paragraph abstract summarising the evidence with specific numbers and [1]-style citations", "body": "the full report in Markdown with ## section headings and inline [n] citations. Use bold-labelled bullet lists, NOT tables."}';
       const critTxt = criteria.length ? ' Screen studies for inclusion against these criteria: ' + criteria.map((c, i) => (i + 1) + ') ' + c).join('; ') + '. Note in the report which criteria were applied.' : '';
-      const prompt = 'Write ' + (rtGuide[rt] || rtGuide.Systematic) + ' that answers: "' + q + '".' + critTxt + ' Use ONLY the ' + screened.length + ' sources below. Include specific findings, numbers and caveats, and inline [n] citations matching the source numbers. Do not use Markdown tables; use bold-labelled bullet lists instead. Return ONLY valid JSON, no fences, in this shape: ' + shape + '\n\nSources:\n' + srcTxt;
+      const prompt = 'Write ' + (rtGuide[rt] || rtGuide.Systematic) + ' that answers: "' + q + '".' + critTxt + secReq + ' Use ONLY the ' + screened.length + ' sources below. Include specific findings, numbers and caveats, and inline [n] citations matching the source numbers. Do not use Markdown tables; use bold-labelled bullet lists instead. Return ONLY valid JSON, no fences, in this shape: ' + shape + '\n\nSources:\n' + srcTxt;
       setReport((prev: any) => ({ ...prev, done: { gather: true, screen: true, extract: true } }));
       setReportPhase('Generating report and summarising findings...');
       const raw = await callChat(prompt);
@@ -2363,6 +2372,25 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     }).join('\n\n');
     doDownload(txt, (question || 'literature-review').slice(0, 40) + '.ris', 'application/x-research-info-systems');
   }
+  // EndNote (.enw) tagged format.
+  function downloadEndNote() {
+    const txt = dlRows().map((p) => {
+      const L = [p.kind === 'trial' ? '%0 Dataset' : '%0 Journal Article', '%T ' + p.title];
+      (p.authors && p.authors.length ? p.authors : ['Unknown']).forEach((a: any) => L.push('%A ' + a));
+      if (p.venue) L.push('%J ' + p.venue);
+      if (p.year) L.push('%D ' + p.year);
+      if (p.doi) L.push('%R ' + p.doi);
+      if (p.url) L.push('%U ' + p.url);
+      if (p.abstract || p.summary) L.push('%X ' + String(p.abstract || p.summary).replace(/\s+/g, ' ').slice(0, 1200));
+      return L.join('\n');
+    }).join('\n\n');
+    doDownload(txt, (question || 'literature-review').slice(0, 40) + '.enw', 'application/x-endnote-refer');
+  }
+  // Structured JSON export of the whole result set.
+  function downloadJSON() {
+    const payload = { query: question, generated: new Date().toISOString(), count: dlRows().length, papers: dlRows().map((p) => ({ title: p.title, authors: p.authors, year: p.year, venue: p.venue, doi: p.doi, url: p.url, citedBy: p.cited, openAccess: !!p.oa, abstract: p.abstract || '', summary: p.summary || '', gap: p.gap || '', novelty: p.novelty || '', columns: p.cols || {} })) };
+    doDownload(JSON.stringify(payload, null, 2), (question || 'literature-review').slice(0, 40) + '.json', 'application/json');
+  }
 
   // Precise gate applied to every result across all search modes.
   function passesFilters(p: any): boolean {
@@ -2398,6 +2426,49 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   function clearFilters() {
     setMinYear(''); setMaxYear(''); setMinCited(''); setOaOnly(false); setExcludePreprints(false); setPubContains(''); setFilterFields([]); setYearPreset('any');
   }
+  // --- Advanced query builder (Boolean / MeSH / synonyms) ---
+  const QB_FIELDS = [
+    { id: 'all', label: 'All fields', tag: '' }, { id: 'title', label: 'Title', tag: '[Title]' },
+    { id: 'tiab', label: 'Title/Abstract', tag: '[Title/Abstract]' }, { id: 'mesh', label: 'MeSH term', tag: '[MeSH Terms]' },
+    { id: 'author', label: 'Author', tag: '[Author]' }, { id: 'journal', label: 'Journal', tag: '[Journal]' },
+  ];
+  const qbTag = (fid: string) => (QB_FIELDS.find((x) => x.id === fid) || QB_FIELDS[0]).tag;
+  function buildBooleanQuery(rows: any[]): string {
+    const parts = rows.filter((r) => (r.term || '').trim()).map((r, i) => {
+      const term = r.term.trim();
+      const grouped = /\s(AND|OR|NOT)\s/.test(term) ? '(' + term + ')' : term;
+      const tagged = qbTag(r.field) ? grouped + qbTag(r.field) : grouped;
+      return (i === 0 ? '' : ' ' + (r.op || 'AND') + ' ') + '(' + tagged + ')';
+    });
+    return parts.join('');
+  }
+  async function qbExpand() {
+    const rows = qbRows.filter((r) => (r.term || '').trim());
+    if (!rows.length || qbBusy) return;
+    setQbBusy(true);
+    try {
+      const list = rows.map((r, i) => (i + 1) + '. ' + r.term.trim()).join('\n');
+      const prompt = 'For each numbered search concept below, return its best MeSH term plus 2–4 common synonyms/variant spellings for a literature search. Return ONLY valid JSON: {"expansions":[{"i":1,"terms":["term1","term2","MeSH term"]}]}.\n\nConcepts:\n' + list;
+      const raw = await callChat(prompt, false, 'LITERATURE REVIEW');
+      const parsed = extractJSON(raw);
+      const exps = (parsed && Array.isArray(parsed.expansions)) ? parsed.expansions : [];
+      setQbRows((prev) => {
+        const filled = prev.filter((r) => (r.term || '').trim());
+        let k = 0;
+        return prev.map((r) => {
+          if (!(r.term || '').trim()) return r;
+          k++;
+          const e = exps.find((x: any) => Number(x.i) === k);
+          if (e && Array.isArray(e.terms) && e.terms.length) {
+            const uniq = Array.from(new Set([r.term.trim(), ...e.terms.map((t: string) => String(t).trim())].filter(Boolean)));
+            return { ...r, term: uniq.map((t) => (/\s/.test(t) ? '"' + t.replace(/"/g, '') + '"' : t)).join(' OR ') };
+          }
+          return r;
+        });
+      });
+    } catch {}
+    setQbBusy(false);
+  }
   function view() {
     const f = filter.toLowerCase();
     let list = papers.filter((p) => !f || (p.title + ' ' + p.abstract + ' ' + p.summary).toLowerCase().indexOf(f) !== -1);
@@ -2432,11 +2503,14 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const shownDocs = libDocs.filter((d) => (activeCol === 'all' || activeCol === 'trash') ? activeCol !== 'trash' : d.collection === activeCol).filter((d) => !libSearch || docName(d).toLowerCase().indexOf(libSearch.toLowerCase()) !== -1);
 
   const REVIEW_TYPES = [
-    { id: 'Narrative', desc: 'Flowing prose synthesis of the themes' },
-    { id: 'Systematic', desc: 'Structured search, screening and extraction' },
-    { id: 'Scoping', desc: 'Maps the breadth of evidence and themes' },
-    { id: 'Mini', desc: 'Concise synthesis of the top few papers' },
-    { id: 'Rapid', desc: 'Fast, high-level overview' },
+    { id: 'Narrative', label: 'Narrative review', desc: 'Flowing prose synthesis of the themes' },
+    { id: 'Systematic', label: 'Systematic review draft', desc: 'Structured search, screening and extraction' },
+    { id: 'Scoping', label: 'Scoping review', desc: 'Maps the breadth of evidence and themes' },
+    { id: 'Literature', label: 'Literature review', desc: 'Thematic synthesis with critical discussion' },
+    { id: 'Proposal', label: 'Research proposal', desc: 'Background, gap, aims, methods, impact' },
+    { id: 'Grant', label: 'Grant background', desc: 'Significance / background section for a grant' },
+    { id: 'Mini', label: 'Mini review', desc: 'Concise synthesis of the top few papers' },
+    { id: 'Rapid', label: 'Rapid review', desc: 'Fast, high-level overview' },
   ];
   const SOURCES = [
     { id: 'openalex', label: 'OpenAlex' },
@@ -2969,14 +3043,14 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                     ) : null}
                   </div>
                   <div className="relative">
-                    <button onClick={() => setReviewTypeMenu((v) => !v)} className="inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[13px] font-semibold hover:bg-muted">Review <span className="text-primary">{reviewType}</span> <ChevronDown className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => setReviewTypeMenu((v) => !v)} className="inline-flex items-center gap-1.5 border border-border rounded-lg px-3 py-1.5 text-[13px] font-semibold hover:bg-muted">Type: <span className="text-primary">{(REVIEW_TYPES.find((x) => x.id === reviewType) || REVIEW_TYPES[0]).label}</span> <ChevronDown className="w-3.5 h-3.5" /></button>
                     {reviewTypeMenu ? (
                       <>
                         <div className="fixed inset-0 z-[40]" onClick={() => setReviewTypeMenu(false)} />
                         <div className="absolute z-[41] bottom-[110%] left-0 w-[260px] bg-card border border-border rounded-xl shadow-2xl p-1.5">
                           {REVIEW_TYPES.map((rt) => (
                             <button key={rt.id} onClick={() => { setReviewType(rt.id); setReviewTypeMenu(false); }} className="w-full flex items-start justify-between gap-2 px-3 py-2 rounded-lg text-left hover:bg-muted">
-                              <span><span className="text-[13.5px] font-semibold">{rt.id} review</span><span className="block text-[11.5px] text-muted-foreground">{rt.desc}</span></span>
+                              <span><span className="text-[13.5px] font-semibold">{rt.label}</span><span className="block text-[11.5px] text-muted-foreground">{rt.desc}</span></span>
                               {reviewType === rt.id ? <Check className="w-3.5 h-3.5 text-primary mt-0.5 shrink-0" /> : null}
                             </button>
                           ))}
@@ -3039,6 +3113,9 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                   </button>
                   <button onClick={() => setFilterDrawer(true)} title="Filter results by year, citations, access, preprints, field and publisher" className={'flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-semibold transition-colors ' + (filterActiveCount() ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground hover:bg-muted')}>
                     <SlidersHorizontal className="w-3.5 h-3.5" /> Filter{filterActiveCount() ? ' · ' + filterActiveCount() : ''}
+                  </button>
+                  <button onClick={() => setQbOpen(true)} title="Advanced query builder: Boolean operators (AND/OR/NOT), MeSH terms and synonym expansion" className="flex items-center gap-1.5 rounded-full border border-border text-muted-foreground hover:bg-muted px-3 py-1.5 text-[13px] font-semibold transition-colors">
+                    <ListChecks className="w-3.5 h-3.5" /> Advanced
                   </button>
                 </div>
                 <button onClick={submitStart} disabled={!input.trim()} className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40" title="Search"><ArrowRight className="w-4 h-4" /></button>
@@ -3600,6 +3677,8 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                     { id: 'xls', label: 'Excel', sub: 'XLSX format', fn: downloadExcel },
                     { id: 'bib', label: 'BIB', sub: 'BibTeX format', fn: downloadBib },
                     { id: 'ris', label: 'RIS', sub: 'RIS format', fn: downloadRis },
+                    { id: 'enw', label: 'EndNote', sub: '.enw tagged', fn: downloadEndNote },
+                    { id: 'json', label: 'JSON', sub: 'Structured data', fn: downloadJSON },
                   ].map((o) => (
                     <button key={o.id} onClick={() => { setDlMenu(false); o.fn(); }} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-muted text-left"><FileText className="w-4 h-4 text-primary shrink-0" /><span className="text-[13.5px] font-semibold w-10">{o.label}</span> <span className="text-[12px] text-muted-foreground">{o.sub}</span></button>
                   ))}
@@ -3899,12 +3978,15 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const evConf = (s: string) => { const x = String(s || '').toLowerCase(); return x.startsWith('high') || x.startsWith('strong') || x.startsWith('support') ? 'bg-green-500/15 text-green-500' : x.startsWith('med') || x.startsWith('mod') || x.startsWith('partial') ? 'bg-amber-500/15 text-amber-500' : 'bg-muted text-muted-foreground'; };
   const evCard = 'border border-border rounded-xl bg-card overflow-hidden';
   const evHead = 'px-4 py-2.5 bg-muted/40 border-b border-border text-[12.5px] font-bold text-muted-foreground flex items-center gap-2';
-  const downloadEvidencePdf = async () => {
+  const downloadEvidenceVia = async (path: string, ext: string) => {
     try {
-      const r = await fetch(API + '/api/export-pdf', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) }, body: JSON.stringify({ markdown_text: evidenceMarkdown() }) });
-      const b = await r.blob(); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href = u; a.download = (evidenceQuestion || 'research-intelligence').slice(0, 40) + '.pdf'; a.click(); URL.revokeObjectURL(u);
+      const r = await fetch(API + path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) }, body: JSON.stringify({ markdown_text: '# Research Intelligence Report\n\n**Query:** ' + evidenceQuestion + '\n\n' + evidenceMarkdown() }) });
+      const b = await r.blob(); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href = u; a.download = (evidenceQuestion || 'research-intelligence').slice(0, 40) + ext; a.click(); URL.revokeObjectURL(u);
     } catch {}
   };
+  const downloadEvidencePdf = () => downloadEvidenceVia('/api/export-pdf', '.pdf');
+  const downloadEvidencePptx = () => downloadEvidenceVia('/api/export-pptx', '.pptx');
+  const downloadEvidenceDocx = () => downloadEvidenceVia('/api/export-docx', '.docx');
   const evd = evidenceData || {};
   const evOv = evd.overview || {};
   const evNv = evd.novelty || {};
@@ -3922,6 +4004,15 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   }
   const evGraph = evd.graph && Array.isArray(evd.graph.nodes) && evd.graph.nodes.length ? evGraphLayout(evd.graph) : null;
   const downloadGraphSvg = () => { const el = document.getElementById('ev-kgraph'); if (!el) return; const s = new XMLSerializer().serializeToString(el); doDownload('<?xml version="1.0"?>\n' + s, (evidenceQuestion || 'knowledge-graph').slice(0, 40) + '.svg', 'image/svg+xml'); };
+  const downloadGraphML = () => {
+    const g = evd.graph; if (!g) return;
+    const esc = (s: any) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const L = ['<?xml version="1.0" encoding="UTF-8"?>', '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">', '<key id="label" for="node" attr.name="label" attr.type="string"/>', '<key id="type" for="node" attr.name="type" attr.type="string"/>', '<key id="rel" for="edge" attr.name="relation" attr.type="string"/>', '<graph edgedefault="directed">'];
+    (g.nodes || []).forEach((n: any) => L.push('<node id="' + esc(n.id) + '"><data key="label">' + esc(n.label) + '</data><data key="type">' + esc(n.type) + '</data></node>'));
+    (g.edges || []).forEach((e: any, i: number) => L.push('<edge id="e' + i + '" source="' + esc(e.from) + '" target="' + esc(e.to) + '"><data key="rel">' + esc(e.label) + '</data></edge>'));
+    L.push('</graph>', '</graphml>');
+    doDownload(L.join('\n'), (evidenceQuestion || 'knowledge-graph').slice(0, 40) + '.graphml', 'application/graphml+xml');
+  };
   const evTrendMax = Math.max(1, ...((evd.analytics?.trend || []).map((t: any) => t.count || 0)));
   const evidenceView = (
     <div className="flex flex-col h-full">
@@ -3930,8 +4021,10 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         <div className="flex items-center gap-2 ml-auto">
           {evidenceData && !evidenceData._error ? (
             <>
-              <button onClick={() => doDownload(evidenceMarkdown(), (evidenceQuestion || 'research-intelligence').slice(0, 40) + '.md', 'text/markdown')} className="text-[12.5px] font-semibold flex items-center gap-1 border border-border rounded-lg px-2.5 py-1 hover:bg-muted"><Download className="w-3.5 h-3.5" /> Markdown</button>
+              <button onClick={() => doDownload(evidenceMarkdown(), (evidenceQuestion || 'research-intelligence').slice(0, 40) + '.md', 'text/markdown')} className="text-[12.5px] font-semibold flex items-center gap-1 border border-border rounded-lg px-2.5 py-1 hover:bg-muted"><Download className="w-3.5 h-3.5" /> MD</button>
               <button onClick={downloadEvidencePdf} className="text-[12.5px] font-semibold flex items-center gap-1 border border-border rounded-lg px-2.5 py-1 hover:bg-muted"><FileText className="w-3.5 h-3.5" /> PDF</button>
+              <button onClick={downloadEvidenceDocx} className="text-[12.5px] font-semibold flex items-center gap-1 border border-border rounded-lg px-2.5 py-1 hover:bg-muted"><FileText className="w-3.5 h-3.5" /> Word</button>
+              <button onClick={downloadEvidencePptx} className="text-[12.5px] font-semibold flex items-center gap-1 border border-border rounded-lg px-2.5 py-1 hover:bg-muted"><Table2 className="w-3.5 h-3.5" /> PPTX</button>
             </>
           ) : null}
           <button onClick={() => { resetSearch(); setMode('evidence'); }} className="text-[12.5px] text-primary font-semibold flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> New</button>
@@ -4060,7 +4153,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                 <>
                   <div className="flex items-center gap-2 text-[15px] font-bold mt-2"><span className="w-6 h-6 rounded-lg bg-primary/15 text-primary flex items-center justify-center text-[12px] font-bold">K</span> Knowledge Graph</div>
                   <div className={evCard}>
-                    <div className={evHead}><span className="flex items-center gap-2"><Sparkles className="w-3.5 h-3.5" /> Drug → Target → Pathway → Disease → Outcome</span><button onClick={downloadGraphSvg} className="ml-auto text-[11.5px] font-semibold flex items-center gap-1 hover:text-foreground"><Download className="w-3.5 h-3.5" /> SVG</button></div>
+                    <div className={evHead}><span className="flex items-center gap-2"><Sparkles className="w-3.5 h-3.5" /> Drug → Target → Pathway → Disease → Outcome</span><span className="ml-auto flex items-center gap-2"><button onClick={downloadGraphSvg} className="text-[11.5px] font-semibold flex items-center gap-1 hover:text-foreground"><Download className="w-3.5 h-3.5" /> SVG</button><button onClick={downloadGraphML} className="text-[11.5px] font-semibold flex items-center gap-1 hover:text-foreground"><Download className="w-3.5 h-3.5" /> GraphML</button></span></div>
                     <div className="overflow-x-auto p-3">
                       <svg id="ev-kgraph" viewBox={'0 0 ' + evGraph.W + ' ' + evGraph.height} width={evGraph.W} height={evGraph.height} style={{ maxWidth: '100%' }} xmlns="http://www.w3.org/2000/svg">
                         <defs><marker id="evarrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#94a3b8" /></marker></defs>
@@ -4221,6 +4314,45 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         <div className="p-4 border-t border-border shrink-0 flex items-center gap-2">
           <button onClick={clearFilters} className="border border-border rounded-lg px-4 py-2 text-[13.5px] font-semibold hover:bg-muted">Reset</button>
           <button onClick={() => { setFilterDrawer(false); if (mode === 'find' && lastQRef.current) runReview(lastQRef.current); else if (mode === 'evidence' && evidenceQuestion) runEvidence(evidenceQuestion); }} className="flex-1 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-[13.5px] font-semibold">Apply{filterActiveCount() ? ' (' + filterActiveCount() + ')' : ''}</button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+  const qbModalEl = qbOpen ? (
+    <div className="fixed inset-0 z-[75] bg-black/50 flex items-center justify-center p-6" onClick={() => setQbOpen(false)}>
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-border flex items-center justify-between shrink-0">
+          <div><div className="text-[16px] font-bold">Advanced query builder</div><div className="text-[12px] text-muted-foreground">Combine concepts with AND / OR / NOT, MeSH terms and synonyms.</div></div>
+          <button onClick={() => setQbOpen(false)} className="w-7 h-7 rounded-lg border border-border flex items-center justify-center hover:bg-muted"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-5 flex flex-col gap-2.5">
+          {qbRows.map((r, i) => (
+            <div key={i} className="flex items-center gap-2">
+              {i === 0 ? <span className="w-16 shrink-0 text-[12px] text-muted-foreground text-center">Where</span> : (
+                <select value={r.op} onChange={(e) => setQbRows((prev) => prev.map((x, j) => j === i ? { ...x, op: e.target.value } : x))} className="w-16 shrink-0 bg-muted/40 border border-border rounded-lg px-1.5 py-2 text-[12.5px] font-semibold outline-none focus:border-primary">
+                  <option>AND</option><option>OR</option><option>NOT</option>
+                </select>
+              )}
+              <select value={r.field} onChange={(e) => setQbRows((prev) => prev.map((x, j) => j === i ? { ...x, field: e.target.value } : x))} className="w-36 shrink-0 bg-muted/40 border border-border rounded-lg px-2 py-2 text-[12.5px] outline-none focus:border-primary">
+                {QB_FIELDS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+              </select>
+              <input value={r.term} onChange={(e) => setQbRows((prev) => prev.map((x, j) => j === i ? { ...x, term: e.target.value } : x))} placeholder="term or phrase" className="flex-1 bg-muted/40 border border-border rounded-lg px-3 py-2 text-[13px] outline-none focus:border-primary" />
+              <button onClick={() => setQbRows((prev) => prev.length > 1 ? prev.filter((_, j) => j !== i) : prev)} className="text-muted-foreground hover:text-red-400 shrink-0"><X className="w-4 h-4" /></button>
+            </div>
+          ))}
+          <div className="flex items-center gap-2 mt-1">
+            <button onClick={() => setQbRows((prev) => [...prev, { op: 'AND', field: 'all', term: '' }])} className="text-[12.5px] font-semibold text-primary flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> Add concept</button>
+            <button onClick={qbExpand} disabled={qbBusy} className="text-[12.5px] font-semibold border border-border rounded-lg px-2.5 py-1 hover:bg-muted disabled:opacity-50 flex items-center gap-1.5">{qbBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-primary" />} Expand MeSH &amp; synonyms</button>
+          </div>
+          <div className="mt-3 border-t border-border pt-3">
+            <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-1.5">Query preview</div>
+            <div className="bg-muted/40 border border-border rounded-lg px-3 py-2.5 text-[12.5px] font-mono break-words min-h-[44px]">{buildBooleanQuery(qbRows) || <span className="text-muted-foreground">Add concepts above to build your query…</span>}</div>
+            <div className="text-[11px] text-muted-foreground mt-1.5">Field tags &amp; Boolean operators are honoured by PubMed; other sources treat the query as a relevance search.</div>
+          </div>
+        </div>
+        <div className="p-4 border-t border-border shrink-0 flex items-center justify-end gap-2">
+          <button onClick={() => setQbRows([{ op: 'AND', field: 'all', term: '' }])} className="border border-border rounded-lg px-4 py-2 text-[13.5px] font-semibold hover:bg-muted">Reset</button>
+          <button onClick={() => { const query = buildBooleanQuery(qbRows); if (!query) return; setInput(query); lastQRef.current = query; setQbOpen(false); if (mode === 'evidence') runEvidence(query); else if (mode === 'report') runReport(query, reportSource, reviewType); else if (deepMode) runDeepReview(query); else runReview(query); }} disabled={!buildBooleanQuery(qbRows)} className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-[13.5px] font-semibold disabled:opacity-40 flex items-center gap-1.5"><Search className="w-3.5 h-3.5" /> Search</button>
         </div>
       </div>
     </div>
@@ -4479,6 +4611,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       {shareModalEl}
       {createColEl}
       {filterDrawerEl}
+      {qbModalEl}
       {cellPopEl}
       {saveColEl}
       {tagModalEl}
