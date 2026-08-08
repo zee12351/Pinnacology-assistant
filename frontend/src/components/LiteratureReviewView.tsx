@@ -1145,6 +1145,10 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [srFields, setSrFields] = useState<string[]>([]);        // data-extraction field names
   const [srStatus, setSrStatus] = useState<any>({ protocol: 'pending', papers: 'todo', screenTA: 'todo', screenFT: 'todo', extract: 'todo', report: 'todo' });
   const [srReportDoc, setSrReportDoc] = useState<any>(null);
+  // Unified AI Assistant (auto-routes any question to the right engine)
+  const [asstMsgs, setAsstMsgs] = useState<any[]>([]);
+  const [asstInput, setAsstInput] = useState('');
+  const [asstBusy, setAsstBusy] = useState(false);
 
   // Research agent
   const [agentChat, setAgentChat] = useState([] as any[]);
@@ -1419,10 +1423,59 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     if (d.recommendations) { L.push('\n## AI recommendations'); (d.recommendations || []).forEach((r: string, i: number) => L.push((i + 1) + '. ' + r)); }
     return L.join('\n');
   }
+  // ---- Unified AI Assistant: detect intent, retrieve papers, answer with citations ----
+  function asstIntent(low: string): string {
+    if (/\bnovel|novelty|is my (idea|research)|already been done\b/.test(low)) return 'novelty';
+    if (/\bgap|gaps|understud|missing|unexplored|what has(n.t| not) been\b/.test(low)) return 'gaps';
+    if (/literature review|write a review|generate (a )?review|draft a review/.test(low)) return 'review';
+    if (/future (research|direction|work)|next experiment|what next|where should|recommend(ed)? (research|studies)/.test(low)) return 'future';
+    if (/\bcompare\b|\bversus\b|\bvs\.?\b| or .* better/.test(low)) return 'compare';
+    return 'evidence';
+  }
+  const ASST_EXAMPLES = [
+    'What is the strongest evidence for metformin in type 2 diabetes?',
+    'Which pathways are most frequently reported in triple-negative breast cancer?',
+    'What are the major research gaps in CRISPR gene therapy?',
+    'Is a mangiferin + piperine combination for colon cancer novel?',
+    'Summarize the clinical studies on intermittent fasting.',
+    'Compare SGLT2 inhibitors vs GLP-1 agonists for cardiovascular outcomes.',
+    'Generate a short literature review on CBT for anxiety.',
+    'Suggest future research directions for Alzheimer biomarkers.',
+  ];
+  async function asstSend(text: string) {
+    const q = (text || '').trim();
+    if (!q || asstBusy) return;
+    setAsstInput('');
+    if (!asstMsgs.length) pushRecent(q, 'Assistant');
+    setAsstMsgs((prev) => [...prev, { role: 'user', text: q }, { role: 'assistant', text: '', busy: true }]);
+    setAsstBusy(true);
+    const intent = asstIntent(q.toLowerCase());
+    let papers: any[] = [];
+    try { papers = applyFilters(await searchPapers(q, 'all', 16, curFilterOpts())); } catch {}
+    const ctx = papers.slice(0, 14).map((p, i) => '[' + (i + 1) + '] ' + p.title + (p.year ? ' (' + p.year + ')' : '') + '. ' + (cleanText(p.abstract) ? cleanText(p.abstract).slice(0, 420) : 'No abstract')).join('\n\n');
+    const guide: any = {
+      evidence: 'Answer the question directly. Begin with a single bold one-sentence takeaway, then the supporting evidence in short paragraphs with inline [n] citations, then a line "**Strength of evidence:**" (strong/moderate/limited and why).',
+      novelty: 'Assess how novel the idea is. Give an approximate **Novelty score /100**, then what is already established vs what appears unexplored, and the degree of publication overlap — all grounded in the papers with inline [n] citations.',
+      gaps: 'Identify the major research gaps (understudied populations, missing drug/target combinations, missing mechanisms, lack of clinical validation, geographic gaps). Use a bold-labelled bullet list, each with a short justification and [n] citations where relevant.',
+      review: 'Write a concise literature review: a brief introduction, a thematic synthesis with inline [n] citations, and a short conclusion. Use ## headings.',
+      future: 'Suggest concrete, prioritised future research directions and next experiments, grounded in the gaps evident from the papers, each with a one-line rationale and [n] citations where relevant.',
+      compare: 'Compare the entities named in the question across efficacy, mechanism, safety and strength of evidence. Use a bold-labelled bullet list (one bullet per dimension) with inline [n] citations, then a one-line bottom line.',
+    };
+    const prompt = 'You are a biomedical research assistant. Using ONLY the papers listed below, ' + guide[intent] + ' Cite claims inline as [n] matching the source numbers. If the papers do not contain the answer, say so plainly rather than inventing facts.\n\nQuestion: "' + q + '"\n\nPapers:\n' + (ctx || '(no papers found for this query)');
+    let ans = '';
+    try { ans = await callChat(prompt, false, 'DOCUMENT ANALYST'); } catch {}
+    setAsstMsgs((prev) => {
+      const nx = prev.slice();
+      for (let i = nx.length - 1; i >= 0; i--) { if (nx[i].busy) { nx[i] = { role: 'assistant', text: ans || 'Sorry, I could not answer that. Try rephrasing.', sources: papers.slice(0, 10), intent }; break; } }
+      return nx;
+    });
+    setAsstBusy(false);
+  }
   function submitStart() {
     const q = input.trim();
     if (!q) return;
     lastQRef.current = q;
+    if (mode === 'assistant') { asstSend(q); return; }
     if (mode === 'evidence') { runEvidence(q); return; }
     if (deepMode) runDeepReview(q); else runReview(q);
   }
@@ -1436,6 +1489,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     setSysStep(0); setSysQ(''); setSysPapers([]); setSysCols([]);
     setSrActive(false); setSrStage('overview'); setSrPhase(''); setSrCriteriaTA([]); setSrCriteriaFT([]); setSrFields([]); setSrReportDoc(null); setSrStatus({ protocol: 'pending', papers: 'todo', screenTA: 'todo', screenFT: 'todo', extract: 'todo', report: 'todo' });
     setAgentChat([]); setAgentInput('');
+    setAsstMsgs([]); setAsstInput(''); setAsstBusy(false);
     setEvidenceData(null); setEvidenceBusy(false); setEvidencePhase(''); setEvidenceQuestion('');
     setSelRows({}); setShareOpen(false); setShareList([]);
   }
@@ -2621,15 +2675,17 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     { id: 'alerts', label: 'Alerts', Icon: Bell },
   ];
   const modeList = [
+    { id: 'assistant', label: 'AI Assistant', Icon: MessageSquare, group: 'TOOLS' },
     { id: 'find', label: 'Find papers', Icon: Search, group: 'TOOLS' },
     { id: 'chat', label: 'Chat with papers', Icon: MessageSquare, group: 'TOOLS' },
     { id: 'extract', label: 'Extract data', Icon: Table2, group: 'TOOLS' },
+    { id: 'evidence', label: 'Literature intelligence', Icon: Microscope, group: 'WORKFLOWS' },
     { id: 'agent', label: 'Research agent', Icon: FlaskConical, group: 'WORKFLOWS' },
     { id: 'report', label: 'Report', Icon: FileText, group: 'WORKFLOWS' },
     { id: 'systematic', label: 'Systematic review', Icon: ListChecks, group: 'WORKFLOWS' },
   ];
-  const modeLabel = mode === 'chat' ? 'Chat with papers' : mode === 'report' ? 'Report' : mode === 'extract' ? 'Extract data' : mode === 'evidence' ? 'Literature intelligence' : mode === 'systematic' ? 'Systematic review' : mode === 'agent' ? 'Research agent' : 'Find papers';
-  const modeIcon = mode === 'chat' ? MessageSquare : mode === 'report' ? FileText : mode === 'extract' ? Table2 : mode === 'evidence' ? Microscope : mode === 'systematic' ? ListChecks : mode === 'agent' ? FlaskConical : Search;
+  const modeLabel = mode === 'assistant' ? 'AI Assistant' : mode === 'chat' ? 'Chat with papers' : mode === 'report' ? 'Report' : mode === 'extract' ? 'Extract data' : mode === 'evidence' ? 'Literature intelligence' : mode === 'systematic' ? 'Systematic review' : mode === 'agent' ? 'Research agent' : 'Find papers';
+  const modeIcon = mode === 'assistant' ? MessageSquare : mode === 'chat' ? MessageSquare : mode === 'report' ? FileText : mode === 'extract' ? Table2 : mode === 'evidence' ? Microscope : mode === 'systematic' ? ListChecks : mode === 'agent' ? FlaskConical : Search;
   const filteredRecents = recents.filter((r) => !recentSearch || (r.question || '').toLowerCase().indexOf(recentSearch.toLowerCase()) !== -1);
   const shownDocs = libDocs.filter((d) => (activeCol === 'all' || activeCol === 'trash') ? activeCol !== 'trash' : d.collection === activeCol).filter((d) => !libSearch || docName(d).toLowerCase().indexOf(libSearch.toLowerCase()) !== -1);
 
@@ -3259,6 +3315,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         </div>
         <div className="flex flex-wrap gap-2 justify-center mt-5">
           {[
+            { l: 'AI Assistant', m: 'assistant', I: MessageSquare },
             { l: 'Create table', m: 'find', I: Table2 },
             { l: 'Extract data', m: 'extract', I: Table2 },
             { l: 'Literature intelligence', m: 'evidence', I: Microscope },
@@ -4461,8 +4518,67 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     </div>
   );
 
+  const ASST_INTENT_LABEL: any = { evidence: 'Evidence', novelty: 'Novelty', gaps: 'Research gaps', review: 'Literature review', future: 'Future directions', compare: 'Comparison' };
+  const assistantView = (
+    <div className="flex flex-col h-full">
+      <div className="px-4 py-3 border-b border-border flex items-center gap-3 shrink-0">
+        {modeDropdown}
+        <span className="text-[12.5px] text-muted-foreground hidden sm:inline">Ask anything — I route it to the right engine</span>
+        <div className="ml-auto flex items-center gap-2">
+          {asstMsgs.length ? <button onClick={() => setAsstMsgs([])} className="text-[12.5px] text-primary font-semibold flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> New</button> : null}
+        </div>
+      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+        {asstMsgs.length === 0 ? (
+          <div className="max-w-3xl mx-auto px-5 py-10 flex flex-col items-center text-center">
+            <div className="w-12 h-12 rounded-2xl bg-primary/15 text-primary flex items-center justify-center mb-3"><MessageSquare className="w-6 h-6" /></div>
+            <div className="text-[20px] font-bold">AI Research Assistant</div>
+            <div className="text-[13.5px] text-muted-foreground mt-1 max-w-lg">Ask a question about the literature. I'll find real papers and answer with citations — evidence, gaps, novelty, comparisons, reviews and future directions.</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-6 w-full">
+              {ASST_EXAMPLES.map((ex) => (
+                <button key={ex} onClick={() => asstSend(ex)} className="text-left border border-border rounded-xl p-3 bg-card hover:border-primary transition-colors text-[13px] text-muted-foreground flex items-start gap-2"><Sparkles className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" /> {ex}</button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="max-w-3xl mx-auto px-5 py-5 flex flex-col gap-4">
+            {asstMsgs.map((m, i) => (
+              m.role === 'user' ? (
+                <div key={i} className="self-end max-w-[88%] bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 text-[13.5px]">{m.text}</div>
+              ) : (
+                <div key={i} className="self-start max-w-[94%] w-full flex flex-col gap-1.5">
+                  {m.intent && !m.busy ? <span className="text-[10.5px] font-bold uppercase tracking-wide text-primary flex items-center gap-1.5"><Microscope className="w-3.5 h-3.5" /> {ASST_INTENT_LABEL[m.intent] || 'Answer'}</span> : null}
+                  <div className="bg-muted/50 border border-border rounded-2xl px-4 py-3 text-[13.5px] prose prose-sm dark:prose-invert max-w-none [&_h2]:text-[14px] [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1">
+                    {m.busy ? <span className="flex items-center gap-1.5 text-muted-foreground"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Searching the literature and analysing…</span> : <ReactMarkdown components={{ a: (props: any) => <a {...props} target="_blank" rel="noreferrer" className="text-primary font-semibold no-underline hover:underline" /> }}>{m.text}</ReactMarkdown>}
+                  </div>
+                  {!m.busy && m.sources && m.sources.length ? (
+                    <div className="flex flex-col gap-1">
+                      <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5"><BookOpen className="w-3.5 h-3.5" /> {m.sources.length} sources</div>
+                      {m.sources.map((s: any, si: number) => (
+                        <a key={si} href={s.url} target="_blank" rel="noreferrer" className="border border-border rounded-lg px-3 py-1.5 hover:border-primary transition-colors"><span className="text-[11px] text-primary font-bold mr-1.5">[{si + 1}]</span><span className="text-[12px] font-semibold">{s.title}</span><span className="block text-[11px] text-muted-foreground truncate">{[s.authorStr, s.venue, s.year].filter(Boolean).join(' · ')}</span></a>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              )
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="shrink-0 border-t border-border p-3 max-w-3xl w-full mx-auto">
+        <div className="border border-border rounded-2xl bg-card px-3 py-2.5">
+          <textarea value={asstInput} onChange={(e) => setAsstInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); asstSend(asstInput); } }} rows={2} placeholder="Ask anything about the research literature…" className="w-full bg-transparent text-[13.5px] outline-none resize-none placeholder:text-muted-foreground" />
+          <div className="flex items-center justify-end mt-1">
+            <button onClick={() => asstSend(asstInput)} disabled={!asstInput.trim() || asstBusy} className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40"><ArrowUp className="w-4 h-4" /></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   let searchArea: any;
-  if (mode === 'chat') searchArea = chatStarted ? chatView : startScreen;
+  if (mode === 'assistant') searchArea = assistantView;
+  else if (mode === 'chat') searchArea = chatStarted ? chatView : startScreen;
   else if (mode === 'report') searchArea = report ? (detailsOpen ? detailsView : reportView) : startScreen;
   else if (mode === 'systematic') searchArea = srActive ? systematicView : startScreen;
   else if (mode === 'agent') searchArea = agentChat.length ? agentView : startScreen;
