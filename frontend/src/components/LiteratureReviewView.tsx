@@ -1454,7 +1454,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     try { papers = applyFilters(await searchPapers(q, 'all', 16, curFilterOpts())); } catch {}
     const ctx = papers.slice(0, 14).map((p, i) => '[' + (i + 1) + '] ' + p.title + (p.year ? ' (' + p.year + ')' : '') + '. ' + (cleanText(p.abstract) ? cleanText(p.abstract).slice(0, 420) : 'No abstract')).join('\n\n');
     const guide: any = {
-      evidence: 'Answer the question directly. Begin with a single bold one-sentence takeaway, then the supporting evidence in short paragraphs with inline [n] citations, then a line "**Strength of evidence:**" (strong/moderate/limited and why).',
+      evidence: 'Begin with a bold verdict word — **Yes.**, **No.**, **Mixed.** or **Likely yes.** — then a one-sentence direct answer with inline [n] citations. Then synthesise the evidence under 2–4 short "## " section headings (e.g. ## Effectiveness, ## Safety, ## Which is strongest), each with bold-labelled bullet findings carrying inline [n] citations. End with a "## In summary" paragraph.',
       novelty: 'Assess how novel the idea is. Give an approximate **Novelty score /100**, then what is already established vs what appears unexplored, and the degree of publication overlap — all grounded in the papers with inline [n] citations.',
       gaps: 'Identify the major research gaps (understudied populations, missing drug/target combinations, missing mechanisms, lack of clinical validation, geographic gaps). Use a bold-labelled bullet list, each with a short justification and [n] citations where relevant.',
       review: 'Write a concise literature review: a brief introduction, a thematic synthesis with inline [n] citations, and a short conclusion. Use ## headings.',
@@ -1464,12 +1464,48 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     const prompt = 'You are a biomedical research assistant. Using ONLY the papers listed below, ' + guide[intent] + ' Cite claims inline as [n] matching the source numbers. If the papers do not contain the answer, say so plainly rather than inventing facts.\n\nQuestion: "' + q + '"\n\nPapers:\n' + (ctx || '(no papers found for this query)');
     let ans = '';
     try { ans = await callChat(prompt, false, 'DOCUMENT ANALYST'); } catch {}
+    // AI-Search / Consensus-style paper cards: per-paper finding + stance, plus a consensus meter.
+    const topPapers = papers.slice(0, 12);
+    let cards: any[] = [];
+    let related: string[] = [];
+    if (topPapers.length) {
+      try {
+        const cl = topPapers.map((p, i) => '[' + (i + 1) + '] ' + p.title + (p.venue ? ' — ' + p.venue : '') + '. ' + (cleanText(p.abstract) ? cleanText(p.abstract).slice(0, 320) : 'No abstract')).join('\n\n');
+        const cp = 'For the research question "' + q + '", read each paper below and return per paper: a one-line KEY FINDING relevant to the question; a STANCE ("supports" | "contradicts" | "neutral" | "unrelated"); and the STUDY TYPE ("RCT" | "Non-RCT" | "Systematic Review" | "Meta-analysis" | "Literature Review" | "Observational" | "Other"). Also return 3 RELATED follow-up questions. Return ONLY minified JSON: {"cards":[{"idx":1,"finding":"...","stance":"...","studyType":"..."}],"related":["q1","q2","q3"]}\n\nPapers:\n' + cl;
+        const pj = extractJSON(await callChat(cp, false, 'LITERATURE REVIEW'));
+        const arr = (pj && Array.isArray(pj.cards)) ? pj.cards : [];
+        related = (pj && Array.isArray(pj.related)) ? pj.related.slice(0, 3) : [];
+        cards = topPapers.map((p, i) => { const c = arr.find((x: any) => Number(x.idx) === i + 1) || {}; return { ...p, finding: c.finding || '', stance: c.stance || 'neutral', studyType: c.studyType || '' }; });
+      } catch {}
+    }
+    const sup = cards.filter((c) => c.stance === 'supports').length;
+    const con = cards.filter((c) => c.stance === 'contradicts').length;
+    const neu = cards.filter((c) => c.stance === 'neutral').length;
+    const consensus = (cards.length && (intent === 'evidence' || intent === 'compare')) ? { supports: sup, contradicts: con, neutral: neu, total: sup + con + neu } : null;
     setAsstMsgs((prev) => {
       const nx = prev.slice();
-      for (let i = nx.length - 1; i >= 0; i--) { if (nx[i].busy) { nx[i] = { role: 'assistant', text: ans || 'Sorry, I could not answer that. Try rephrasing.', sources: papers.slice(0, 10), intent }; break; } }
+      for (let i = nx.length - 1; i >= 0; i--) { if (nx[i].busy) { nx[i] = { role: 'assistant', text: ans || 'Sorry, I could not answer that. Try rephrasing.', sources: topPapers, cards: cards.length ? cards : null, consensus, related, intent, query: q }; break; } }
       return nx;
     });
     setAsstBusy(false);
+  }
+  // Export a single assistant answer's references (paperguide-style)
+  function asstExportRefs(msg: any, fmt: string) {
+    const rows = (msg && (msg.cards || msg.sources)) || [];
+    if (!rows.length) return;
+    const base = (msg.query || 'ai-search').toString().slice(0, 40);
+    if (fmt === 'csv') {
+      const esc = (v: any) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+      const head = ['Title', 'Authors', 'Year', 'Journal', 'DOI', 'Citations', 'Study type', 'Finding'];
+      const body = rows.map((p: any) => [p.title, p.authorStr, p.year, p.venue, p.doi, p.cited, p.studyType || '', p.finding || '']);
+      doDownload([head].concat(body).map((r: any) => r.map(esc).join(',')).join('\n'), base + '-references.csv', 'text/csv');
+    } else {
+      const txt = rows.map((p: any, i: number) => {
+        const last = ((p.authors && p.authors[0]) || 'ref').split(' ').pop();
+        return '@article{' + String(last).replace(/[^A-Za-z]/g, '') + (p.year || '') + (i + 1) + ',\n  title={' + (p.title || '') + '},\n  author={' + ((p.authors || []).join(' and ') || 'Unknown') + '},\n' + (p.venue ? '  journal={' + p.venue + '},\n' : '') + (p.year ? '  year={' + p.year + '},\n' : '') + (p.doi ? '  doi={' + p.doi + '},\n' : '') + '}';
+      }).join('\n\n');
+      doDownload(txt, base + '-references.bib', 'application/x-bibtex');
+    }
   }
   function submitStart() {
     const q = input.trim();
@@ -4551,11 +4587,57 @@ export function LiteratureReviewView({ messages, onHome }: any) {
                   <div className="bg-muted/50 border border-border rounded-2xl px-4 py-3 text-[13.5px] prose prose-sm dark:prose-invert max-w-none [&_h2]:text-[14px] [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1">
                     {m.busy ? <span className="flex items-center gap-1.5 text-muted-foreground"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Searching the literature and analysing…</span> : <ReactMarkdown components={{ a: (props: any) => <a {...props} target="_blank" rel="noreferrer" className="text-primary font-semibold no-underline hover:underline" /> }}>{m.text}</ReactMarkdown>}
                   </div>
-                  {!m.busy && m.sources && m.sources.length ? (
-                    <div className="flex flex-col gap-1">
-                      <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5"><BookOpen className="w-3.5 h-3.5" /> {m.sources.length} sources</div>
-                      {m.sources.map((s: any, si: number) => (
-                        <a key={si} href={s.url} target="_blank" rel="noreferrer" className="border border-border rounded-lg px-3 py-1.5 hover:border-primary transition-colors"><span className="text-[11px] text-primary font-bold mr-1.5">[{si + 1}]</span><span className="text-[12px] font-semibold">{s.title}</span><span className="block text-[11px] text-muted-foreground truncate">{[s.authorStr, s.venue, s.year].filter(Boolean).join(' · ')}</span></a>
+                  {/* Consensus meter (AI-Search style) */}
+                  {!m.busy && m.consensus && m.consensus.total ? (
+                    <div className="border border-border rounded-xl bg-card p-3">
+                      <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wide mb-1.5">Consensus across {m.consensus.total} studies</div>
+                      <div className="flex h-2.5 rounded-full overflow-hidden bg-muted">
+                        {m.consensus.supports ? <div className="bg-green-500" style={{ width: (m.consensus.supports / m.consensus.total * 100) + '%' }} title={m.consensus.supports + ' support'} /> : null}
+                        {m.consensus.neutral ? <div className="bg-amber-400" style={{ width: (m.consensus.neutral / m.consensus.total * 100) + '%' }} title={m.consensus.neutral + ' mixed'} /> : null}
+                        {m.consensus.contradicts ? <div className="bg-red-500" style={{ width: (m.consensus.contradicts / m.consensus.total * 100) + '%' }} title={m.consensus.contradicts + ' contradict'} /> : null}
+                      </div>
+                      <div className="flex items-center gap-3 mt-1.5 text-[11px] text-muted-foreground">
+                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" /> {m.consensus.supports} support</span>
+                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400" /> {m.consensus.neutral} mixed</span>
+                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" /> {m.consensus.contradicts} contradict</span>
+                      </div>
+                    </div>
+                  ) : null}
+                  {/* Related follow-up questions (AI-Search style) */}
+                  {!m.busy && m.related && m.related.length ? (
+                    <div className="flex flex-col gap-1.5">
+                      <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wide">Related questions</div>
+                      <div className="flex flex-col gap-1.5">
+                        {m.related.map((rq: string, ri: number) => (
+                          <button key={ri} onClick={() => asstSend(rq)} disabled={asstBusy} className="text-left border border-border rounded-lg px-3 py-2 text-[12.5px] hover:border-primary transition-colors flex items-center justify-between gap-2 disabled:opacity-50"><span>{rq}</span><ArrowRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" /></button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  {/* Per-paper finding cards (AI-Search style) or plain source list */}
+                  {!m.busy && (m.cards || m.sources) && (m.cards || m.sources).length ? (
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5"><BookOpen className="w-3.5 h-3.5" /> {(m.cards || m.sources).length} references</div>
+                        <div className="flex items-center gap-1.5">
+                          <button onClick={() => asstExportRefs(m, 'bib')} title="Export BibTeX" className="text-[10.5px] font-semibold text-muted-foreground hover:text-foreground border border-border rounded px-1.5 py-0.5">BibTeX</button>
+                          <button onClick={() => asstExportRefs(m, 'csv')} title="Export CSV" className="text-[10.5px] font-semibold text-muted-foreground hover:text-foreground border border-border rounded px-1.5 py-0.5">CSV</button>
+                        </div>
+                      </div>
+                      {(m.cards || m.sources).map((s: any, si: number) => (
+                        <a key={si} href={s.url} target="_blank" rel="noreferrer" className="border border-border rounded-lg px-3 py-2 hover:border-primary transition-colors block">
+                          <div className="flex items-start gap-2">
+                            <span className="text-[11px] text-primary font-bold shrink-0">{si + 1}</span>
+                            <div className="min-w-0 flex-1">
+                              {s.venue ? <span className="block text-[10.5px] font-semibold text-primary/80 uppercase tracking-wide truncate">{s.venue}</span> : null}
+                              <span className="text-[12.5px] font-semibold leading-snug">{s.title}</span>
+                              <span className="block text-[11px] text-muted-foreground truncate">{(s.authors && s.authors.length ? (s.authors.slice(0, 2).join(', ') + (s.authors.length > 2 ? ' + ' + (s.authors.length - 2) + ' more' : '')) : s.authorStr)}{s.year ? ' · ' + s.year : ''}{s.cited ? ' · ' + s.cited + ' citations' : ''}</span>
+                              {s.finding ? <span className="block text-[12px] text-foreground/85 mt-1">{s.finding}</span> : null}
+                              {s.studyType ? <span className="inline-block mt-1.5 text-[9.5px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-semibold uppercase tracking-wide">{s.studyType}</span> : null}
+                            </div>
+                            {s.stance && s.stance !== 'unrelated' ? <span className={'text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0 ' + (s.stance === 'supports' ? 'bg-green-500/15 text-green-500' : s.stance === 'contradicts' ? 'bg-red-500/15 text-red-400' : 'bg-amber-500/15 text-amber-500')}>{s.stance === 'supports' ? 'Supports' : s.stance === 'contradicts' ? 'Contradicts' : 'Mixed'}</span> : null}
+                          </div>
+                        </a>
                       ))}
                     </div>
                   ) : null}
