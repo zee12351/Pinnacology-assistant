@@ -157,7 +157,7 @@ export default function HomePage() {
   useEffect(() => {
     if (authUser) billingStatus().then(setMyBill).catch(() => {});
     else setMyBill(null);
-  }, [authUser, pricingOpen]);
+  }, [authUser]);
 
   // Auth gate: once the session is known, a logged-out user cannot stay inside a workspace.
   // (Login is required when Supabase auth is configured.) Kick them back to the landing page.
