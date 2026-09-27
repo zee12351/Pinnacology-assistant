@@ -855,39 +855,51 @@ export default function HomePage() {
               </div>
               <button onClick={() => setPricingOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 p-6">
-              {[
-                { id: 'free', name: 'Free', price: '₹0', period: '', highlight: false, blurb: '3 free runs to explore', features: ['All 3 workspaces', '3 lifetime free runs (light tools)', 'Search 138M+ papers', 'Exports: CSV / BibTeX / RIS / Word / PDF'] },
-                { id: 'student', name: 'Student', price: '₹299', period: '/mo', highlight: false, blurb: '80 credits / month', features: ['All 3 workspaces', '80 credits / month', 'Verified-student price', 'All heavy engines'] },
-                { id: 'standard', name: 'Standard', price: '₹999', period: '/mo', highlight: true, blurb: '220 credits / month', features: ['All 3 workspaces', '220 credits / month', 'Deep search, Lit Intelligence, Systematic Review', 'All export formats (PPTX, Word, GraphML)'] },
-                { id: 'pro', name: 'Pro', price: '₹1,599', period: '/mo', highlight: false, blurb: '650 credits / month', features: ['Everything in Standard', '650 credits / month', 'Priority + faster model', 'OCR & priority support'] },
-              ].map((p) => {
-                const cur = (myBill && ((myBill.exempt && p.id === 'pro') ? false : (myBill.plan || (authUser ? 'free' : '')) === p.id));
-                return (
-                  <div key={p.id} className={'rounded-2xl border p-4 flex flex-col relative ' + (p.highlight ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-500/5' : 'border-border bg-card')}>
-                    {p.highlight ? <span className="self-start text-[10.5px] font-bold text-blue-500 bg-blue-500/10 rounded-full px-2.5 py-1 mb-2">MOST POPULAR</span> : null}
-                    <div className="font-bold text-[15px]">{p.name}</div>
-                    <div className="mt-1"><span className="text-2xl font-bold">{p.price}</span><span className="text-[12px] text-muted-foreground">{p.period}</span></div>
-                    <div className="text-[11.5px] text-primary font-semibold mt-0.5">{p.blurb}</div>
-                    <ul className="flex flex-col gap-1.5 flex-1 my-3">
-                      {p.features.map((f) => (<li key={f} className="flex items-start gap-1.5 text-[12px]"><Check className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.5" /> {f}</li>))}
-                    </ul>
-                    <button
-                      disabled={cur}
-                      onClick={() => { if (p.id === 'free') { setPricingOpen(false); if (authConfigured && !authUser) setAuthOpen(true); } else { window.location.href = 'mailto:support@pinnovix.in?subject=' + encodeURIComponent('Pinnovix ' + p.name + ' plan'); } }}
-                      className={'w-full py-2 rounded-lg text-[13px] font-semibold transition-colors ' + (cur ? 'border border-border text-muted-foreground cursor-default' : p.highlight ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'border border-border hover:bg-muted')}>
-                      {cur ? 'Current plan' : p.id === 'free' ? (authUser ? 'Included' : 'Get started') : 'Upgrade'}
-                    </button>
+            <div className="px-6 py-5 flex flex-col gap-6">
+              {(() => {
+                const thc = 'bg-blue-600 text-white text-left font-semibold px-3 py-2 text-[13px]';
+                const tdc = 'border border-border px-3 py-2 align-top text-[12.5px]';
+                const Section = ({ title, cols, rows }: any) => (
+                  <div>
+                    <div className="text-[15px] font-bold mb-2">{title}</div>
+                    <div className="overflow-x-auto rounded-lg border border-border">
+                      <table className="w-full border-collapse min-w-[520px]">
+                        <thead><tr>{cols.map((c: string, i: number) => <th key={i} className={thc}>{c}</th>)}</tr></thead>
+                        <tbody>{rows.map((r: string[], ri: number) => (<tr key={ri} className="odd:bg-muted/30">{r.map((cell, ci) => <td key={ci} className={tdc + (ci === 0 ? ' font-semibold text-foreground' : ' text-foreground/85')}>{cell}</td>)}</tr>))}</tbody>
+                      </table>
+                    </div>
                   </div>
                 );
-              })}
+                return (
+                  <>
+                    <Section title="Individual persona plans (monthly)" cols={['Plan', 'Includes', 'Price / mo', 'Annual']} rows={[
+                      ['Academic Writing', 'P1: AI writing, citations, Source Quality, peer review', '₹399 (~$6)', '₹3,990'],
+                      ['Literature Review', 'P2: search, AI Assistant, Lit Intelligence, Systematic Review', '₹549 (~$8)', '₹5,490'],
+                      ['SciViz', 'P3: Figure Builder, AI figures, posters, PNG/SVG', '₹349 (~$5)', '₹3,490'],
+                    ]} />
+                    <Section title="Combo & full plans (monthly)" cols={['Plan', 'Includes', 'Price / mo', 'Annual']} rows={[
+                      ['Duo (any 2 personas)', 'Pick any 2 workspaces', '₹749 (~$10)', '₹7,490'],
+                      ['Standard (all 3)', 'All 3 personas, standard limits', '₹999 (~$13)', '₹9,990'],
+                      ['Pro (all 3 + power)', 'All 3, high fair-use, all exports, OCR, faster model, priority support', '₹1,599 (~$20)', '₹15,990'],
+                    ]} />
+                    <Section title="Special plans" cols={['Plan', 'Who', 'Price', 'Notes']} rows={[
+                      ['Free (welcome trial)', 'New users', '₹0', '3 one-time free runs, light services only; no heavy engines'],
+                      ['Student Pack', 'Verified students', '₹299 / mo (~$4)', 'All 3 personas + monthly credits; student-email verification'],
+                      ['Team / Institution', 'Labs, universities', '₹399 / seat / mo', 'Min 5 seats; admin, shared library, pooled credits, volume discounts'],
+                    ]} />
+                    <Section title="Monthly credits included" cols={['Plan', 'Credits / month']} rows={[
+                      ['Free (welcome trial)', '0 credits (3 light-service runs)'],
+                      ['Student', '80 / mo'], ['Duo', '120 / mo'], ['Standard', '220 / mo'], ['Pro', '650 / mo'], ['Team / Institution', '150 / seat / mo (pooled)'],
+                    ]} />
+                    <Section title="Credit top-up packs" cols={['Pack', 'Credits', 'Price', 'Per credit']} rows={[
+                      ['Mini', '40', '₹149', '₹3.73'], ['Standard', '120', '₹399', '₹3.33'], ['Value', '350', '₹999', '₹2.85'], ['Bulk', '1,000', '₹2,499', '₹2.50'],
+                    ]} />
+                    <div className="text-[12px] text-muted-foreground">Credits are used only for the heavy engines (Deep search 1, Literature Intelligence 1, Extract 1, Report 1, AI figure 1, OCR 1 / 10 pages, Systematic Review up to 5). Light tools — search, AI Assistant, chat, drafting — are unlimited on any paid plan.</div>
+                    <a href="mailto:support@pinnovix.in?subject=Pinnovix%20plan%20upgrade" className="self-center bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2.5 rounded-xl text-[14px] no-underline">Contact to upgrade</a>
+                  </>
+                );
+              })()}
             </div>
-            <div className="px-6 pb-2 grid grid-cols-1 sm:grid-cols-3 gap-3 text-[12px]">
-              <div className="border border-border rounded-xl p-3"><div className="font-semibold text-[12.5px]">Single workspace</div><div className="text-muted-foreground mt-0.5">Academic Writing ₹399 · Literature Review ₹549 · SciViz ₹349 /mo</div></div>
-              <div className="border border-border rounded-xl p-3"><div className="font-semibold text-[12.5px]">Duo (any 2) · Team</div><div className="text-muted-foreground mt-0.5">Duo ₹749/mo · Team ₹399/seat/mo (min 5, pooled credits)</div></div>
-              <div className="border border-border rounded-xl p-3"><div className="font-semibold text-[12.5px]">Credit top-ups</div><div className="text-muted-foreground mt-0.5">40 ₹149 · 120 ₹399 · 350 ₹999 · 1000 ₹2,499</div></div>
-            </div>
-            <div className="px-6 pb-3 text-[11.5px] text-muted-foreground">Credits are used only for heavy engines (Deep search 1, Literature Intelligence 1, Extract 1, Report 1, OCR 1/10 pages, Systematic Review up to 5). Light tools — search, AI Assistant, chat, drafting — are unlimited on any paid plan.</div>
             <div className="px-6 pb-6 text-center text-[12px] text-muted-foreground">Questions? <a href="mailto:support@pinnovix.in" className="text-primary">support@pinnovix.in</a></div>
           </div>
         </div>
