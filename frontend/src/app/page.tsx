@@ -10,6 +10,7 @@ import { DefaultChatView } from '@/components/DefaultChatView';
 import { AuthModal } from '@/components/AuthModal';
 import { supabase, authConfigured } from '@/lib/supabaseClient';
 import { UploadModal } from '@/components/UploadModal';
+import { PricingWelcome } from '@/components/PricingWelcome';
 
 // Loading placeholder while a heavy persona chunk streams in.
 const PersonaLoading = () => (
@@ -529,7 +530,8 @@ export default function HomePage() {
 
   return (
     <div className="flex h-screen w-full bg-background text-foreground font-sans overflow-hidden">
-      
+      {authUser ? <PricingWelcome /> : null}
+
       {/* LEFT SIDEBAR */}
       {isLeftSidebarOpen && (!isChatActive || selectedPersona !== 'ACADEMIC WRITING') && selectedPersona !== 'LITERATURE REVIEW' && selectedPersona !== 'SCIVIZ' && (
         <div className="w-[240px] bg-card border-r border-border flex flex-col justify-between shrink-0 hidden md:flex z-10 relative">

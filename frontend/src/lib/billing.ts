@@ -40,8 +40,11 @@ export async function billingConsume(action: string): Promise<ConsumeResult> {
       headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({ action }),
     });
-    if (!r.ok) return { ok: true, soft: true };
-    return await r.json();
+    let out: ConsumeResult;
+    if (!r.ok) out = { ok: true, soft: true };
+    else out = await r.json();
+    try { if (typeof window !== 'undefined') window.dispatchEvent(new Event('pnx-billing-refresh')); } catch {}
+    return out;
   } catch {
     return { ok: true, soft: true };
   }

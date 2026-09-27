@@ -4,6 +4,7 @@ import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Searc
 
 import { authHeaders, supabase } from '@/lib/supabaseClient';
 import { billingConsume, billingStatus } from '@/lib/billing';
+import { CreditPill } from '@/components/PricingWelcome';
 // Literature Review workspace (Elicit-style)
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -3244,6 +3245,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
         <div className="text-center mb-5">
           <h1 className="text-2xl font-bold">Literature Review</h1>
           <p className="text-muted-foreground text-sm mt-1">Pick a tool, ask a question, and get real papers, chats or reports.</p>
+          <div className="mt-3 flex justify-center"><CreditPill /></div>
         </div>
         <div className="border border-border rounded-2xl bg-card shadow-sm overflow-hidden">
           <div className="px-4 pt-4 pb-2 bg-primary/5 border-b border-border">{modeDropdown}</div>
