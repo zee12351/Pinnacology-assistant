@@ -29,4 +29,7 @@ async def root():
 from app.api.endpoints import router as api_router
 app.include_router(api_router, prefix="/api")
 
+from app.api.billing import router as billing_router
+app.include_router(billing_router, prefix="/api")
+
 

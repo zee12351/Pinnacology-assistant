@@ -16,6 +16,7 @@ import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import axios from 'axios';
 import { authHeaders, supabase } from '@/lib/supabaseClient';
+import { billingConsume } from '@/lib/billing';
 
 async function pnxLogout() {
   try { if (supabase) await supabase.auth.signOut(); } catch {}
@@ -422,6 +423,13 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   const [genMode, setGenMode] = useState<'full' | 'paragraph'>('paragraph');
   const [genBusy, setGenBusy] = useState(false);
   const [paperComplete, setPaperComplete] = useState(false);
+  const [pwOpen, setPwOpen] = useState<{ open: boolean; reason: string }>({ open: false, reason: '' });
+  async function gate(action: string): Promise<boolean> {
+    const r = await billingConsume(action);
+    if (r && r.ok) return true;
+    setPwOpen({ open: true, reason: (r && r.reason) || 'need_plan' });
+    return false;
+  }
   const [pending, setPending] = useState<any>(null);
   const paperTopicRef = useRef('');
   const paperHeadingsRef = useRef('Standard headings (IMRaD)');
@@ -1478,6 +1486,7 @@ export function AcademicWritingView({ documentContent, setDocumentContent, loadi
   // Build the full heading skeleton for the topic, then fill the first section.
   const buildSkeletonAndStart = async () => {
     if (!editor) return;
+    if (!(await gate('draft'))) return;
     setGenBusy(true);
     const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
     let sections: any[] = [];
@@ -3954,8 +3963,23 @@ MANDATORY: You MUST include realistic scholarly inline citations at the end of e
     }
   };
 
+  const pwEl = pwOpen.open ? (
+    <div className="fixed inset-0 z-[95] bg-black/55 flex items-center justify-center p-6" onClick={() => setPwOpen({ open: false, reason: '' })}>
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between"><div className="text-[17px] font-bold">{pwOpen.reason === 'no_credits' ? 'You’re out of credits' : pwOpen.reason === 'trial_over' ? 'Free trial used up' : 'Upgrade to continue'}</div><button onClick={() => setPwOpen({ open: false, reason: '' })} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button></div>
+        <div className="text-[13.5px] text-muted-foreground mt-1.5">{pwOpen.reason === 'trial_over' ? 'You’ve used your 3 free runs. Choose a plan to keep generating and citing papers.' : 'AI paper generation is a premium feature. Choose a plan (or add credits) to continue. Manual writing & editing stays free.'}</div>
+        <div className="mt-4 border border-border rounded-xl divide-y divide-border overflow-hidden">
+          {[['Academic Writing','₹399/mo','P1 only'],['Standard','₹999/mo','All 3 + 220 credits'],['Pro','₹1,599/mo','All 3 + 650 credits']].map((x)=> (
+            <div key={x[0]} className="flex items-center justify-between gap-3 px-3.5 py-2.5"><div><div className="text-[13.5px] font-semibold">{x[0]}</div><div className="text-[11.5px] text-muted-foreground">{x[2]}</div></div><div className="text-[13px] font-bold text-primary shrink-0">{x[1]}</div></div>
+          ))}
+        </div>
+        <div className="flex justify-end gap-2 mt-5"><button onClick={() => setPwOpen({ open: false, reason: '' })} className="border border-border rounded-lg px-4 py-2 text-[13.5px] font-semibold hover:bg-muted">Close</button><a href="mailto:support@pinnovix.in?subject=Pinnovix%20plan%20upgrade" className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-[13.5px] font-semibold no-underline">Contact to upgrade</a></div>
+      </div>
+    </div>
+  ) : null;
   return (
     <div className="flex w-full h-full bg-[#111111] text-gray-200 font-sans overflow-hidden">
+      {pwEl}
       {sidebarOpen && <div className="md:hidden fixed inset-0 bg-black/50 z-40" onClick={() => setSidebarOpen(false)} />}
       
       {/* 1. LEFT SECTION */}

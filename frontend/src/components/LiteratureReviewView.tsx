@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import { Download, FlaskConical, ExternalLink, Loader2, Plus, ArrowUpDown, Search, X, Sparkles, ArrowRight, ArrowUp, ArrowLeft, FileText, Table2, BookOpen, Copy, SlidersHorizontal, Bookmark, Clock, Library as LibraryIcon, Bell, Upload, FolderPlus, Trash2, PanelLeft, MessageSquare, ChevronDown, Check, ListChecks, Tag, Home, Share2, Settings, LogOut, ChevronsUpDown, FolderInput, Menu, AlertTriangle, Star, MoreHorizontal, Microscope } from 'lucide-react';
 
 import { authHeaders, supabase } from '@/lib/supabaseClient';
+import { billingConsume, billingStatus } from '@/lib/billing';
 // Literature Review workspace (Elicit-style)
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -1058,6 +1059,20 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const [qbOpen, setQbOpen] = useState(false);
   const [qbRows, setQbRows] = useState<any[]>([{ op: 'AND', field: 'all', term: '' }]);
   const [qbBusy, setQbBusy] = useState(false);
+  // Billing / credits
+  const [bill, setBill] = useState<any>(null);
+  const [paywall, setPaywall] = useState<{ open: boolean; reason: string }>({ open: false, reason: '' });
+  useEffect(() => { billingStatus().then(setBill).catch(() => {}); }, []);
+  // Gate an action through the credit meter. Returns true if allowed.
+  async function gate(action: string): Promise<boolean> {
+    const r = await billingConsume(action);
+    if (r && r.ok) {
+      if (typeof r.credits === 'number' || typeof r.welcomeLeft === 'number') setBill((b: any) => ({ ...(b || {}), credits: (typeof r.credits === 'number' ? r.credits : b?.credits), welcomeLeft: (typeof r.welcomeLeft === 'number' ? r.welcomeLeft : b?.welcomeLeft) }));
+      return true;
+    }
+    setPaywall({ open: true, reason: (r && r.reason) || 'need_plan' });
+    return false;
+  }
   const [saved, setSaved] = useState(false);
   const [chatThread, setChatThread] = useState([] as any[]);
   const [chatInput, setChatInput] = useState('');
@@ -1310,6 +1325,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   async function runEvidence(qArg?: string) {
     const q = (qArg != null ? qArg : input).trim();
     if (!q) return;
+    if (!(await gate('lit_intelligence'))) return;
     const myRun = ++runIdRef.current;
     setMode('evidence'); setNavView('search');
     setEvidenceData(null); setEvidenceBusy(true); setEvidenceQuestion(q); setInput('');
@@ -1445,6 +1461,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   async function asstSend(text: string) {
     const q = (text || '').trim();
     if (!q || asstBusy) return;
+    if (!(await gate('assistant'))) return;
     setAsstInput('');
     if (!asstMsgs.length) pushRecent(q, 'Assistant');
     setAsstMsgs((prev) => [...prev, { role: 'user', text: q }, { role: 'assistant', text: '', busy: true }]);
@@ -1688,6 +1705,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   async function paperChatSend(text: string) {
     const q = (text || '').trim();
     if (!q || paperBusy) return;
+    if (!(await gate('chat'))) return;
     setPaperInput('');
     if (!paperChat.length) pushRecent(q, 'Chat');
     setPaperChat((prev) => [...prev, { role: 'user', text: q }, { role: 'assistant', text: '', busy: true }]);
@@ -1821,6 +1839,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   }, [messages]);
 
   async function runReview(q: string) {
+    if (!(await gate('search'))) return;
     const myRun = ++runIdRef.current;
     setMode('find');
     setNavView('search');
@@ -1876,6 +1895,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   const addDeepStep = (step: any) => setDeepSteps((prev) => [...prev, step]);
   const patchLastDeepStep = (patch: any) => setDeepSteps((prev) => prev.length ? prev.map((s, i) => i === prev.length - 1 ? { ...s, ...patch } : s) : prev);
   async function runDeepReview(q: string) {
+    if (!(await gate('deep'))) return;
     const myRun = ++runIdRef.current;
     setMode('find'); setNavView('search'); setQuestion(q); pushRecent(q, 'Deep research');
     setBusy(true); setPhase('Running deep research…');
@@ -2068,6 +2088,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   }
 
   async function runReport(q: string, source: string, rtype?: string) {
+    if (!(await gate('report'))) return;
     const rt = rtype || 'Systematic';
     setMode('report');
     setNavView('search');
@@ -2137,6 +2158,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   }
 
   async function runExtract(q: string) {
+    if (!(await gate('extract'))) return;
     setMode('extract');
     setNavView('search');
     setQuestion(q);
@@ -2206,6 +2228,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
     const crit = stage === 'ta' ? srCriteriaTA : srCriteriaFT;
     const pool = stage === 'ta' ? sysPapers : sysPapers.filter((p) => p.ta && /incl/i.test(p.ta.decision));
     if (!pool.length) return;
+    if (!(await gate(stage === 'ta' ? 'sysrev_ta' : 'sysrev_ft'))) return;
     setSrStatus((s: any) => ({ ...s, [stage === 'ta' ? 'screenTA' : 'screenFT']: 'running' }));
     setSrPhase(stage === 'ta' ? 'Screening titles & abstracts against the criteria…' : 'Screening full texts against the stricter criteria…');
     if (!crit.length) {
@@ -2238,6 +2261,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   async function srRunExtract() {
     const inc = srFinalIncluded();
     if (!inc.length || !srFields.length) { setSrStatus((s: any) => ({ ...s, extract: 'pending' })); return; }
+    if (!(await gate('sysrev_extract'))) return;
     setSrStatus((s: any) => ({ ...s, extract: 'running' }));
     const cols = srFields.map((name, i) => ({ id: 'sc' + Date.now() + '_' + i, name }));
     setSysCols(cols);
@@ -2255,6 +2279,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   async function srRunReport() {
     const inc = srFinalIncluded();
     if (!inc.length) { setSrStatus((s: any) => ({ ...s, report: 'pending' })); return; }
+    if (!(await gate('sysrev_report'))) return;
     setSrStatus((s: any) => ({ ...s, report: 'running' })); setSrPhase('Writing the systematic review draft…');
     const srcTxt = inc.slice(0, 20).map((p, i) => '[' + (i + 1) + '] ' + p.title + ' (' + p.authorStr + ', ' + p.year + '). ' + (cleanText(p.abstract) || 'No abstract').slice(0, 500)).join('\n\n');
     const shape = '{"title":"short title","abstract":"structured abstract","body":"markdown with ## Introduction, ## Methods, ## Results, ## Discussion, ## Limitations, ## Conclusion and inline [n] citations"}';
@@ -2339,6 +2364,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
   async function agentSend(text: string) {
     const q = (text || '').trim();
     if (!q || agentBusy) return;
+    if (!(await gate('deep'))) return;
     setAgentInput('');
     if (!agentChat.length) { pushRecent(q, 'Research agent'); agentSessionKeyRef.current = q; }
     setAgentChat((prev) => [...prev, { role: 'user', text: q }, { role: 'assistant', text: '', busy: true, steps: ['Planning research approach...'], sources: [] }]);
@@ -2836,6 +2862,11 @@ export function LiteratureReviewView({ messages, onHome }: any) {
               <div className="px-3 py-2 border-b border-border mb-1">
                 <div className="text-[13px] font-bold truncate">{userName || 'Guest user'}</div>
                 <div className="text-[11.5px] text-muted-foreground truncate">{userEmail || 'not signed in'}</div>
+                {bill ? (
+                  <div className="mt-1.5 text-[11px] font-semibold inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                    {bill.exempt ? 'Unlimited access' : (bill.plan && bill.plan !== 'free') ? ((bill.plan.charAt(0).toUpperCase() + bill.plan.slice(1)) + ' · ' + (bill.credits ?? 0) + ' credits') : ('Free · ' + (bill.welcomeLeft ?? 0) + ' runs left')}
+                  </div>
+                ) : null}
               </div>
               <button onClick={() => { setSettingsOpen(true); setAcctMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[13.5px] hover:bg-muted text-left"><Settings className="w-4 h-4 text-muted-foreground" /> Settings</button>
               <button onClick={logout} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[13.5px] hover:bg-muted text-left text-red-500"><LogOut className="w-4 h-4" /> Log out</button>
@@ -4772,6 +4803,40 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       </div>
     </div>
   ) : null;
+  const paywallEl = paywall.open ? (
+    <div className="fixed inset-0 z-[95] bg-black/55 flex items-center justify-center p-6" onClick={() => setPaywall({ open: false, reason: '' })}>
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between">
+          <div className="text-[17px] font-bold">{paywall.reason === 'no_credits' ? 'You’re out of credits' : paywall.reason === 'trial_over' ? 'Free trial used up' : 'Upgrade to continue'}</div>
+          <button onClick={() => setPaywall({ open: false, reason: '' })} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="text-[13.5px] text-muted-foreground mt-1.5">
+          {paywall.reason === 'no_credits'
+            ? 'This action needs credits and your balance is empty. Add a top-up pack or upgrade your plan to keep using the heavy engines.'
+            : paywall.reason === 'trial_over'
+              ? 'You’ve used your 3 free runs. Choose a plan to keep searching, and to unlock Deep search, Literature Intelligence, Systematic Review, extraction and more.'
+              : 'This is a premium engine. Pick a plan (or add credits) to run Deep search, Literature Intelligence, Systematic Review, data extraction, AI figures and OCR.'}
+        </div>
+        <div className="mt-4 border border-border rounded-xl divide-y divide-border overflow-hidden">
+          {[
+            ['Student', '₹299/mo', 'All 3 workspaces + 80 credits'],
+            ['Standard', '₹999/mo', 'All 3 + 220 credits'],
+            ['Pro', '₹1,599/mo', 'All 3 + 650 credits, priority'],
+          ].map(([n, p, d]: any) => (
+            <div key={n} className="flex items-center justify-between gap-3 px-3.5 py-2.5">
+              <div><div className="text-[13.5px] font-semibold">{n}</div><div className="text-[11.5px] text-muted-foreground">{d}</div></div>
+              <div className="text-[13px] font-bold text-primary shrink-0">{p}</div>
+            </div>
+          ))}
+        </div>
+        <div className="text-[11.5px] text-muted-foreground mt-3">Top-ups also available (40 credits ₹149 · 120 ₹399 · 350 ₹999 · 1000 ₹2,499).</div>
+        <div className="flex justify-end gap-2 mt-5">
+          <button onClick={() => setPaywall({ open: false, reason: '' })} className="border border-border rounded-lg px-4 py-2 text-[13.5px] font-semibold hover:bg-muted">Close</button>
+          <a href="mailto:support@pinnovix.in?subject=Pinnovix%20plan%20upgrade" className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-[13.5px] font-semibold no-underline">Contact to upgrade</a>
+        </div>
+      </div>
+    </div>
+  ) : null;
   const createColEl = colModal ? (
     <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-6" onClick={() => setColModal(false)}>
       <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
@@ -5027,6 +5092,7 @@ export function LiteratureReviewView({ messages, onHome }: any) {
       {createColEl}
       {filterDrawerEl}
       {qbModalEl}
+      {paywallEl}
       {cellPopEl}
       {saveColEl}
       {tagModalEl}

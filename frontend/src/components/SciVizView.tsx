@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Image as ImageIcon, FileText, Presentation, BarChart3, GitBranch, Network, Upload, Sparkles, Download, Copy, Loader2, ArrowRight, ArrowLeft, Home, Plus, Clock, ChevronLeft, ChevronRight, RefreshCw, PanelLeft, X, ChevronDown, Menu, Shapes, LogOut } from 'lucide-react';
 import { FigureBuilder } from './FigureBuilder';
 import { authHeaders, supabase } from '@/lib/supabaseClient';
+import { billingConsume } from '@/lib/billing';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -107,6 +108,13 @@ export function SciVizView({ onHome }: any) {
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState('');
   const [data, setData] = useState<any>(null);
+  const [paywall, setPaywall] = useState<{ open: boolean; reason: string }>({ open: false, reason: '' });
+  async function gate(action: string): Promise<boolean> {
+    const r = await billingConsume(action);
+    if (r && r.ok) return true;
+    setPaywall({ open: true, reason: (r && r.reason) || 'need_plan' });
+    return false;
+  }
   const [vizType, setVizType] = useState('graphical');
   const [slideIdx, setSlideIdx] = useState(0);
   const [mermaidSvg, setMermaidSvg] = useState('');
@@ -207,6 +215,7 @@ export function SciVizView({ onHome }: any) {
   async function generate() {
     const text = inputText.trim();
     if (!text) return;
+    if (!(await gate('ai_figure'))) return;
     setBusy(true); setPhase('Analysing your research...');
     setData(null); setMermaidSvg(''); setMindmapSvg(''); setSlideIdx(0);
     setSrcText(text);
@@ -719,8 +728,23 @@ export function SciVizView({ onHome }: any) {
     </>
   ) : null;
 
+  const paywallEl = paywall.open ? (
+    <div className="fixed inset-0 z-[95] bg-black/55 flex items-center justify-center p-6" onClick={() => setPaywall({ open: false, reason: '' })}>
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between"><div className="text-[17px] font-bold">{paywall.reason === 'no_credits' ? 'You’re out of credits' : paywall.reason === 'trial_over' ? 'Free trial used up' : 'Upgrade to continue'}</div><button onClick={() => setPaywall({ open: false, reason: '' })} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button></div>
+        <div className="text-[13.5px] text-muted-foreground mt-1.5">AI figure generation is a premium engine. Choose a plan (or add credits) to keep generating visuals. Manual figure editing stays free.</div>
+        <div className="mt-4 border border-border rounded-xl divide-y divide-border overflow-hidden">
+          {[['Student','₹299/mo','All 3 + 80 credits'],['Standard','₹999/mo','All 3 + 220 credits'],['Pro','₹1,599/mo','All 3 + 650 credits']].map((x)=> (
+            <div key={x[0]} className="flex items-center justify-between gap-3 px-3.5 py-2.5"><div><div className="text-[13.5px] font-semibold">{x[0]}</div><div className="text-[11.5px] text-muted-foreground">{x[2]}</div></div><div className="text-[13px] font-bold text-primary shrink-0">{x[1]}</div></div>
+          ))}
+        </div>
+        <div className="flex justify-end gap-2 mt-5"><button onClick={() => setPaywall({ open: false, reason: '' })} className="border border-border rounded-lg px-4 py-2 text-[13.5px] font-semibold hover:bg-muted">Close</button><a href="mailto:support@pinnovix.in?subject=Pinnovix%20plan%20upgrade" className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-[13.5px] font-semibold no-underline">Contact to upgrade</a></div>
+      </div>
+    </div>
+  ) : null;
   return (
     <div className="flex w-full h-full bg-background text-foreground overflow-hidden relative">
+      {paywallEl}
       {mobileNav ? <div className="md:hidden fixed inset-0 bg-black/50 z-[55]" onClick={() => setMobileNav(false)} /> : null}
       {leftNav}
       <div className="flex-1 min-w-0 h-full overflow-hidden flex flex-col">
