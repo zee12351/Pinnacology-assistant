@@ -11,6 +11,7 @@ import { AuthModal } from '@/components/AuthModal';
 import { supabase, authConfigured } from '@/lib/supabaseClient';
 import { UploadModal } from '@/components/UploadModal';
 import { PricingWelcome } from '@/components/PricingWelcome';
+import { billingStatus } from '@/lib/billing';
 
 // Loading placeholder while a heavy persona chunk streams in.
 const PersonaLoading = () => (
@@ -152,6 +153,12 @@ export default function HomePage() {
     return () => { try { sub.subscription.unsubscribe(); } catch {} };
   }, []);
 
+  // Load the signed-in user's plan/credits (for the pricing modal's "Current plan").
+  useEffect(() => {
+    if (authUser) billingStatus().then(setMyBill).catch(() => {});
+    else setMyBill(null);
+  }, [authUser, pricingOpen]);
+
   // Auth gate: once the session is known, a logged-out user cannot stay inside a workspace.
   // (Login is required when Supabase auth is configured.) Kick them back to the landing page.
   useEffect(() => {
@@ -174,6 +181,7 @@ export default function HomePage() {
   const [isPersonaDropdownOpen, setIsPersonaDropdownOpen] = useState(false);
   const [isPreferencesOpen, setIsPreferencesOpen] = useState(false);
   const [pricingOpen, setPricingOpen] = useState(false);
+  const [myBill, setMyBill] = useState<any>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const { theme, setTheme } = useTheme();
 
@@ -835,32 +843,52 @@ export default function HomePage() {
 
       {pricingOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setPricingOpen(false)}>
-          <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-card border border-border rounded-2xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-5xl max-h-[92vh] overflow-y-auto bg-card border border-border rounded-2xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-5 border-b border-border">
               <div>
-                <h2 className="text-xl font-bold">Simple, researcher‑friendly pricing</h2>
-                <p className="text-[13px] text-muted-foreground mt-0.5">Start free. Upgrade when you need more.</p>
+                <h2 className="text-xl font-bold">Plans &amp; credits</h2>
+                <p className="text-[13px] text-muted-foreground mt-0.5">
+                  {myBill && myBill.exempt ? 'You have unlimited access.'
+                    : myBill && myBill.plan && myBill.plan !== 'free' ? ('You’re on ' + (myBill.plan.charAt(0).toUpperCase() + myBill.plan.slice(1)) + ' · ' + (myBill.credits ?? 0) + ' credits left.')
+                    : ('Free trial · ' + (myBill ? (myBill.welcomeLeft ?? 3) : 3) + ' of 3 free runs left. Upgrade for the heavy engines.')}
+                </p>
               </div>
               <button onClick={() => setPricingOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 p-6">
               {[
-                { name: 'Free', price: '$0', period: '/forever', cta: authUser ? 'Current plan' : 'Get started', highlight: false, features: ['All 3 workspaces', 'Search 138M+ papers', 'Reports with citations', 'Basic exports (PDF, Word, BibTeX)'] },
-                { name: 'Pro', price: '$12', period: '/month', cta: 'Upgrade to Pro', highlight: true, features: ['Everything in Free', 'Full‑text PDF chat (RAG)', 'Unlimited reports & extractions', 'All export formats', 'Priority AI (no cold starts)'] },
-                { name: 'Team', price: '$29', period: '/user/mo', cta: 'Contact us', highlight: false, features: ['Everything in Pro', 'Shared libraries & collections', 'Collaboration & comments', 'Zotero / Mendeley sync', 'Admin & SSO'] },
-              ].map((p) => (
-                <div key={p.name} className={'rounded-2xl border p-5 flex flex-col ' + (p.highlight ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-500/5' : 'border-border bg-card')}>
-                  {p.highlight ? <span className="self-start text-[11px] font-bold text-blue-500 bg-blue-500/10 rounded-full px-2.5 py-1 mb-2">MOST POPULAR</span> : null}
-                  <div className="font-bold text-[16px]">{p.name}</div>
-                  <div className="mt-1 mb-4"><span className="text-3xl font-bold">{p.price}</span><span className="text-[13px] text-muted-foreground">{p.period}</span></div>
-                  <ul className="flex flex-col gap-2 flex-1 mb-4">
-                    {p.features.map((f) => (<li key={f} className="flex items-start gap-2 text-[13px]"><Check className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" /> {f}</li>))}
-                  </ul>
-                  <button onClick={() => { if (p.name === 'Free') { setPricingOpen(false); if (authConfigured && !authUser) setAuthOpen(true); } else { window.location.href = 'mailto:support@pinnovix.app?subject=' + encodeURIComponent('Pinnovix ' + p.name + ' plan'); } }} className={'w-full py-2.5 rounded-lg text-[14px] font-semibold transition-colors ' + (p.highlight ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'border border-border hover:bg-muted')}>{p.cta}</button>
-                </div>
-              ))}
+                { id: 'free', name: 'Free', price: '₹0', period: '', highlight: false, blurb: '3 free runs to explore', features: ['All 3 workspaces', '3 lifetime free runs (light tools)', 'Search 138M+ papers', 'Exports: CSV / BibTeX / RIS / Word / PDF'] },
+                { id: 'student', name: 'Student', price: '₹299', period: '/mo', highlight: false, blurb: '80 credits / month', features: ['All 3 workspaces', '80 credits / month', 'Verified-student price', 'All heavy engines'] },
+                { id: 'standard', name: 'Standard', price: '₹999', period: '/mo', highlight: true, blurb: '220 credits / month', features: ['All 3 workspaces', '220 credits / month', 'Deep search, Lit Intelligence, Systematic Review', 'All export formats (PPTX, Word, GraphML)'] },
+                { id: 'pro', name: 'Pro', price: '₹1,599', period: '/mo', highlight: false, blurb: '650 credits / month', features: ['Everything in Standard', '650 credits / month', 'Priority + faster model', 'OCR & priority support'] },
+              ].map((p) => {
+                const cur = (myBill && ((myBill.exempt && p.id === 'pro') ? false : (myBill.plan || (authUser ? 'free' : '')) === p.id));
+                return (
+                  <div key={p.id} className={'rounded-2xl border p-4 flex flex-col relative ' + (p.highlight ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-500/5' : 'border-border bg-card')}>
+                    {p.highlight ? <span className="self-start text-[10.5px] font-bold text-blue-500 bg-blue-500/10 rounded-full px-2.5 py-1 mb-2">MOST POPULAR</span> : null}
+                    <div className="font-bold text-[15px]">{p.name}</div>
+                    <div className="mt-1"><span className="text-2xl font-bold">{p.price}</span><span className="text-[12px] text-muted-foreground">{p.period}</span></div>
+                    <div className="text-[11.5px] text-primary font-semibold mt-0.5">{p.blurb}</div>
+                    <ul className="flex flex-col gap-1.5 flex-1 my-3">
+                      {p.features.map((f) => (<li key={f} className="flex items-start gap-1.5 text-[12px]"><Check className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.5" /> {f}</li>))}
+                    </ul>
+                    <button
+                      disabled={cur}
+                      onClick={() => { if (p.id === 'free') { setPricingOpen(false); if (authConfigured && !authUser) setAuthOpen(true); } else { window.location.href = 'mailto:support@pinnovix.in?subject=' + encodeURIComponent('Pinnovix ' + p.name + ' plan'); } }}
+                      className={'w-full py-2 rounded-lg text-[13px] font-semibold transition-colors ' + (cur ? 'border border-border text-muted-foreground cursor-default' : p.highlight ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'border border-border hover:bg-muted')}>
+                      {cur ? 'Current plan' : p.id === 'free' ? (authUser ? 'Included' : 'Get started') : 'Upgrade'}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
-            <div className="px-6 pb-6 text-center text-[12px] text-muted-foreground">Prices are indicative during the research preview. Questions? <a href="mailto:support@pinnovix.app" className="text-primary">support@pinnovix.app</a></div>
+            <div className="px-6 pb-2 grid grid-cols-1 sm:grid-cols-3 gap-3 text-[12px]">
+              <div className="border border-border rounded-xl p-3"><div className="font-semibold text-[12.5px]">Single workspace</div><div className="text-muted-foreground mt-0.5">Academic Writing ₹399 · Literature Review ₹549 · SciViz ₹349 /mo</div></div>
+              <div className="border border-border rounded-xl p-3"><div className="font-semibold text-[12.5px]">Duo (any 2) · Team</div><div className="text-muted-foreground mt-0.5">Duo ₹749/mo · Team ₹399/seat/mo (min 5, pooled credits)</div></div>
+              <div className="border border-border rounded-xl p-3"><div className="font-semibold text-[12.5px]">Credit top-ups</div><div className="text-muted-foreground mt-0.5">40 ₹149 · 120 ₹399 · 350 ₹999 · 1000 ₹2,499</div></div>
+            </div>
+            <div className="px-6 pb-3 text-[11.5px] text-muted-foreground">Credits are used only for heavy engines (Deep search 1, Literature Intelligence 1, Extract 1, Report 1, OCR 1/10 pages, Systematic Review up to 5). Light tools — search, AI Assistant, chat, drafting — are unlimited on any paid plan.</div>
+            <div className="px-6 pb-6 text-center text-[12px] text-muted-foreground">Questions? <a href="mailto:support@pinnovix.in" className="text-primary">support@pinnovix.in</a></div>
           </div>
         </div>
       )}
