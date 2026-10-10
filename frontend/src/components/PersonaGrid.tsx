@@ -5,21 +5,21 @@ const personas = [
   {
     id: 'ACADEMIC WRITING', name: 'Academic Writing', icon: FileText,
     desc: 'Draft and refine academic documents with real citations and references.',
-    color: 'text-blue-400', bg: 'bg-blue-500/15', ring: 'rgba(79,139,255,.28)',
+    color: 'text-blue-400', bg: 'bg-blue-500/15', ring: 'rgba(79,139,255,.16)',
     grad: 'linear-gradient(90deg,#2563eb,#4f8bff)', hover: 'hover:border-blue-400/60',
     chips: ['Citations', 'Reference management', 'Export to PDF'], cta: 'Start writing',
   },
   {
     id: 'LITERATURE REVIEW', name: 'Literature Review', icon: BookOpen,
     desc: 'Discover relevant literature and organize evidence into structured tables.',
-    color: 'text-emerald-400', bg: 'bg-emerald-500/15', ring: 'rgba(16,185,129,.28)',
+    color: 'text-emerald-400', bg: 'bg-emerald-500/15', ring: 'rgba(16,185,129,.16)',
     grad: 'linear-gradient(90deg,#059669,#10b981)', hover: 'hover:border-emerald-400/60',
     chips: ['Search & extract', 'Evidence tables', 'Compare studies'], cta: 'Explore literature',
   },
   {
     id: 'SCIVIZ', name: 'SciViz', icon: BarChart3,
     desc: 'Turn research findings into scientific figures, posters, slides, and infographics.',
-    color: 'text-purple-400', bg: 'bg-purple-500/15', ring: 'rgba(147,51,234,.28)',
+    color: 'text-purple-400', bg: 'bg-purple-500/15', ring: 'rgba(147,51,234,.16)',
     grad: 'linear-gradient(90deg,#7c3aed,#a855f7)', hover: 'hover:border-purple-400/60',
     chips: ['Graphs & charts', 'Posters & slides', 'Graphical abstracts'], cta: 'Create a visualization',
   },
@@ -76,10 +76,10 @@ export function PersonaGrid({ selectedPersona, onSelectPersona, onActivate }: an
             >
               <div className={`w-11 h-11 rounded-xl ${p.bg} flex items-center justify-center mb-3`}><Icon className={`w-5 h-5 ${p.color}`} /></div>
               <h3 className="font-bold text-foreground text-[18px]">{p.name}</h3>
-              <p className="text-[13px] text-muted-foreground leading-relaxed mt-1">{p.desc}</p>
+              <p className="text-[14px] text-muted-foreground leading-relaxed mt-1.5">{p.desc}</p>
               <CardMock id={p.id} />
-              <div className="flex flex-wrap gap-1.5 mb-3">
-                {p.chips.map((c) => <span key={c} className="text-[11px] text-muted-foreground bg-muted rounded-full px-2.5 py-1">{c}</span>)}
+              <div className="flex flex-wrap gap-1.5 mb-3.5">
+                {p.chips.map((c) => <span key={c} className="text-[10.5px] text-muted-foreground/75 bg-muted/50 rounded-full px-2 py-0.5">{c}</span>)}
               </div>
               <button
                 onClick={(e) => { e.stopPropagation(); onActivate(p.id); }}

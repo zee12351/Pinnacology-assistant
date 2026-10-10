@@ -637,7 +637,7 @@ export default function HomePage() {
             <div className="relative z-10 w-full flex flex-col items-center pnx-fade-up">
               {/* HERO */}
               <section className="w-full max-w-6xl mx-auto px-4 sm:px-6 pt-6 md:pt-10 pb-4">
-                <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_1fr] gap-8 lg:gap-10 items-center">
+                <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.12fr] gap-8 lg:gap-12 items-center">
                   {/* LEFT: copy */}
                   <div>
                     <div className="inline-flex items-center gap-2 border border-border rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold text-muted-foreground mb-5 bg-card/60 backdrop-blur-sm">
@@ -673,37 +673,37 @@ export default function HomePage() {
                   </div>
                   {/* RIGHT: product mockup */}
                   <div className="relative hidden lg:block" aria-hidden="true">
-                    <div className="rounded-2xl border border-border bg-[#0e1a30] p-3 shadow-2xl">
-                      <div className="flex gap-2.5">
-                        <div className="w-[130px] shrink-0 text-[10.5px] text-muted-foreground">
-                          <div className="flex items-center gap-1.5 font-bold text-foreground text-[12px] mb-3"><span className="w-4 h-4 rounded bg-blue-500 text-white text-[9px] flex items-center justify-center font-bold">P</span> Pinnovix</div>
+                    <div className="rounded-2xl border border-border bg-[#0e1a30] p-4 shadow-2xl">
+                      <div className="flex gap-3">
+                        <div className="w-[150px] shrink-0 text-[11.5px] text-muted-foreground">
+                          <div className="flex items-center gap-2 font-bold text-foreground text-[13px] mb-3.5"><span className="w-5 h-5 rounded-md bg-blue-500 text-white text-[10px] flex items-center justify-center font-bold">P</span> Pinnovix</div>
                           {[['Search papers', true], ['Analyze & extract', false], ['Organize evidence', false], ['Generate draft', false]].map(([l, on]: any) => (
-                            <div key={l} className={'px-2 py-1.5 rounded-md mb-1 ' + (on ? 'bg-blue-500/12 text-blue-400 font-semibold' : '')}>{l}</div>
+                            <div key={l} className={'px-2.5 py-2 rounded-md mb-1 ' + (on ? 'bg-blue-500/12 text-blue-400 font-semibold' : '')}>{l}</div>
                           ))}
                         </div>
-                        <div className="flex-1 min-w-0 bg-[#101c34] border border-border rounded-xl p-3">
-                          <div className="text-[12px] font-bold mb-2">Literature Review</div>
-                          <div className="flex gap-1.5 text-[10px] mb-2.5">
-                            <span className="px-2.5 py-1 rounded-md bg-blue-500 text-white font-semibold">Summary</span>
-                            <span className="px-2.5 py-1 rounded-md bg-[#17284a] text-muted-foreground">Key Findings</span>
-                            <span className="px-2.5 py-1 rounded-md bg-[#17284a] text-muted-foreground">References (42)</span>
+                        <div className="flex-1 min-w-0 bg-[#101c34] border border-border rounded-xl p-3.5">
+                          <div className="text-[13.5px] font-bold mb-2.5">Literature Review</div>
+                          <div className="flex gap-1.5 text-[11px] mb-3">
+                            <span className="px-3 py-1.5 rounded-md bg-blue-500 text-white font-semibold">Summary</span>
+                            <span className="px-3 py-1.5 rounded-md bg-[#17284a] text-muted-foreground">Key Findings</span>
+                            <span className="px-3 py-1.5 rounded-md bg-[#17284a] text-muted-foreground">References</span>
                           </div>
-                          <div className="text-[10.5px] text-foreground/80 leading-relaxed">Deep learning has shown significant progress in medical image analysis — image classification, segmentation and disease detection. Challenges remain, including limited dataset diversity and generalization <span className="text-blue-400">[1][2][3]</span>.</div>
-                          <div className="flex items-center gap-2 mt-3">
-                            <span className="text-[10px] font-semibold border border-border rounded-lg px-2.5 py-1.5 flex items-center gap-1"><FileText className="w-3 h-3" /> Save to project</span>
-                            <span className="text-[10px] font-semibold border border-border rounded-lg px-2.5 py-1.5">Export</span>
-                            <span className="ml-auto flex items-end gap-0.5 h-8">{[40, 70, 50, 85, 60, 90].map((h, i) => <span key={i} className="w-2 bg-blue-500/80 rounded-sm" style={{ height: h + '%' }} />)}</span>
+                          <div className="text-[12px] text-foreground/85 leading-relaxed">Deep learning shows strong progress in medical image analysis — classification, segmentation and detection — though dataset diversity and generalization remain open challenges.</div>
+                          <div className="flex items-center gap-2 mt-3.5">
+                            <span className="text-[11px] font-semibold border border-border rounded-lg px-3 py-2 flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" /> Save to project</span>
+                            <span className="text-[11px] font-semibold border border-border rounded-lg px-3 py-2">Export</span>
+                            <span className="ml-auto flex items-end gap-0.5 h-9">{[40, 70, 50, 85, 60, 90].map((h, i) => <span key={i} className="w-2.5 bg-blue-500/80 rounded-sm" style={{ height: h + '%' }} />)}</span>
                           </div>
                         </div>
-                        <div className="w-[150px] shrink-0 bg-[#101c34] border border-border rounded-xl p-2.5">
-                          <div className="text-[10.5px] font-bold mb-2">References</div>
-                          {[['Zhou et al. (2023)', 'Deep Learning for Medical Image Analysis — Nature Medicine'], ['Patel et al. (2022)', 'Transformer Models for… — IEEE TMI'], ['Kim et al. (2021)', 'Challenges in Medical Image Datasets']].map((r) => (
-                            <div key={r[0]} className="border border-border rounded-lg p-2 mb-1.5 text-[9px] text-muted-foreground"><div className="text-foreground text-[10px] font-semibold">{r[0]}</div>{r[1]}</div>
+                        <div className="w-[172px] shrink-0 bg-[#101c34] border border-border rounded-xl p-3">
+                          <div className="text-[11.5px] font-bold mb-2.5">References</div>
+                          {[['Zhou et al. (2023)', 'Nature Medicine'], ['Patel et al. (2022)', 'IEEE TMI'], ['Kim et al. (2021)', 'Medical Image Analysis']].map((r) => (
+                            <div key={r[0]} className="border border-border rounded-lg p-2.5 mb-2 text-[10.5px] text-muted-foreground"><div className="text-foreground text-[11px] font-semibold">{r[0]}</div>{r[1]}</div>
                           ))}
                         </div>
                       </div>
                     </div>
-                    <div className="absolute -bottom-3 left-1/3 bg-[#0e1a30] border border-green-500/30 rounded-xl px-3 py-2 text-[10px] text-green-400 flex items-center gap-2 shadow-xl">
+                    <div className="absolute -bottom-3.5 left-1/3 bg-[#0e1a30] border border-green-500/30 rounded-xl px-3.5 py-2.5 text-[11px] text-green-400 flex items-center gap-2 shadow-xl">
                       <CheckCircle2 className="w-4 h-4" /> <div><span className="font-bold">Source verified</span> · DOI link · Cited in 42 papers</div>
                     </div>
                   </div>
@@ -711,7 +711,7 @@ export default function HomePage() {
               </section>
 
               {/* FEATURES / PERSONAS */}
-              <section id="pnx-personas" className="w-full max-w-6xl mx-auto px-4 sm:px-6 pt-10 scroll-mt-20">
+              <section id="pnx-personas" className="w-full max-w-6xl mx-auto px-4 sm:px-6 pt-5 scroll-mt-20">
                 <PersonaGrid
                   selectedPersona={selectedPersona}
                   onSelectPersona={setSelectedPersona}
