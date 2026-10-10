@@ -636,7 +636,7 @@ export default function HomePage() {
             </div>
             <div className="relative z-10 w-full flex flex-col items-center pnx-fade-up">
               {/* HERO */}
-              <section className="w-full max-w-4xl mx-auto text-center px-4 pt-10 md:pt-16 pb-6">
+              <section className="w-full max-w-4xl mx-auto text-center px-4 pt-6 md:pt-10 pb-2">
                 <div className="inline-flex items-center gap-2 border border-border rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold text-muted-foreground mb-6 bg-card/60 backdrop-blur-sm">
                   <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" /> AI research workspace for scientists
                 </div>
@@ -662,7 +662,7 @@ export default function HomePage() {
               </section>
 
               {/* FEATURES / PERSONAS */}
-              <section id="pnx-personas" className="w-full max-w-5xl mx-auto px-4 pt-10 scroll-mt-20">
+              <section id="pnx-personas" className="w-full max-w-5xl mx-auto px-4 pt-2 scroll-mt-20">
                 <PersonaGrid
                   selectedPersona={selectedPersona}
                   onSelectPersona={setSelectedPersona}
@@ -677,10 +677,9 @@ export default function HomePage() {
               </section>
 
               {/* HOW IT WORKS */}
-              <section id="pnx-how" className="w-full max-w-5xl mx-auto px-4 pt-16 scroll-mt-20">
-                <div className="text-center mb-9">
+              <section id="pnx-how" className="w-full max-w-5xl mx-auto px-4 pt-10 pb-4 scroll-mt-20">
+                <div className="text-center mb-6">
                   <h2 className="text-2xl md:text-3xl font-bold">From question to result in <span className="pnx-gradient-text">three steps</span></h2>
-                  <p className="text-muted-foreground text-[14px] mt-2 max-w-xl mx-auto">No setup, no learning curve — just pick a workspace and go.</p>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                   {[
