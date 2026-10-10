@@ -227,7 +227,7 @@ html.light :is(
 }
 
 /* page backdrop */
-html.light body { background-color: #eef1f5; }
+html.light body { background-color: #ffffff; }
 
 /* AI autocomplete ghost text */
 .ai-ghost-text {
@@ -297,12 +297,8 @@ html.light body { background-color: #eef1f5; }
    Premium polish · larger, comfortable text · motion
    ============================================================ */
 html { font-size: 17px; }
-body {
-  background-image:
-    radial-gradient(1100px 560px at 100% -8%, rgba(37, 99, 235, 0.07), transparent 60%),
-    radial-gradient(900px 500px at -8% 108%, rgba(56, 189, 248, 0.06), transparent 60%);
-  background-attachment: fixed;
-}
+/* Plain, solid background in both themes — no blue/cyan gradient patches. */
+body { background-image: none !important; background-color: var(--background); }
 
 /* smooth, tactile interactions everywhere */
 button, a, [role="button"], input, select, textarea, .transition-colors {
@@ -324,7 +320,9 @@ button:not(:disabled):active { transform: translateY(1px); }
 @keyframes pnxShine { 0% { transform: translateX(-120%); } 60%,100% { transform: translateX(220%); } }
 
 /* animated gradient orbs behind hero / homepage */
-.pnx-orbs { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+/* Orbs disabled — keep a plain, solid background with no floating blue/cyan patches. */
+.pnx-orbs { display: none !important; }
+.pnx-orbs-legacy { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
 .pnx-orb { position: absolute; border-radius: 9999px; filter: blur(72px); opacity: .5; will-change: transform, opacity; animation: pnxFloat 17s ease-in-out infinite, pnxPulseGlow 9s ease-in-out infinite; }
 .pnx-orb-1 { width: 440px; height: 440px; background: radial-gradient(circle at 30% 30%, #38bdf8, transparent 70%); top: -90px; left: -70px; }
 .pnx-orb-2 { width: 520px; height: 520px; background: radial-gradient(circle at 30% 30%, #2563eb, transparent 70%); bottom: -140px; right: -90px; animation-delay: -5s; }
