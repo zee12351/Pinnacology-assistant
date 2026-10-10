@@ -634,9 +634,9 @@ export default function HomePage() {
               <div className="pnx-orb pnx-orb-2" />
               <div className="pnx-orb pnx-orb-3" />
             </div>
-            <div className="relative z-10 w-full flex flex-col items-center pnx-fade-up">
+            <div className="relative z-10 w-full flex flex-col items-stretch pnx-fade-up">
               {/* HERO */}
-              <section className="w-full max-w-6xl mx-auto px-4 sm:px-6 pt-6 md:pt-10 pb-4">
+              <section className="w-full max-w-[1320px] px-6 sm:px-8 lg:px-10 pt-6 md:pt-10 pb-4">
                 <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.12fr] gap-8 lg:gap-12 items-center">
                   {/* LEFT: copy */}
                   <div>
@@ -711,7 +711,7 @@ export default function HomePage() {
               </section>
 
               {/* FEATURES / PERSONAS */}
-              <section id="pnx-personas" className="w-full max-w-6xl mx-auto px-4 sm:px-6 pt-5 scroll-mt-20">
+              <section id="pnx-personas" className="w-full max-w-[1320px] px-6 sm:px-8 lg:px-10 pt-5 scroll-mt-20">
                 <PersonaGrid
                   selectedPersona={selectedPersona}
                   onSelectPersona={setSelectedPersona}
@@ -726,7 +726,7 @@ export default function HomePage() {
               </section>
 
               {/* HOW IT WORKS */}
-              <section id="pnx-how" className="w-full max-w-6xl mx-auto px-4 sm:px-6 pt-12 pb-4 scroll-mt-20">
+              <section id="pnx-how" className="w-full max-w-[1320px] px-6 sm:px-8 lg:px-10 pt-12 pb-4 scroll-mt-20">
                 <h2 className="text-[26px] md:text-3xl font-bold" style={{ fontFamily: 'Georgia, serif' }}>How Pinnovix works</h2>
                 <p className="text-muted-foreground text-[14px] mt-1.5">Go from a research question to a cited output in three simple steps.</p>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-7 mt-6">
@@ -744,7 +744,7 @@ export default function HomePage() {
               </section>
 
               {/* CTA STRIP */}
-              <section className="w-full max-w-5xl mx-auto px-4 pt-16">
+              <section className="w-full max-w-[1320px] px-6 sm:px-8 lg:px-10 pt-16">
                 <div className="rounded-3xl border border-border bg-gradient-to-br from-blue-600/10 via-card to-card p-8 md:p-12 text-center">
                   <h2 className="text-2xl md:text-3xl font-bold">Ready to accelerate your research?</h2>
                   <p className="text-muted-foreground text-[14px] mt-2 max-w-lg mx-auto">Join researchers using Pinnovix to write, review, and visualize faster.</p>
@@ -755,7 +755,7 @@ export default function HomePage() {
               </section>
 
               {/* FOOTER */}
-              <footer className="w-full max-w-5xl mx-auto px-4 pt-14 pb-10 mt-6 border-t border-border/60 mt-14">
+              <footer className="w-full max-w-[1320px] px-6 sm:px-8 lg:px-10 pt-14 pb-10 mt-6 border-t border-border/60 mt-14">
                 <div className="flex flex-col md:flex-row items-center justify-between gap-4">
                   <div className="flex items-center gap-2">
                     <span className="w-6 h-6 bg-contain bg-no-repeat bg-center shrink-0" style={{ backgroundImage: 'url(/logo.png)' }} />

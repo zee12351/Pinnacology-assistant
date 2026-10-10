@@ -59,7 +59,7 @@ function CardMock({ id }: { id: string }) {
 
 export function PersonaGrid({ selectedPersona, onSelectPersona, onActivate }: any) {
   return (
-    <div className="w-full max-w-6xl mx-auto relative z-10">
+    <div className="w-full relative z-10">
       <h2 className="text-[26px] md:text-3xl font-bold" style={{ fontFamily: 'Georgia, serif' }}>Choose your workspace</h2>
       <p className="text-muted-foreground text-[14px] mt-1.5">Three powerful tools, one seamless research experience.</p>
 
