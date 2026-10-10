@@ -1,7 +1,7 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
 import dynamic from 'next/dynamic';
-import { PanelLeftClose, PanelLeftOpen, Plus, Home, MessageSquare, Square, ArrowRight, Settings2, ChevronDown, Moon, LayoutPanelLeft, MonitorSmartphone, Keyboard, EyeOff, X, Check, Loader2 } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, Plus, Home, MessageSquare, Square, ArrowRight, Settings2, ChevronDown, Moon, LayoutPanelLeft, MonitorSmartphone, Keyboard, EyeOff, X, Check, Loader2, Link2, Workflow, BookOpen, Shield, Search, Microscope, Layers, PenLine, BarChart3, FileText, CheckCircle2 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import axios from 'axios';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -636,33 +636,82 @@ export default function HomePage() {
             </div>
             <div className="relative z-10 w-full flex flex-col items-center pnx-fade-up">
               {/* HERO */}
-              <section className="w-full max-w-4xl mx-auto text-center px-4 pt-6 md:pt-10 pb-2">
-                <div className="inline-flex items-center gap-2 border border-border rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold text-muted-foreground mb-6 bg-card/60 backdrop-blur-sm">
-                  <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" /> AI research workspace for scientists
-                </div>
-                <h1 className="text-4xl md:text-6xl font-bold tracking-tight leading-[1.05]">
-                  Research, write, and <span className="pnx-gradient-text">visualize</span><br className="hidden md:block" /> — in one AI workspace
-                </h1>
-                <p className="text-muted-foreground text-[15px] md:text-lg max-w-2xl mx-auto mt-5 leading-relaxed">
-                  Pinnovix helps researchers discover literature, draft and cite papers, and turn findings into publication‑ready visuals — powered by AI and grounded in real sources.
-                </p>
-                <div className="flex flex-wrap items-center justify-center gap-3 mt-7">
-                  <button onClick={() => { if (authConfigured && !authUser) { setAuthOpen(true); } else { const el = document.getElementById('pnx-personas'); if (el) el.scrollIntoView({ behavior: 'smooth' }); } }} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-xl text-[15px] shadow-lg shadow-blue-600/20 transition-colors">
-                    {authUser ? 'Choose a workspace' : 'Get started free'}
-                  </button>
-                  <button onClick={() => { const el = document.getElementById('pnx-how'); if (el) el.scrollIntoView({ behavior: 'smooth' }); }} className="border border-border hover:bg-muted font-semibold px-6 py-3 rounded-xl text-[15px] transition-colors">
-                    How it works
-                  </button>
-                </div>
-                <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 mt-6 text-[12.5px] text-muted-foreground">
-                  <span className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-blue-500" /> Free to start</span>
-                  <span className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-blue-500" /> Real citations & references</span>
-                  <span className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-blue-500" /> 138M+ papers searchable</span>
+              <section className="w-full max-w-6xl mx-auto px-4 sm:px-6 pt-6 md:pt-10 pb-4">
+                <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_1fr] gap-8 lg:gap-10 items-center">
+                  {/* LEFT: copy */}
+                  <div>
+                    <div className="inline-flex items-center gap-2 border border-border rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold text-muted-foreground mb-5 bg-card/60 backdrop-blur-sm">
+                      <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" /> AI research workspace for scientists
+                    </div>
+                    <h1 className="text-4xl md:text-5xl font-bold tracking-tight leading-[1.08]" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>
+                      From research question to <span className="pnx-gradient-text">publication‑ready</span> work.
+                    </h1>
+                    <p className="text-muted-foreground text-[15px] md:text-[16px] max-w-md mt-4 leading-relaxed">
+                      Discover literature, write with citations, and transform scientific findings into clear visuals — all in one AI research workspace.
+                    </p>
+                    <div className="flex flex-wrap items-center gap-3 mt-6">
+                      <button onClick={() => { if (authConfigured && !authUser) { setAuthOpen(true); } else { const el = document.getElementById('pnx-personas'); if (el) el.scrollIntoView({ behavior: 'smooth' }); } }} className="text-white font-semibold px-6 py-3 rounded-xl text-[15px] shadow-lg shadow-blue-600/30 transition-transform hover:-translate-y-0.5 inline-flex items-center gap-2" style={{ background: 'linear-gradient(90deg,#2563eb,#4f8bff)' }}>
+                        {authUser ? 'Open your workspace' : 'Start your research'} <ArrowRight className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => { const el = document.getElementById('pnx-personas'); if (el) el.scrollIntoView({ behavior: 'smooth' }); }} className="border border-border bg-card/60 hover:bg-muted font-semibold px-6 py-3 rounded-xl text-[15px] transition-colors">
+                        Explore a sample
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-4 mt-8 max-w-lg">
+                      {[
+                        { Icon: Link2, t: 'Real citations', s: 'with source links' },
+                        { Icon: Workflow, t: 'Structured', s: 'research workflows' },
+                        { Icon: BookOpen, t: 'Research-focused', s: 'tools for academics' },
+                        { Icon: Shield, t: 'Your data stays', s: 'private and secure' },
+                      ].map((f) => (
+                        <div key={f.t} className="flex items-start gap-2.5">
+                          <span className="w-9 h-9 rounded-lg bg-blue-500/12 text-blue-400 flex items-center justify-center shrink-0"><f.Icon className="w-4 h-4" /></span>
+                          <div className="leading-tight"><div className="text-[13px] font-bold">{f.t}</div><div className="text-[12px] text-muted-foreground">{f.s}</div></div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {/* RIGHT: product mockup */}
+                  <div className="relative hidden lg:block" aria-hidden="true">
+                    <div className="rounded-2xl border border-border bg-[#0e1a30] p-3 shadow-2xl">
+                      <div className="flex gap-2.5">
+                        <div className="w-[130px] shrink-0 text-[10.5px] text-muted-foreground">
+                          <div className="flex items-center gap-1.5 font-bold text-foreground text-[12px] mb-3"><span className="w-4 h-4 rounded bg-blue-500 text-white text-[9px] flex items-center justify-center font-bold">P</span> Pinnovix</div>
+                          {[['Search papers', true], ['Analyze & extract', false], ['Organize evidence', false], ['Generate draft', false]].map(([l, on]: any) => (
+                            <div key={l} className={'px-2 py-1.5 rounded-md mb-1 ' + (on ? 'bg-blue-500/12 text-blue-400 font-semibold' : '')}>{l}</div>
+                          ))}
+                        </div>
+                        <div className="flex-1 min-w-0 bg-[#101c34] border border-border rounded-xl p-3">
+                          <div className="text-[12px] font-bold mb-2">Literature Review</div>
+                          <div className="flex gap-1.5 text-[10px] mb-2.5">
+                            <span className="px-2.5 py-1 rounded-md bg-blue-500 text-white font-semibold">Summary</span>
+                            <span className="px-2.5 py-1 rounded-md bg-[#17284a] text-muted-foreground">Key Findings</span>
+                            <span className="px-2.5 py-1 rounded-md bg-[#17284a] text-muted-foreground">References (42)</span>
+                          </div>
+                          <div className="text-[10.5px] text-foreground/80 leading-relaxed">Deep learning has shown significant progress in medical image analysis — image classification, segmentation and disease detection. Challenges remain, including limited dataset diversity and generalization <span className="text-blue-400">[1][2][3]</span>.</div>
+                          <div className="flex items-center gap-2 mt-3">
+                            <span className="text-[10px] font-semibold border border-border rounded-lg px-2.5 py-1.5 flex items-center gap-1"><FileText className="w-3 h-3" /> Save to project</span>
+                            <span className="text-[10px] font-semibold border border-border rounded-lg px-2.5 py-1.5">Export</span>
+                            <span className="ml-auto flex items-end gap-0.5 h-8">{[40, 70, 50, 85, 60, 90].map((h, i) => <span key={i} className="w-2 bg-blue-500/80 rounded-sm" style={{ height: h + '%' }} />)}</span>
+                          </div>
+                        </div>
+                        <div className="w-[150px] shrink-0 bg-[#101c34] border border-border rounded-xl p-2.5">
+                          <div className="text-[10.5px] font-bold mb-2">References</div>
+                          {[['Zhou et al. (2023)', 'Deep Learning for Medical Image Analysis — Nature Medicine'], ['Patel et al. (2022)', 'Transformer Models for… — IEEE TMI'], ['Kim et al. (2021)', 'Challenges in Medical Image Datasets']].map((r) => (
+                            <div key={r[0]} className="border border-border rounded-lg p-2 mb-1.5 text-[9px] text-muted-foreground"><div className="text-foreground text-[10px] font-semibold">{r[0]}</div>{r[1]}</div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="absolute -bottom-3 left-1/3 bg-[#0e1a30] border border-green-500/30 rounded-xl px-3 py-2 text-[10px] text-green-400 flex items-center gap-2 shadow-xl">
+                      <CheckCircle2 className="w-4 h-4" /> <div><span className="font-bold">Source verified</span> · DOI link · Cited in 42 papers</div>
+                    </div>
+                  </div>
                 </div>
               </section>
 
               {/* FEATURES / PERSONAS */}
-              <section id="pnx-personas" className="w-full max-w-5xl mx-auto px-4 pt-2 scroll-mt-20">
+              <section id="pnx-personas" className="w-full max-w-6xl mx-auto px-4 sm:px-6 pt-10 scroll-mt-20">
                 <PersonaGrid
                   selectedPersona={selectedPersona}
                   onSelectPersona={setSelectedPersona}
@@ -677,20 +726,18 @@ export default function HomePage() {
               </section>
 
               {/* HOW IT WORKS */}
-              <section id="pnx-how" className="w-full max-w-5xl mx-auto px-4 pt-10 pb-4 scroll-mt-20">
-                <div className="text-center mb-6">
-                  <h2 className="text-2xl md:text-3xl font-bold">From question to result in <span className="pnx-gradient-text">three steps</span></h2>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              <section id="pnx-how" className="w-full max-w-6xl mx-auto px-4 sm:px-6 pt-12 pb-4 scroll-mt-20">
+                <h2 className="text-[26px] md:text-3xl font-bold" style={{ fontFamily: 'Georgia, serif' }}>How Pinnovix works</h2>
+                <p className="text-muted-foreground text-[14px] mt-1.5">Go from a research question to a cited output in three simple steps.</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-7 mt-6">
                   {[
-                    { n: '1', t: 'Pick a workspace', d: 'Choose Academic Writing, Literature Review, or SciViz depending on what you need to do.' },
-                    { n: '2', t: 'Bring your topic or papers', d: 'Type a research question, paste an abstract, or upload PDFs from your library.' },
-                    { n: '3', t: 'Get AI output with citations', d: 'Receive drafts, evidence tables, reports, or visuals — every claim backed by a real source.' },
+                    { n: '1', c: 'bg-blue-600', t: 'Start with a question or upload a paper', d: 'Type your research question, paste an abstract, or upload PDFs.' },
+                    { n: '2', c: 'bg-emerald-500', t: 'Discover and organize evidence', d: 'Find relevant papers, extract key findings, and organize them into tables.' },
+                    { n: '3', c: 'bg-purple-500', t: 'Generate your output', d: 'Create a cited draft, structured review, or scientific visualization.' },
                   ].map((s) => (
-                    <div key={s.n} className="pnx-card rounded-2xl border border-border bg-card p-6 text-left">
-                      <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center font-bold text-[17px] mb-4">{s.n}</div>
-                      <h3 className="font-bold text-[16px] mb-1.5">{s.t}</h3>
-                      <p className="text-[13.5px] text-muted-foreground leading-relaxed">{s.d}</p>
+                    <div key={s.n} className="flex items-start gap-3.5">
+                      <span className={'w-9 h-9 rounded-full text-white font-bold flex items-center justify-center shrink-0 ' + s.c}>{s.n}</span>
+                      <div><h3 className="font-bold text-[14.5px] leading-tight">{s.t}</h3><p className="text-[12.5px] text-muted-foreground mt-1 leading-relaxed">{s.d}</p></div>
                     </div>
                   ))}
                 </div>

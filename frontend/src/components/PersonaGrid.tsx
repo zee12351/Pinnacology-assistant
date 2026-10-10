@@ -1,38 +1,93 @@
 import React from 'react';
-import { BookOpen, FileText, BarChart3 } from 'lucide-react';
+import { BookOpen, FileText, BarChart3, ArrowRight } from 'lucide-react';
 
 const personas = [
-  { id: 'ACADEMIC WRITING', name: 'Academic Writing', icon: FileText, desc: 'Write, cite, and peer-review research papers with a dedicated workspace.', color: 'text-blue-500', bg: 'bg-blue-500/10' },
-  { id: 'LITERATURE REVIEW', name: 'Literature Review', icon: BookOpen, desc: 'Discover and synthesize papers in a structured data table view.', color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
-  { id: 'SCIVIZ', name: 'SciViz', icon: BarChart3, desc: 'Turn any paper into posters, slides, infographics, and graphical abstracts.', color: 'text-purple-500', bg: 'bg-purple-500/10' },
+  {
+    id: 'ACADEMIC WRITING', name: 'Academic Writing', icon: FileText,
+    desc: 'Draft and refine academic documents with real citations and references.',
+    color: 'text-blue-400', bg: 'bg-blue-500/15', ring: 'rgba(79,139,255,.28)',
+    grad: 'linear-gradient(90deg,#2563eb,#4f8bff)', hover: 'hover:border-blue-400/60',
+    chips: ['Citations', 'Reference management', 'Export to PDF'], cta: 'Start writing',
+  },
+  {
+    id: 'LITERATURE REVIEW', name: 'Literature Review', icon: BookOpen,
+    desc: 'Discover relevant literature and organize evidence into structured tables.',
+    color: 'text-emerald-400', bg: 'bg-emerald-500/15', ring: 'rgba(16,185,129,.28)',
+    grad: 'linear-gradient(90deg,#059669,#10b981)', hover: 'hover:border-emerald-400/60',
+    chips: ['Search & extract', 'Evidence tables', 'Compare studies'], cta: 'Explore literature',
+  },
+  {
+    id: 'SCIVIZ', name: 'SciViz', icon: BarChart3,
+    desc: 'Turn research findings into scientific figures, posters, slides, and infographics.',
+    color: 'text-purple-400', bg: 'bg-purple-500/15', ring: 'rgba(147,51,234,.28)',
+    grad: 'linear-gradient(90deg,#7c3aed,#a855f7)', hover: 'hover:border-purple-400/60',
+    chips: ['Graphs & charts', 'Posters & slides', 'Graphical abstracts'], cta: 'Create a visualization',
+  },
 ];
+
+// A small themed preview visual per workspace card.
+function CardMock({ id }: { id: string }) {
+  if (id === 'ACADEMIC WRITING') {
+    return (
+      <div className="border border-border rounded-xl bg-card/60 p-3 my-3">
+        <div className="text-[10px] text-muted-foreground mb-2">Research Paper Draft</div>
+        {[100, 100, 60, 100, 55].map((w, i) => <div key={i} className="h-1.5 rounded bg-muted mb-1.5" style={{ width: w + '%' }} />)}
+      </div>
+    );
+  }
+  if (id === 'LITERATURE REVIEW') {
+    return (
+      <div className="border border-border rounded-xl bg-card/60 p-2.5 my-3 overflow-hidden">
+        <table className="w-full text-[10px] border-collapse">
+          <thead><tr className="text-muted-foreground">{['Paper', 'Year', 'Key Finding'].map((h) => <th key={h} className="text-left font-semibold pb-1 border-b border-border">{h}</th>)}</tr></thead>
+          <tbody className="text-foreground/80">
+            {[['Zhou et al.', '2023', 'Deep learning…'], ['Patel et al.', '2022', 'Effective for…'], ['Kim et al.', '2021', 'Shows higher…']].map((r) => (
+              <tr key={r[0]}>{r.map((c, i) => <td key={i} className="py-1 border-b border-border">{c}</td>)}</tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+  return (
+    <div className="border border-border rounded-xl bg-card/60 p-3 my-3 flex items-end gap-2" style={{ minHeight: 84 }}>
+      <div className="flex-1 flex items-end gap-1 h-full">{[40, 70, 55, 85, 60].map((h, i) => <span key={i} className="flex-1 bg-purple-400/80 rounded-sm" style={{ height: h + '%' }} />)}</div>
+      <div className="w-12 h-12 rounded-md bg-muted shrink-0" />
+    </div>
+  );
+}
 
 export function PersonaGrid({ selectedPersona, onSelectPersona, onActivate }: any) {
   return (
-    <div className="w-full max-w-5xl mx-auto flex flex-col items-center pt-2 relative z-10">
-      <div className="text-center mb-5">
-        <h1 className="text-3xl font-bold tracking-tight">What would you like to <span className="pnx-gradient-text">do today?</span></h1>
-      </div>
+    <div className="w-full max-w-6xl mx-auto relative z-10">
+      <h2 className="text-[26px] md:text-3xl font-bold" style={{ fontFamily: 'Georgia, serif' }}>Choose your workspace</h2>
+      <p className="text-muted-foreground text-[14px] mt-1.5">Three powerful tools, one seamless research experience.</p>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 w-full px-4 md:px-6 mb-4">
-        {personas.map((persona, i) => {
-          const Icon = persona.icon;
-          const isSelected = selectedPersona === persona.id;
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-5 mt-6">
+        {personas.map((p, i) => {
+          const Icon = p.icon;
+          const isSelected = selectedPersona === p.id;
           return (
-            <button
-              key={persona.id}
-              onClick={() => {
-                onActivate(persona.id);
-              }}
-              style={{ animationDelay: `${i * 0.07}s` }}
-              className={`pnx-card pnx-fade-up flex flex-col text-left p-6 rounded-2xl border ${isSelected ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-500/5' : 'border-border bg-card hover:border-blue-400/60'}`}
+            <div
+              key={p.id}
+              onClick={() => onActivate(p.id)}
+              style={{ animationDelay: `${i * 0.07}s`, boxShadow: `inset 0 0 0 1px ${p.ring}` }}
+              className={`pnx-card pnx-fade-up flex flex-col text-left p-5 rounded-2xl border bg-card cursor-pointer ${isSelected ? 'border-blue-500' : 'border-border ' + p.hover}`}
             >
-              <div className={`w-12 h-12 rounded-xl ${persona.bg} flex items-center justify-center mb-4`}>
-                <Icon className={`w-6 h-6 ${persona.color}`} />
+              <div className={`w-11 h-11 rounded-xl ${p.bg} flex items-center justify-center mb-3`}><Icon className={`w-5 h-5 ${p.color}`} /></div>
+              <h3 className="font-bold text-foreground text-[18px]">{p.name}</h3>
+              <p className="text-[13px] text-muted-foreground leading-relaxed mt-1">{p.desc}</p>
+              <CardMock id={p.id} />
+              <div className="flex flex-wrap gap-1.5 mb-3">
+                {p.chips.map((c) => <span key={c} className="text-[11px] text-muted-foreground bg-muted rounded-full px-2.5 py-1">{c}</span>)}
               </div>
-              <h3 className="font-bold text-foreground text-[17px] mb-1.5">{persona.name}</h3>
-              <p className="text-[13px] text-muted-foreground leading-relaxed">{persona.desc}</p>
-            </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onActivate(p.id); }}
+                className="mt-auto w-full text-white font-semibold text-[13.5px] rounded-xl py-2.5 inline-flex items-center justify-center gap-2 transition-transform hover:-translate-y-0.5"
+                style={{ background: p.grad }}>
+                {p.cta} <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
           );
         })}
       </div>
